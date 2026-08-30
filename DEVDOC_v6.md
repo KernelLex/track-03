@@ -301,7 +301,7 @@ Event         — immutable. UNIQUE(source, event_id).
 Diagnosis     — family, class, confidence, entities, provenance-tagged.
 Decision      — action, p_base, lift_prior, ev_paise, inputs referenced.
 BoundsCheck   — rule_id, verdict, reason.        → feeds the refusal log
-Action        — typed, external ref, idempotency_key, rail_tag.
+Action        — typed, external ref, idempotency_key, rail_tag, presents_mandate_debit (bool, §13.1).
 CommsLogEntry — direction, channel, body, objection_marker, is_regulatory_notice.
 RecoveryEntry — UNIQUE(payment_id). amount_paise, invoice_id, arm, rail_tag.
 Fact / LedgerEntry — §8, §15.
@@ -528,9 +528,10 @@ Versioned YAML. Mandatory `source`. Two registers.
   kind: regulatory
   source: "RBI Digital Payments E-Mandate Framework, 2026 (RBI/DPSS/2026-27/396, 21-04-2026)"
   clause_ref: "<paragraph number from the circular>"
-  machine: "mandate.last_notification_at <= now - 24h
-            AND notification.fields ⊇ {merchant_name, amount, debit_datetime,
-                                       mandate_ref, reason}"
+  machine: "action.presents_mandate_debit =>
+            (mandate.last_notification_at <= now - 24h
+             AND notification.fields ⊇ {merchant_name, amount, debit_datetime,
+                                        mandate_ref, reason})"
   human: "A debit may not be presented unless the customer was told, at least a full
           day earlier, exactly what would be taken and why."
   test: "tests/regulatory/test_predebit_24h.py::test_blocks_undernotified_debit"
@@ -543,13 +544,20 @@ Versioned YAML. Mandatory `source`. Two registers.
   human: "Above ₹15,000 the account holder must authenticate. No exception applies here."
   test: "tests/regulatory/test_afa_ceiling.py::test_blocks_unauthenticated_large_debit"
 
-- id: RBI_EMANDATE_POSTDEBIT     ; machine: "post_debit_notification_queued == TRUE"
+- id: RBI_EMANDATE_POSTDEBIT     ; machine: "action.presents_mandate_debit => post_debit_notification_queued == TRUE"
 - id: RBI_EMANDATE_OPTOUT        ; machine: "NOT (debtor.opted_out_cycle OR mandate.status == REVOKED)"
 - id: RBI_FPC_HOURS              ; machine: "08:00 <= debtor.local_time < 19:00"
-- id: TRAI_DND                   ; machine: "debtor.opted_out == FALSE"
-- id: MSMED_INTEREST_BASIS       ; machine: "interest_computed_from == config.rbi_bank_rate
-                                             AND config.as_of_age_days <= 120"
+- id: TRAI_DND                   ; machine: "action.channel IS NULL OR action.channel NOT IN debtor.opted_out_channels"
+- id: MSMED_INTEREST_BASIS       ; machine: "action.type == send_statutory_notice =>
+                                             (interest_computed_from == config.rbi_bank_rate
+                                              AND config.as_of_age_days <= 120)"
 ```
+
+Three corrections to this register, all found while implementing it rather than while drafting it:
+
+- **`RBI_EMANDATE_PREDEBIT_24H` and `RBI_EMANDATE_POSTDEBIT`** were unconditional in every prior revision — as written, a plain `send_reminder` would need a mandate pre-debit notification to pass `check_bounds()`, same as an actual mandate debit would. Taken literally, no action of any kind could ever pass, since almost nothing has a `mandate.last_notification_at` set. Guarded with `action.presents_mandate_debit =>`, the same implication pattern `MANDATE_PARAM_CLAMP` and `NO_MANDATE_ON_DISPUTE` already use to scope themselves to the action type they actually govern. `presents_mandate_debit` is a new boolean on the Action entity (§11.1), set by ACT specifically when it is about to call `rail.present_debit(...)` — deliberately not inferred from `action.type == retry_charge` alone, because §11.5 already overloads that one type across both a one-time retry and a mandate debit presentment, and only the latter needs this gate.
+- **`MSMED_INTEREST_BASIS`** had the same defect, guarded here to the one action type that actually asserts a statutory interest figure.
+- **`TRAI_DND`** still read the single blanket `debtor.opted_out` boolean this section originally had, even after §11.1 replaced it with per-channel `opted_out_channels` (added for `CHANNEL_HOPPER`, §24.3) — the two sections had drifted apart. Updated to check the specific channel this action would use.
 
 **Every regulatory rule carries a `clause_ref` and a named `test`.** Both feed `REGULATORY_MAP.md`.
 
@@ -558,7 +566,7 @@ Versioned YAML. Mandatory `source`. Two registers.
 ```yaml
 - id: TOUCH_BUDGET      ; machine: "debtor.touches_7d < 3"    # DEBTOR, not invoice
                           exempt_when: "comms.is_regulatory_notice == TRUE"
-- id: DISPUTE_FREEZE    ; machine: "debtor.state == DISPUTED_FROZEN => action.type in [human_escalate, none]"
+- id: DISPUTE_FREEZE    ; machine: "debtor.state == DISPUTED_FROZEN => action.type in [escalate_human, no_action]"
 - id: ATTEMPT_CEILING   ; machine: "invoice.recovery_attempts < 6"
 - id: EV_FLOOR          ; machine: "decision.ev_paise > 0"
 - id: PROMISE_COOLDOWN  ; machine: "debtor.state == PROMISED => now >= promise_date + grace_days"
@@ -570,6 +578,8 @@ Versioned YAML. Mandatory `source`. Two registers.
 - id: STATUTORY_HUMAN_GATE  ; machine: "action.carries_legal_number => action.human_approval_id IS NOT NULL"
 - id: RAIL_DISCLOSURE       ; machine: "action.rail_tag IS NOT NULL"
 ```
+
+`DISPUTE_FREEZE`'s action names were `human_escalate`/`none` in every prior revision, but §11.5's action table names the same two actions `escalate_human`/`no_action`. As written, the comparison never matches anything a real Decision ever produces, which silently disables the gate rather than enforcing it — exactly the "gate that silently stopped being called" failure §11.7's bounds-integrity check exists to catch, except this one would have been wrong from the first run, not from drift. Corrected here and in §24.2's `CHANNEL_EXHAUSTION`, which copied the same names.
 
 ### 13.3 The refusal log
 
@@ -1015,7 +1025,7 @@ One genuine residual risk to state in `LIMITATIONS.md`: injected text still reac
 | Rule as written | The exploit | Cost to debtor |
 |---|---|---|
 | `PROMISE_COOLDOWN`: `state == PROMISED => now >= promise_date + grace_days` | Promise, break it, promise again on contact. Each promise resets the clock. **Collection never resumes.** | One sentence per cycle |
-| `DISPUTE_FREEZE`: `state == DISPUTED_FROZEN => action in [human_escalate, none]`, terminal until a human clears it | Assert any dispute. State becomes terminal. If the human queue is backed up, the freeze is effectively permanent. | One word |
+| `DISPUTE_FREEZE`: `state == DISPUTED_FROZEN => action in [escalate_human, no_action]`, terminal until a human clears it | Assert any dispute. State becomes terminal. If the human queue is backed up, the freeze is effectively permanent. | One word |
 | *(no rule — the gap itself is the exploit)* `TRAI_DND` is a single blanket boolean (§13.1); nothing defines what happens once every channel is individually opted out | Opt out of channel 1, then 2, then 3 (`CHANNEL_HOPPER`, §24.3). Each opt-out is individually valid and legally required to be honoured. **The case has nowhere left to route and no rule says what happens next.** | One opt-out per channel |
 
 Neither of the first two requires lying in a way the system can detect, and all three are exactly what a debtor optimising for delay would do. A collections professional would spot this in a minute; a spec written from the compliance side alone will not.
@@ -1038,7 +1048,7 @@ Neither of the first two requires lying in a way the system can detect, and all 
 
 - id: DISPUTE_FREEZE
   kind: stopping
-  machine: "debtor.state == DISPUTED_FROZEN => action.type in [human_escalate, none]"
+  machine: "debtor.state == DISPUTED_FROZEN => action.type in [escalate_human, no_action]"
   human: "An asserted dispute freezes collection on the disputed amount while a human
           reviews it. It does not freeze the undisputed remainder, and it does not
           freeze forever."
@@ -1055,7 +1065,7 @@ Neither of the first two requires lying in a way the system can detect, and all 
 - id: CHANNEL_EXHAUSTION
   kind: stopping
   machine: "len(debtor.opted_out_channels) < len(ALL_CHANNELS)
-            OR action.type in [human_escalate, none]
+            OR action.type in [escalate_human, no_action]
             OR action.is_regulatory_notice == TRUE"
   human: "A debtor who opts out of every channel stops receiving collection contact —
           not collection itself. The last opt-out routes the case to a human instead

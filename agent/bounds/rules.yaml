@@ -1,0 +1,167 @@
+# check_bounds() rule register — the single gate every action passes through (Law 3).
+# DEVDOC_v6 §13.1 (regulatory), §13.2 (stopping), as amended by §24.2.
+#
+# `machine` is valid Python-syntax boolean expression, evaluated by
+# agent/bounds/expr.py's restricted evaluator against agent/bounds/context.py's
+# BoundsContext. Translated once from DEVDOC_v6's pseudocode to real syntax:
+#   IS NOT NULL  -> is not None        TRUE / FALSE -> True / False
+#   A => B       -> (not A) or (B)     x ⊇ y        -> superset(x, y)
+# `human` is the independently-meaningful twin used verbatim as arm B2's system
+# prompt (§17.4) and compared against a *separately hand-written* implementation
+# in human_twin.py for the differential test (§13.4) — not derived from `machine`
+# by transformation, or the test would prove nothing.
+
+version: 1
+
+regulatory:
+  - id: RBI_EMANDATE_PREDEBIT_24H
+    source: "RBI Digital Payments E-Mandate Framework, 2026 (RBI/DPSS/2026-27/396, 21-04-2026)"
+    clause_ref: "TODO — paragraph number from the circular; not yet pinned down (§13.1)"
+    machine: >-
+      not action.presents_mandate_debit or
+      (mandate.last_notification_at is not None and
+       mandate.last_notification_at <= now - timedelta(1) and
+       superset(notification.fields, REQUIRED_PREDEBIT_FIELDS))
+    human: >-
+      A debit may not be presented unless the customer was told, at least a full
+      day earlier, exactly what would be taken and why.
+    test: "tests/regulatory/test_predebit_24h.py::test_blocks_undernotified_debit"
+
+  - id: RBI_EMANDATE_AFA_CEILING
+    source: "Same circular — Rs 15,000 AFA-free ceiling; the Rs 1L exception is
+             insurance/SIP/credit-card only and does not extend to B2B payables"
+    clause_ref: "TODO — paragraph number from the circular; not yet pinned down (§13.1)"
+    machine: "debit_paise <= 1500000 or action.afa_reference is not None"
+    human: "Above Rs 15,000 the account holder must authenticate. No exception applies here."
+    test: "tests/regulatory/test_afa_ceiling.py::test_blocks_unauthenticated_large_debit"
+
+  - id: RBI_EMANDATE_POSTDEBIT
+    source: "RBI Digital Payments E-Mandate Framework, 2026"
+    clause_ref: "TODO"
+    machine: "not action.presents_mandate_debit or post_debit_notification_queued == True"
+    human: "Every presented debit is followed by a confirmation the customer can act on."
+    test: "tests/regulatory/test_postdebit.py::test_requires_postdebit_notification"
+
+  - id: RBI_EMANDATE_OPTOUT
+    source: "RBI Digital Payments E-Mandate Framework, 2026"
+    clause_ref: "TODO"
+    machine: "not (debtor.opted_out_cycle or mandate.status == 'revoked')"
+    human: "An opted-out cycle or a revoked mandate is never debited, no exceptions."
+    test: "tests/regulatory/test_optout.py::test_blocks_debit_after_optout"
+
+  - id: RBI_FPC_HOURS
+    source: "RBI Fair Practices Code"
+    clause_ref: "TODO"
+    machine: "time(8, 0) <= debtor.local_time < time(19, 0)"
+    human: "Collection contact happens between 8am and 7pm, the debtor's local time."
+    test: "tests/regulatory/test_fpc_hours.py::test_blocks_contact_outside_hours"
+
+  - id: TRAI_DND
+    source: "TRAI TCCCPA / DLT framework"
+    clause_ref: "TODO"
+    machine: "action.channel is None or action.channel not in debtor.opted_out_channels"
+    human: "A channel the debtor opted out of is never used again for that channel."
+    test: "tests/regulatory/test_trai_dnd.py::test_blocks_opted_out_channel"
+
+  - id: MSMED_INTEREST_BASIS
+    source: "MSMED Act s.16; RBI Bank Rate / MSF"
+    clause_ref: "Section 16, MSMED Act 2006"
+    machine: >-
+      action.type != 'send_statutory_notice' or
+      (interest_computed_from == config.rbi_bank_rate and config.as_of_age_days <= 120)
+    human: "Statutory interest is computed from the current, non-stale RBI bank rate — never
+            a stale or hand-picked figure."
+    test: "tests/regulatory/test_msmed_interest_basis.py::test_refuses_stale_bank_rate"
+
+stopping:
+  - id: TOUCH_BUDGET
+    machine: "action.is_regulatory_notice == True or debtor.touches_7d < 3"
+    human: "A regulatory notice always goes out. Otherwise, no debtor gets more than three
+            contacts in a week."
+    test: "tests/regulatory/test_touch_budget.py::test_blocks_fourth_touch_in_7_days"
+
+  - id: DISPUTE_FREEZE
+    machine: "debtor.state != 'DISPUTED_FROZEN' or action.type in ['escalate_human', 'no_action']"
+    human: "An asserted dispute freezes collection on the disputed amount while a human
+            reviews it. It does not freeze the undisputed remainder, and it does not
+            freeze forever."
+    # Three §24.2 amendments beyond this boolean:
+    #   SCOPE  — the freeze applies to disputed_paise only; ACT is responsible for
+    #            constructing a payment_link/reminder against invoice.undisputed
+    #            remainder, which this gate does not block (not a geometry check
+    #            check_bounds itself needs to perform).
+    #   CLOCK  — an unsubstantiated dispute returns to HUMAN_QUEUE after N days;
+    #            a scheduler concern, not a per-action gate (never auto-unfreezes here).
+    #   LEDGER — repeated unsubstantiated disputes are recorded and surfaced, not acted on.
+    test: "tests/regulatory/test_dispute_freeze.py::test_blocks_non_escalation_actions_while_frozen"
+
+  - id: ATTEMPT_CEILING
+    machine: "invoice.recovery_attempts < 6"
+    human: "No invoice is chased more than six times."
+    test: "tests/regulatory/test_attempt_ceiling.py::test_blocks_seventh_attempt"
+
+  - id: EV_FLOOR
+    machine: "decision.ev_paise > 0"
+    human: "An action only proceeds if it's expected to recover more than it costs."
+    test: "tests/regulatory/test_ev_floor.py::test_blocks_negative_ev_action"
+
+  - id: PROMISE_COOLDOWN
+    machine: >-
+      debtor.state != 'PROMISED' or
+      (promise_date is not None and
+       now >= promise_date + timedelta(config.grace_days * debtor.promise_credibility))
+    human: "A promise buys quiet time. A history of broken promises buys less of it, on a
+            sliding scale — not a hard cutoff — down to none at zero credibility."
+    # promise_credibility(debtor) = kept / (kept + broken) over the trailing 5 promises,
+    # computed upstream (SYSTEM provenance, from captured payments — never the model's
+    # read of sincerity) and attached to BoundsContext.debtor.promise_credibility.
+    # Effective cooldown = grace_days * credibility, floored at 0 automatically because
+    # credibility is itself bounded in [0, 1]. This reconciles §24.2's `requires: ... >=
+    # floor` framing (a hard gate) with its own inline comment (continuous scaling) —
+    # the continuous form is what's implemented, since it degrades gracefully instead
+    # of creating a cliff-edge at an arbitrary threshold.
+    test: "tests/regulatory/test_promise_cooldown.py::test_scales_cooldown_by_credibility"
+
+  - id: EXHAUSTED
+    machine: "debtor.state != 'EXHAUSTED'"
+    human: "Once a case is closed as exhausted, nothing further is sent automatically."
+    test: "tests/regulatory/test_exhausted.py::test_blocks_action_on_exhausted_debtor"
+
+  - id: MANDATE_PARAM_CLAMP
+    machine: >-
+      action.type != 'create_mandate' or
+      (action.params == action.debtor_stated_params or
+       action.clamp_direction == 'favours_debtor' or
+       action.human_approval_id is not None)
+    human: "A mandate is created only with the numbers the debtor stated, or with a change
+            that favours them — anything else needs a human to approve it first."
+    test: "tests/regulatory/test_mandate_param_clamp.py::test_blocks_unfavourable_autonomous_clamp"
+
+  - id: NO_MANDATE_ON_DISPUTE
+    machine: "action.type != 'create_mandate' or invoice.disputed_paise == 0"
+    human: "Never place a mandate on a contested amount."
+    test: "tests/regulatory/test_no_mandate_on_dispute.py::test_blocks_mandate_on_disputed_invoice"
+
+  - id: STATUTORY_HUMAN_GATE
+    machine: "not action.carries_legal_number or action.human_approval_id is not None"
+    human: "Anything that states a legal number — an interest claim, a statutory notice —
+            goes out only after a human approves it."
+    test: "tests/regulatory/test_statutory_human_gate.py::test_blocks_unapproved_legal_claim"
+
+  - id: RAIL_DISCLOSURE
+    machine: "action.rail_tag is not None"
+    human: "Every action is tagged with which rail — real or simulated — produced it."
+    test: "tests/regulatory/test_rail_disclosure.py::test_blocks_untagged_action"
+
+  - id: CHANNEL_EXHAUSTION
+    machine: >-
+      len(debtor.opted_out_channels) < len(ALL_CHANNELS) or
+      action.type in ['escalate_human', 'no_action'] or
+      action.is_regulatory_notice == True
+    human: "A debtor who opts out of every channel stops receiving collection contact —
+            not collection itself. The last opt-out routes the case to a human instead
+            of going silent."
+    # A statutory notice is not "commercial communication" under TRAI's DND/TCCCPA
+    # framework the way a reminder or mandate offer is, so it stays exempt here the
+    # same way TOUCH_BUDGET exempts it. §24.2.
+    test: "tests/regulatory/test_channel_exhaustion.py::test_routes_to_human_not_silence"
