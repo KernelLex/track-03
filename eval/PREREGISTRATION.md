@@ -5,10 +5,18 @@ hour, and is the general-form answer to every 'you chose that number'
 objection." `RESULTS.md` will cite this file's git commit hash once it
 exists.
 
-**Status: most Fitted parameters are now actually fitted; harness not yet
-built.** No arm has run. This file exists so that when the harness is
-built, fitting or sweeping a parameter is a matter of filling in a value
-already committed to a class — never a choice made after seeing a result.
+**Status: most Fitted parameters are fitted; the harness now exists
+(`eval/simulate.py`, `eval/personas/generator.py`); no arm has run for
+real yet.** This file exists so that when a real run happens, fitting or
+sweeping a parameter is a matter of filling in a value already committed
+to a class — never a choice made after seeing a result. Building the
+harness and exercising it while writing it (see its own test suite,
+`tests/eval/test_simulate.py`) is not "running an arm" in the §17.6 sense —
+no result from it has been treated as evidence of anything, and the
+population size / window length / primary comparison below are still
+correctly marked PENDING for exactly that reason: locking those in happens
+in its own commit, immediately before the first run that counts, not
+folded quietly into the commit that wrote the code.
 
 **Correction, 2026-08-31**: this file previously marked the two Kaggle
 datasets `PENDING`, on the assumption that Kaggle access needs an account
@@ -36,18 +44,18 @@ assumption, just not yet done.
 | Decline distributions (§5.4 out-of-scope items) | Swept | Drawn from `data/failure_taxonomy.yaml`'s sourced codes, frequency **undeclared pending a real distribution** — using a uniform prior over permitted codes as the sweep's null point, explicitly flagged as arbitrary | No credible source exists |
 | `promise_credibility_floor` | Structural (this build's own addition, §24.2) | 0.34 | Declared default, not fitted — see DEVDOC_v6 §24.2's amendment |
 | Auditor sample rates | Structural (§11.7) | 10% (both jobs) | Declared default, not fitted |
-| Number of personas | Structural | **PENDING harness design** — not yet decided | — |
-| Window length | Structural | **PENDING harness design** | — |
-| Arm assignment ratio | Structural | **PENDING harness design** — 1:1:1:1 (A:B1:B2:C) is the working assumption, not yet committed | — |
+| Number of personas | Structural | **PENDING a real run's commitment** — `eval/simulate.py --n` defaults to 300 as a harness-exercising default only, not a chosen sample size | `eval/simulate.py` |
+| Window length | Structural | **PENDING a real run's commitment** — `--window-days` defaults to 30, matching the fitted p_base model's own horizon | `eval/simulate.py` |
+| Arm assignment ratio | Structural | **Revised**: three arms, not four — B1 (LLM chaser, no policy, no gate) is not implemented; this file's own "cut B1, never B2" guidance below already called this, and the harness follows it. `eval/simulate.py` runs A / B2 / C over the identical population each time (no ratio to assign — every arm sees every persona) | `eval/simulate.py` |
 
 ## Arm definitions (§17.4)
 
 | Arm | Definition | Status |
 |---|---|---|
-| **A** | Fixed standard dunning schedule, no model | Buildable now — no LLM dependency. Not yet implemented in `eval/arms/a/`. |
-| **B1** | LLM chaser, no policy in the prompt, no gate | Blocked on an LLM API key — no model call exists anywhere in this codebase (see docs/LIMITATIONS.md) |
-| **B2** | LLM chaser, the human-readable twin from `agent/bounds/rules.yaml` verbatim in the system prompt, no enforcement gate | Blocked on the same LLM API key. The system-prompt text itself is mechanically extractable right now (every rule's `human:` field, concatenated) — the extraction just has nothing to send it to yet. |
-| **C** | TrueCommit — same policy text, enforced by `check_bounds()` | The enforcement side (`check_bounds()`, the full rule register, the differential test) is fully built and tested. The decision side (`DECIDE`, needing a fitted `p_base`) is not — see `agent/decide/ev.py`'s own docstring. |
+| **A** | Fixed standard dunning schedule, no model | **Built and implemented twice**: `eval/arms/a/schedule.py` is the real fixed-day schedule; `eval/simulate.py::run_arm_a` drives it against a synthetic population with no diagnosis and no bounds gate. |
+| **B1** | LLM chaser, no policy in the prompt, no gate | **Not implemented, by design** — this file's own "cut B1, never B2" guidance below, applied. A live LLM call now exists (`agent/diagnose/llm_extract.py`) if this is ever revisited, but the Monte Carlo harness deliberately spends its effort on B2 and C instead. |
+| **B2** | LLM chaser, the human-readable twin from `agent/bounds/rules.yaml` verbatim in the system prompt, no enforcement gate | **Simulated in the harness** (`eval/simulate.py::run_arm_b2`) without a live call per touch — it stands in for "knows the policy, nothing enforces it" via a diagnostic-accuracy draw with no bounds gate, so it can still over-contact past a debtor's tolerance. The real system-prompt text is mechanically extractable now (every rule's `human:` field) for a future live-B2 variant; the harness's current B2 is the cost-free statistical stand-in, not that live call. |
+| **C** | TrueCommit — same policy text, enforced by `check_bounds()` | **Both sides now built and wired together in the harness.** `eval/simulate.py::run_arm_c` calls the real `compute_ev()` and `check_bounds()` per touch (only Diagnose is simulated, via a diagnostic-accuracy draw — there's no real text to extract from a synthetic persona). `p_base` is the real fitted model (`agent/decide/fitted_p_base.py`). |
 
 **If room for only three arms, cut B1, never B2** (§17.4) — noted here so
 the harness, once built, doesn't relitigate that call.
@@ -65,12 +73,24 @@ produced, not deferred to `RESULTS.md`:
 
 Metrics that need an eval run and are **not yet available**: extraction
 field-level F1, family classification macro-F1, objection-veto recall with
-Wilson intervals, `p_base` calibration, decision flip rate under `lift`
-perturbation (the *mechanism* for this exists — `agent.decide.ev
-.decision_flips_under_perturbation` — but needs real `p_base`/`lift` pairs
-from a running arm to report anything), autonomy rate, cost per rupee
-recovered, abandonment by invoice-size decile, simulator response-rate
-error bar (§27).
+Wilson intervals, `p_base` calibration against a real (not synthetic)
+outcome, autonomy rate, abandonment by invoice-size decile, simulator
+response-rate error bar (§27) — all of these need either a real golden set
+of labelled extractions or a real arm run against real debtors, neither of
+which exists.
+
+**Now available from the synthetic Monte Carlo harness** (`eval/simulate.py`,
+not yet run for a pre-registered comparison — see the status note above):
+recovered fraction, resolved fraction, mean days to resolution, human
+escalation rate, and contact-exhaustion ("lost") rate, per arm, over a
+reproducible synthetic population. Decision flip rate under `lift`
+perturbation is now genuinely exercisable too — `run_arm_c` calls real
+`compute_ev()` per touch, so `agent.decide.ev.decision_flips_under_
+perturbation` can be run against the `(p_base, lift)` pairs a harness run
+actually produces, not just unit-tested in isolation. None of this is a
+substitute for the real-debtor metrics above — it measures whether the
+*pipeline's logic* helps a population with known (synthetic) ground truth,
+not whether real extraction is accurate.
 
 ## Primary comparison
 

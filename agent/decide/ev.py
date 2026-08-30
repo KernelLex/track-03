@@ -4,11 +4,14 @@ prior) kept structurally distinct. DEVDOC_v6 §11.4.
     ev_paise = int(p_base * lift_prior * recoverable_paise) - cost_paise(action)
     #          ^^^^^^ fitted, calibrated   ^^^^^^^^^^ a declared prior
 
-Neither `p_base` nor `lift_prior` is *fitted* by this module — `p_base`
-needs the Kaggle IBM Late Payment Histories / Payment Date Prediction
-datasets fitted and calibrated (§17.5), which this build doesn't have (see
-docs/LIMITATIONS.md). What's built here is the honest arithmetic and the
-type-level distinction DEVDOC_v6 §11.4 itself calls for: `lift_prior` is
+Neither `p_base` nor `lift_prior` is *fitted* by this module itself —
+`compute_ev()` only consumes a `p_base` value, it doesn't produce one.
+`p_base` **is** now fitted, by `agent.decide.fitted_p_base` against the
+Kaggle Payment Date Prediction dataset (§17.5) — see that module and
+docs/LIMITATIONS.md for the honest calibration-vs-discrimination caveat.
+`lift_prior` has no equivalent dataset and remains a declared prior. What's
+built here is the honest arithmetic and the type-level distinction
+DEVDOC_v6 §11.4 itself calls for: `lift_prior` is
 wrapped in `Prior`, not a bare `float`, specifically so a code reviewer
 can't mistake a declared prior for a fitted value in a diff — and because
 it's a real class rather than a `NewType` alias, `isinstance(x, Prior)` is

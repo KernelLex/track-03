@@ -143,6 +143,17 @@ in this session — every subscribed event needs a completed checkout
 `create_refund` in `LIMITATIONS.md`. Registration and endpoint reachability
 are confirmed; a live-triggered delivery isn't yet.
 
+## Running the Monte Carlo simulation harness
+
+```
+uv run trucommit simulate --n 300 --seed 1 --lift 2.0
+```
+
+Compares Arms A / B2 / C over a synthetic population — zero real model
+calls, ~0.5s for 300 personas. See `docs/SIMULATION_HARNESS.md` for what
+this does and doesn't prove (short version: it's a real exercise of
+`compute_ev()`/`check_bounds()`, not yet a pre-registered result).
+
 ## Wiring the Claude API extractor (Path B)
 
 ```

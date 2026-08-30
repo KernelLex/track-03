@@ -110,6 +110,18 @@ def _serve(host: str, port: int) -> int:
     return 0
 
 
+def _simulate(n: int, seed: int, window_days: int, lift: float, touch_cost_paise: int) -> int:
+    from eval.simulate import _print_summary, run_comparison
+
+    print("Not a pre-registered run -- see eval/PREREGISTRATION.md and eval/simulate.py's module docstring.")
+    print(f"n={n} seed={seed} window_days={window_days} lift={lift} touch_cost_paise={touch_cost_paise}\n")
+    summaries = run_comparison(
+        n_personas=n, seed=seed, window_days=window_days, lift=lift, touch_cost_paise=touch_cost_paise,
+    )
+    _print_summary(summaries)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="trucommit", description="TrueCommit -- bounded AR-recovery agent")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -117,12 +129,22 @@ def main(argv: list[str] | None = None) -> int:
     serve_parser = subparsers.add_parser("serve", help="Run the webhook receiver (agent/api/app.py) with uvicorn")
     serve_parser.add_argument("--host", default="127.0.0.1")
     serve_parser.add_argument("--port", type=int, default=8000)
+    sim_parser = subparsers.add_parser(
+        "simulate", help="Monte Carlo comparison of Arms A/B2/C over a synthetic population (eval/simulate.py)"
+    )
+    sim_parser.add_argument("--n", type=int, default=300)
+    sim_parser.add_argument("--seed", type=int, default=1)
+    sim_parser.add_argument("--window-days", type=int, default=30)
+    sim_parser.add_argument("--lift", type=float, default=2.0)
+    sim_parser.add_argument("--touch-cost-paise", type=int, default=500)
 
     args = parser.parse_args(argv)
     if args.command == "demo":
         return _demo()
     if args.command == "serve":
         return _serve(args.host, args.port)
+    if args.command == "simulate":
+        return _simulate(args.n, args.seed, args.window_days, args.lift, args.touch_cost_paise)
     parser.print_help()
     return 1
 

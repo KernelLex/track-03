@@ -9,7 +9,7 @@ A tested, working implementation of TrueCommit's **pure-logic safety and
 compliance core** (DEVDOC_v6 §5.2's "the judgment"), **now also wired to a
 real, live Razorpay test-mode account** (as of 2026-08-30) for the
 capabilities that account actually has, plus a real (if minimal) HTTP
-webhook receiver. **561 tests passing / 11 skipped as of 2026-08-31**,
+webhook receiver. **579 tests passing / 11 skipped as of 2026-08-31**,
 measured without live credentials in the shell (the 11 skipped are the
 Razorpay-live-only suite, which skips cleanly rather than failing —
 no credentials are required to run the main suite). It is still **not**:
@@ -20,8 +20,11 @@ no credentials are required to run the main suite). It is still **not**:
   (`agent/api/app.py`, `uv run trucommit serve`) and a real scheduled
   Auditor (`agent/auditor/scheduler.py`, APScheduler in-process) running
   alongside it — see below for exactly what each does and doesn't close.
-- The four-arm evaluation (§17) — no personas, no pre-registration commit,
-  no eval harness
+- The four-arm evaluation (§17), run for real — the harness itself now
+  exists (`eval/simulate.py`, `eval/personas/generator.py`, see the "Golden
+  set, extractor, Auditor" section below), but no arm has been run under a
+  committed pre-registration yet, and won't be until `eval/PREREGISTRATION.md`
+  locks in population size, window length, and the primary comparison first
 - Wired end to end from the live webhook to a real LLM call — the call
   itself now exists and is tested (`agent/diagnose/llm_extract.py`, see
   `docs/LLM_EXTRACTION.md`), but nothing yet invokes it from the DIAGNOSE
@@ -270,20 +273,29 @@ with their real status. **Arm A (the control) is implemented and tested**
 (`eval/arms/a/schedule.py`, `tests/eval/test_arm_a_schedule.py`) — a fixed
 schedule needs no model, so it's the one arm buildable in isolation.
 
-**Still not built**: Arms B1, B2, and C as runnable arms, and the
-persona-simulation engine that would let any arm run against a population
-and produce a comparable ₹ figure. **Update, 2026-08-31**: the two things
-this paragraph previously named as blockers are no longer accurate —
-`p_base` is fitted (see the EV gate section above) and a live LLM call now
-exists (`agent/diagnose/llm_extract.py`, see `docs/LLM_EXTRACTION.md`). The
-actual remaining gap is orchestration: nothing yet threads a diagnosis
-through `compute_ev()` and `select_instrument()` into a runnable arm, and
-no persona generator exists to sample a population from the fitted Kaggle
-distributions. §24.3's four adversarial personas run against that
-population, §25's autonomy/economics reporting (which needs arms to have
-run), and §27's vignette study (built and ready to send — needs 25 human
-respondents, unambiguously a human-input item, not a code gap) all still
-follow behind this.
+**Update, 2026-08-31 — built**: this paragraph previously named three
+blockers (no fitted `p_base`, no LLM call, no persona-simulation engine).
+None of the three is accurate anymore. `eval/personas/generator.py`
+samples a synthetic population from the fitted Kaggle distributions
+(amount shape, dispute rate, the real `p_base` model); `eval/simulate.py`
+runs Arms A, B2, and C against that same population and calls the real
+`compute_ev()` and `check_bounds()` for Arm C (only Diagnose is simulated —
+there's no real text to extract from a synthetic persona). 18 tests
+(`tests/eval/test_persona_generator.py`, `tests/eval/test_simulate.py`)
+cover reproducibility and the structural invariants (Arm C escalates to a
+human in cases the other two structurally cannot; Arm C loses fewer
+debtors to contact exhaustion; `EV_FLOOR` genuinely refuses when a
+touch's cost dominates the recoverable amount). **What this is not**: a
+pre-registered result. `eval/PREREGISTRATION.md` still correctly marks
+population size, window length, and the primary comparison metric
+`PENDING` — those get committed in their own step, immediately before a
+run that counts as evidence, not folded into the commit that built the
+code (DEVDOC_v6 §17.6). No arm has been run for that purpose yet. §24.3's
+four adversarial personas run against that population, §25's
+autonomy/economics reporting (which needs a pre-registered run to have
+happened), and §27's vignette study (built and ready to send — needs 25
+human respondents, unambiguously a human-input item, not a code gap) all
+still follow behind that run.
 
 ## No static lint rule against float arithmetic on `Money`
 
