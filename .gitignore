@@ -25,3 +25,9 @@ desktop.ini
 
 # locally downloaded tooling binaries -- not project source, never committed
 .local-bin/
+
+# runtime logs from local `trucommit serve` / tunnel sessions
+server.log
+tunnel.log
+events.db
+ledger.db

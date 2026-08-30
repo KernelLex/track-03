@@ -1,8 +1,0 @@
-INFO:     Started server process [38856]
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://127.0.0.1:8787 (Press CTRL+C to quit)
-Starting the webhook receiver on http://127.0.0.1:8787 (see agent/api/app.py).
-Configure TRUECOMMIT_WEBHOOK_SECRET_<SOURCE> env vars before pointing a real webhook at this.
-INFO:     127.0.0.1:18658 - "GET /health HTTP/1.1" 200 OK
-INFO:     192.140.152.163:0 - "GET /health HTTP/1.1" 200 OK
