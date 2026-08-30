@@ -66,10 +66,14 @@ CRUD surface on an unactivated account has no analogue for any of those.
 
 ## Golden set, extractor, Auditor
 
-None of §11.2 Path B, §17.8's stratified golden set, or §11.7's Auditor
-(extractor-drift sampling, bounds-integrity re-check) exist yet — they all
-depend on an LLM extractor that hasn't been built. Chain-integrity, the
-one Auditor job that needs no model, is fully built (`Ledger.verify_chain()`).
+§11.2 Path B's **schema** (`agent/diagnose/extract.py`) and the objection-marker
+/ deemed-acceptance logic built on top of it (`agent/diagnose/objection.py`)
+are built and tested. §17.8's stratified golden set and §11.7's Auditor
+(extractor-drift sampling, bounds-integrity re-check) do not exist yet —
+both depend on an actual LLM extractor producing real extractions to sample
+and drift-check, and no model call exists anywhere in this codebase.
+Chain-integrity, the one Auditor job that needs no model, is fully built
+(`Ledger.verify_chain()`).
 
 ## EV gate
 
@@ -111,13 +115,20 @@ verify. Revisit if a precise court-facing figure is ever needed.
 
 ## Golden set / vignette study / adversarial personas / eval harness
 
-None of DEVDOC_v6 §17 (experimental design), §24 (injection corpus,
-adversarial personas), §25 (autonomy/economics reporting), or §27
-(vignette validation) has any code yet. These are large, separate pieces
-of work — persona modeling, an LLM-in-the-loop extractor to attack, and a
-recruited human study — genuinely out of scope for what a single build
-session without external credentials, datasets, or study participants can
-produce.
+DEVDOC_v6 §24.1's **injection corpus (40 cases) and its structural
+resistance tests are built** (`data/injection_corpus.jsonl`,
+`tests/agent/test_injection_resistance.py`, 80 tests) — see
+`docs/THREAT_MODEL.md` for exactly what they prove and what they don't
+(no live model is exercised; see below). §24.2's stopping-rule DoS fixes
+are built and tested in the bounds engine itself.
+
+**Still not built**: §17's experimental design (personas, arms, the
+pre-registration + eval harness), §24.3's four adversarial personas run
+against a live population, §25's autonomy/economics reporting, and §27's
+vignette study. These need, respectively: a persona-simulation harness that
+doesn't exist, a recruited human study, and — cutting across all of it —
+an actual LLM extractor to generate realistic simulated debtor replies and
+to be the thing personas attack. Genuinely large, separate pieces of work.
 
 ## No static lint rule against float arithmetic on `Money`
 

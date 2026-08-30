@@ -545,7 +545,8 @@ Versioned YAML. Mandatory `source`. Two registers.
   test: "tests/regulatory/test_afa_ceiling.py::test_blocks_unauthenticated_large_debit"
 
 - id: RBI_EMANDATE_POSTDEBIT     ; machine: "action.presents_mandate_debit => post_debit_notification_queued == TRUE"
-- id: RBI_EMANDATE_OPTOUT        ; machine: "NOT (debtor.opted_out_cycle OR mandate.status == REVOKED)"
+- id: RBI_EMANDATE_OPTOUT        ; machine: "action.presents_mandate_debit =>
+                                             NOT (debtor.opted_out_cycle OR mandate.status == REVOKED)"
 - id: RBI_FPC_HOURS              ; machine: "08:00 <= debtor.local_time < 19:00"
 - id: TRAI_DND                   ; machine: "action.channel IS NULL OR action.channel NOT IN debtor.opted_out_channels"
 - id: MSMED_INTEREST_BASIS       ; machine: "action.type == send_statutory_notice =>
@@ -558,6 +559,7 @@ Three corrections to this register, all found while implementing it rather than 
 - **`RBI_EMANDATE_PREDEBIT_24H` and `RBI_EMANDATE_POSTDEBIT`** were unconditional in every prior revision — as written, a plain `send_reminder` would need a mandate pre-debit notification to pass `check_bounds()`, same as an actual mandate debit would. Taken literally, no action of any kind could ever pass, since almost nothing has a `mandate.last_notification_at` set. Guarded with `action.presents_mandate_debit =>`, the same implication pattern `MANDATE_PARAM_CLAMP` and `NO_MANDATE_ON_DISPUTE` already use to scope themselves to the action type they actually govern. `presents_mandate_debit` is a new boolean on the Action entity (§11.1), set by ACT specifically when it is about to call `rail.present_debit(...)` — deliberately not inferred from `action.type == retry_charge` alone, because §11.5 already overloads that one type across both a one-time retry and a mandate debit presentment, and only the latter needs this gate.
 - **`MSMED_INTEREST_BASIS`** had the same defect, guarded here to the one action type that actually asserts a statutory interest figure.
 - **`TRAI_DND`** still read the single blanket `debtor.opted_out` boolean this section originally had, even after §11.1 replaced it with per-channel `opted_out_channels` (added for `CHANNEL_HOPPER`, §24.3) — the two sections had drifted apart. Updated to check the specific channel this action would use.
+- **`RBI_EMANDATE_OPTOUT`** had the identical unconditional-rule defect, discovered the hard way: unscoped, it doesn't just block debits on an opted-out mandate, it blocks *every* action while `debtor.opted_out_cycle` is true — including `revoke_mandate` itself, which is precisely the action §11.6 requires to run *autonomously* on opt-out. The rule meant to honour the opt-out was blocking the one action that honours it. Guarded the same way as the other three.
 
 **Every regulatory rule carries a `clause_ref` and a named `test`.** Both feed `REGULATORY_MAP.md`.
 
@@ -577,7 +579,12 @@ Three corrections to this register, all found while implementing it rather than 
 - id: NO_MANDATE_ON_DISPUTE ; machine: "action.type == create_mandate => invoice.disputed_paise == 0"
 - id: STATUTORY_HUMAN_GATE  ; machine: "action.carries_legal_number => action.human_approval_id IS NOT NULL"
 - id: RAIL_DISCLOSURE       ; machine: "action.rail_tag IS NOT NULL"
+- id: REFUND_AND_REVOKE_HUMAN_GATE ; machine: "action.type in [initiate_refund, revoke_mandate] =>
+                                     (action.human_approval_id IS NOT NULL
+                                      OR (action.type == revoke_mandate AND debtor.opted_out_cycle))"
 ```
+
+§11.5's table marks `initiate_refund` and `revoke_mandate` human-gated, and `HUMAN_GATED_ACTIONS` names them in the action metadata — but neither of those is a `check_bounds()` rule, and `STATUTORY_HUMAN_GATE` only fires on `action.carries_legal_number`, which a refund or a plain revocation doesn't set. Every prior revision left these two actions gated on paper only. `REFUND_AND_REVOKE_HUMAN_GATE` closes it, folding in §11.6's own exception for the one case that must stay autonomous: revoking a mandate because the debtor opted out this cycle.
 
 `DISPUTE_FREEZE`'s action names were `human_escalate`/`none` in every prior revision, but §11.5's action table names the same two actions `escalate_human`/`no_action`. As written, the comparison never matches anything a real Decision ever produces, which silently disables the gate rather than enforcing it — exactly the "gate that silently stopped being called" failure §11.7's bounds-integrity check exists to catch, except this one would have been wrong from the first run, not from drift. Corrected here and in §24.2's `CHANNEL_EXHAUSTION`, which copied the same names.
 

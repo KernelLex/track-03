@@ -33,10 +33,10 @@ responsibility table added while implementing this):
 | Stage | Responsibility | Status |
 |---|---|---|
 | `INGEST` | Verify webhook signatures, de-duplicate by `(source, event_id)` | `[built]` — `agent/ingest/webhooks.py` |
-| `DIAGNOSE` | Path A structured lookup (`[built]`, `agent/diagnose/taxonomy.py`); Path B model extraction (`[pending]`) | partial |
+| `DIAGNOSE` | Path A structured lookup (`[built]`, `agent/diagnose/taxonomy.py`); Path B schema + objection logic (`[built]`, `extract.py`/`objection.py`); the actual model call (`[pending]`) | partial |
 | `DECIDE` | EV computation, `p_base` x `lift_prior` | `[pending]` — no `agent/decide/ev.py` yet; needs the Kaggle/IBM datasets fitted for `p_base` |
 | `BOUNDS` | `check_bounds()`, the Law 3 gate | `[built]` — `agent/bounds/engine.py`, full rule register, differential test |
-| `ACT` | Execute an accepted action against a `Rail` | partial — `agent/act/actions.py` and `reversal.py` define the action/reversal metadata; there is no orchestrating "ACT stage" module yet that calls a `Rail` based on a `Decision` |
+| `ACT` | Execute an accepted action against a `Rail` | `[built]` — `agent/act/executor.py`: `check_bounds()` first (Law 3), then a claim-then-act idempotency gate (§9.4) before ever calling the rail, dispatching `create_payment_link`, `reissue_artifact`, `create_mandate`, `retry_charge`, `initiate_refund`, `revoke_mandate`, `repair_mandate`, and message-only actions |
 | `LISTEN` | Turn rail webhooks into `SYSTEM`-provenance facts | partial — `SimulatedRail` emits signed webhooks and `verify_and_ingest()` parses them; nothing yet turns a parsed webhook into a `Fact` object specifically |
 | `SETTLE` | Attribute a `captured` payment via `recovery_ledger` | `[built]` — `agent/ledger/recovery.py`, Law 7's `UNIQUE(payment_id)` |
 | `AUDITOR` *(not one of the seven)* | Extractor drift, bounds integrity, chain integrity — read-only, out-of-band | partial — chain integrity is exactly `Ledger.verify_chain()` (`[built]`); extractor-drift sampling and the bounds-integrity re-check job (§11.7) are `[pending]`, and there's no scheduler running the Auditor periodically |
@@ -51,25 +51,31 @@ built.
 
 ## Path B's extraction schema (§11.2)
 
-`[pending]`. The JSON schema DEVDOC_v6 specifies:
+`[built]` as a schema and validation boundary — `agent/diagnose/extract.py`,
+a Pydantic model matching DEVDOC_v6's JSON shape exactly (`family`, `class`,
+`confidence`, `promise`, `dispute`, `entities`, `objection_signal`), with
+`extra="forbid"` so a schema-poisoning attempt to smuggle in an unlisted
+field (e.g. `"state": "RECOVERED"`) is rejected outright rather than
+silently ignored. Every field's provenance is `MODEL` (§8) by construction
+— nothing in this module ever labels an `ExtractionResult` `SYSTEM` or
+`HUMAN` — consistent with how `agent/mandate/instrument.py::Promise` is
+built to accept exactly this kind of untrusted candidate without ever
+becoming the final number itself.
 
-```json
-{
-  "family": "A|B|C|D", "class": "<enum>", "confidence": 0.0,
-  "promise":  {"amount_paise": null, "date": null, "installments": null},
-  "dispute":  {"claim": null, "evidence_ref": null},
-  "entities": {"utr": null, "po_number": null, "gstin": null,
-               "contact_person": null, "stated_pay_date": null},
-  "objection_signal": true
-}
-```
+**`[pending]`**: the actual model call that would *produce* an
+`ExtractionResult` from raw debtor text. Nothing in this codebase calls an
+LLM. `tests/agent/test_injection_resistance.py` exercises the schema and
+the family/class -> action-set mapping against worst-case hand-constructed
+`ExtractionResult` instances standing in for "whatever a compromised model
+might output" — a structural test, not an empirical one; see
+`docs/THREAT_MODEL.md` for exactly what that does and doesn't prove.
 
-is not yet implemented as a Pydantic model, and nothing calls a model to
-produce it. When built, every field's provenance is `MODEL` (§8) and it
-must validate at the schema boundary before anything downstream reads it —
-consistent with how `agent/mandate/instrument.py::Promise` is *already*
-built to accept exactly this kind of untrusted candidate value without
-ever becoming the final number itself.
+§8's deemed-acceptance worked example (model as veto only, never as
+establisher of fact) is `[built]` independently of the extractor itself —
+`agent/diagnose/objection.py`'s `compute_objection_marker` and
+`compute_deemed_acceptance` take an `ExtractionResult` as input, so they're
+fully testable today with hand-built extractions and become live the
+moment a real extractor produces one.
 
 ## Three families and their action sets (§11.2)
 
@@ -78,7 +84,7 @@ ever becoming the final number itself.
 | A — Instrument failure | Money exists, rail failed/will fail | `retry_charge`, `repair_mandate`, `create_payment_link` | Diagnosis: `[built]` (`agent/diagnose/taxonomy.py`). Actions: typed (`agent/act/actions.py`), not orchestrated |
 | B — Administrative blocker | Money + willingness exist, paperwork blocks | `reissue_artifact`, `request_reconciliation` | Typed only, no repair-orchestration module yet |
 | C — Liquidity/willingness | Money isn't there or won't be released | `create_mandate`, `create_payment_link`, `send_reminder` | `select_instrument()` `[built]`; nothing calls it from a live diagnosis yet |
-| D — Dispute | Contested obligation | `escalate_human` only | State machine handles `DISPUTED_FROZEN` `[built]`; nothing produces a family-D diagnosis yet (needs Path B) |
+| D — Dispute | Contested obligation | `escalate_human` only | State machine handles `DISPUTED_FROZEN` `[built]`; the schema + action-set mapping is `[built]` and proven to never unlock anything beyond `escalate_human` for any family-D class (`tests/agent/test_injection_resistance.py`); no live model produces a family-D diagnosis yet |
 
 ## Debtor state machine (§11.3)
 
@@ -131,8 +137,11 @@ All three subsections are `[built]` and tested:
   guards are order-tolerant by construction — the debtor state machine
   raises on an illegal transition rather than assuming arrival order),
   double attribution (`RecoveryLedger`, `UNIQUE(payment_id)`).
-- **Outbound idempotency** (§9.4): not yet implemented — there is no
-  outbound-action dispatcher yet for an idempotency key to attach to.
+- **Outbound idempotency** (§9.4): `[built]` — `agent/act/executor.py`'s
+  `OutboundActionStore`, keyed by `(debtor_id, invoice_id, action_type,
+  decision_seq)`, using claim-then-act (an atomic `INSERT` under a `UNIQUE`
+  constraint) rather than check-then-act, so a concurrent or retried
+  dispatch of the same key can't reach the rail twice.
 - **The shuffled-thrice test** (§9.5): `[built]` and passing —
   `tests/agent/test_shuffled_replay.py` runs the real `verify_and_ingest`
   -> `RecoveryLedger.attribute` pipeline three times with a shuffled,

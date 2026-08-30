@@ -45,7 +45,7 @@ regulatory:
   - id: RBI_EMANDATE_OPTOUT
     source: "RBI Digital Payments E-Mandate Framework, 2026"
     clause_ref: "TODO"
-    machine: "not (debtor.opted_out_cycle or mandate.status == 'revoked')"
+    machine: "not action.presents_mandate_debit or not (debtor.opted_out_cycle or mandate.status == 'revoked')"
     human: "An opted-out cycle or a revoked mandate is never debited, no exceptions."
     test: "tests/regulatory/test_optout.py::test_blocks_debit_after_optout"
 
@@ -152,6 +152,20 @@ stopping:
     machine: "action.rail_tag is not None"
     human: "Every action is tagged with which rail — real or simulated — produced it."
     test: "tests/regulatory/test_rail_disclosure.py::test_blocks_untagged_action"
+
+  - id: REFUND_AND_REVOKE_HUMAN_GATE
+    machine: >-
+      action.type not in ['initiate_refund', 'revoke_mandate'] or
+      action.human_approval_id is not None or
+      (action.type == 'revoke_mandate' and debtor.opted_out_cycle)
+    human: "A refund or a mandate revocation needs a human's approval — unless the
+            mandate is being revoked because the debtor just opted out this cycle,
+            since refusing to reverse on opt-out is itself a violation (§11.6)."
+    # §11.5's table and HUMAN_GATED_ACTIONS (agent/act/actions.py) both mark these
+    # two human-gated, but neither is itself an enforcement mechanism -- this rule
+    # is what actually blocks an unapproved dispatch. STATUTORY_HUMAN_GATE doesn't
+    # cover them: a refund or a plain revocation doesn't set carries_legal_number.
+    test: "tests/regulatory/test_refund_and_revoke_human_gate.py::test_blocks_unapproved_refund_or_revoke"
 
   - id: CHANNEL_EXHAUSTION
     machine: >-

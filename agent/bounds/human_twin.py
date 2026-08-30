@@ -42,6 +42,8 @@ def rbi_emandate_postdebit(ctx: BoundsContext) -> bool:
 
 
 def rbi_emandate_optout(ctx: BoundsContext) -> bool:
+    if not ctx.action.presents_mandate_debit:
+        return True
     if ctx.debtor.opted_out_cycle:
         return False
     if ctx.mandate.status == "revoked":
@@ -128,6 +130,14 @@ def rail_disclosure(ctx: BoundsContext) -> bool:
     return ctx.action.rail_tag is not None
 
 
+def refund_and_revoke_human_gate(ctx: BoundsContext) -> bool:
+    if ctx.action.type not in ("initiate_refund", "revoke_mandate"):
+        return True
+    if ctx.action.human_approval_id is not None:
+        return True
+    return ctx.action.type == "revoke_mandate" and ctx.debtor.opted_out_cycle
+
+
 def channel_exhaustion(ctx: BoundsContext) -> bool:
     if len(ctx.debtor.opted_out_channels) < len(ALL_CHANNELS):
         return True
@@ -155,4 +165,5 @@ REGISTRY: dict[str, Callable[[BoundsContext], bool]] = {
     "STATUTORY_HUMAN_GATE": statutory_human_gate,
     "RAIL_DISCLOSURE": rail_disclosure,
     "CHANNEL_EXHAUSTION": channel_exhaustion,
+    "REFUND_AND_REVOKE_HUMAN_GATE": refund_and_revoke_human_gate,
 }

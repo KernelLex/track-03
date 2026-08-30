@@ -207,6 +207,33 @@ def test_predebit_24h_passes_with_full_fields_and_elapsed_time():
     assert verdict_for(check_bounds(ctx), "RBI_EMANDATE_PREDEBIT_24H") == "PASS"
 
 
+def test_optout_only_blocks_actions_that_present_a_mandate_debit():
+    """Unguarded, this rule would block *every* action while opted_out_cycle is
+    true -- including revoke_mandate itself, the one action §11.6 requires to
+    run autonomously on opt-out. The bug found while building the ACT executor."""
+    non_debit_action = base_context(
+        debtor=DebtorCtx(id="d", state="ENGAGED", opted_out_cycle=True),
+        action=ActionCtx(type="revoke_mandate", rail_tag="simulated", presents_mandate_debit=False),
+    )
+    assert verdict_for(check_bounds(non_debit_action), "RBI_EMANDATE_OPTOUT") == "PASS"
+
+
+def test_optout_blocks_an_actual_debit_presentment():
+    debit_action = base_context(
+        debtor=DebtorCtx(id="d", state="ENGAGED", opted_out_cycle=True),
+        action=ActionCtx(type="retry_charge", rail_tag="simulated", presents_mandate_debit=True),
+    )
+    assert verdict_for(check_bounds(debit_action), "RBI_EMANDATE_OPTOUT") == "REFUSE"
+
+
+def test_optout_blocks_debit_presentment_on_a_revoked_mandate_even_without_opted_out_cycle():
+    debit_action = base_context(
+        mandate=MandateCtx(status="revoked"),
+        action=ActionCtx(type="retry_charge", rail_tag="simulated", presents_mandate_debit=True),
+    )
+    assert verdict_for(check_bounds(debit_action), "RBI_EMANDATE_OPTOUT") == "REFUSE"
+
+
 def test_afa_ceiling_requires_afa_reference_above_15000_rupees():
     ctx = base_context(debit_paise=20_00_000)  # Rs 20,000
     assert verdict_for(check_bounds(ctx), "RBI_EMANDATE_AFA_CEILING") == "REFUSE"
@@ -221,6 +248,37 @@ def test_afa_ceiling_requires_afa_reference_above_15000_rupees():
 def test_fpc_hours_blocks_contact_outside_8_to_19():
     ctx = base_context(debtor=DebtorCtx(id="d", state="ENGAGED", local_time=time(21, 0)))
     assert verdict_for(check_bounds(ctx), "RBI_FPC_HOURS") == "REFUSE"
+
+
+def test_refund_and_revoke_human_gate_refuses_unapproved_refund():
+    ctx = base_context(action=ActionCtx(type="initiate_refund", rail_tag="simulated", human_approval_id=None))
+    assert verdict_for(check_bounds(ctx), "REFUND_AND_REVOKE_HUMAN_GATE") == "REFUSE"
+
+
+def test_refund_and_revoke_human_gate_passes_with_approval():
+    ctx = base_context(action=ActionCtx(type="initiate_refund", rail_tag="simulated", human_approval_id="a1"))
+    assert verdict_for(check_bounds(ctx), "REFUND_AND_REVOKE_HUMAN_GATE") == "PASS"
+
+
+def test_refund_and_revoke_human_gate_refuses_unapproved_revoke_without_optout():
+    ctx = base_context(
+        debtor=DebtorCtx(id="d", state="ENGAGED", opted_out_cycle=False),
+        action=ActionCtx(type="revoke_mandate", rail_tag="simulated", human_approval_id=None),
+    )
+    assert verdict_for(check_bounds(ctx), "REFUND_AND_REVOKE_HUMAN_GATE") == "REFUSE"
+
+
+def test_refund_and_revoke_human_gate_allows_autonomous_revoke_on_optout():
+    ctx = base_context(
+        debtor=DebtorCtx(id="d", state="ENGAGED", opted_out_cycle=True),
+        action=ActionCtx(type="revoke_mandate", rail_tag="simulated", human_approval_id=None),
+    )
+    assert verdict_for(check_bounds(ctx), "REFUND_AND_REVOKE_HUMAN_GATE") == "PASS"
+
+
+def test_refund_and_revoke_human_gate_does_not_affect_unrelated_actions():
+    ctx = base_context(action=ActionCtx(type="send_reminder", channel="email", rail_tag="simulated"))
+    assert verdict_for(check_bounds(ctx), "REFUND_AND_REVOKE_HUMAN_GATE") == "PASS"
 
 
 def test_trai_dnd_blocks_only_the_opted_out_channel():
