@@ -202,9 +202,21 @@ channel.send(to="+91xxxxxxxxxx", text="This is a call about invoice INV-1.")
 Both implement the same `MessageChannel.send(to, text)` shape and can be
 passed straight into `execute_action(..., channel=channel)` — see
 `docs/CHANNELS.md` for why messaging is a separate protocol from `Rail`,
-and why Telegram/Twilio-voice were chosen over SMS/WhatsApp. Neither has
-sent a real message yet in this build; `tests/agent/test_notify_channels.py`
-covers both against mocked HTTP with zero network access.
+and why Telegram/Twilio-voice were chosen over SMS/WhatsApp.
+`tests/agent/test_notify_channels.py` covers both against mocked HTTP with
+zero network access.
+
+To check whichever of `ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN`, and the
+Twilio vars are currently set actually work, without sending a message,
+placing a call, or spending more than a few cents:
+
+```
+uv run python tools/verify_credentials.py
+```
+
+Never prints a secret value — see `docs/CHANNELS.md` and
+`docs/LLM_EXTRACTION.md` for what each check does and the real,
+dated results.
 
 ## Environment
 

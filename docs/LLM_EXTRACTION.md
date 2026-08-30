@@ -68,14 +68,38 @@ roughly $1.50–2. This has not been run yet — see `PROGRESS.md`.
 | Piece | State |
 |---|---|
 | `ExtractionResult` schema + validation | ✅ pre-existing, 40-case injection corpus |
-| `extract_from_reply()` (the real call) | ✅ built, `tests/agent/test_llm_extract.py` (11 tests, all against a mocked client) |
-| Live call against the real API | ⬜ needs `ANTHROPIC_API_KEY` |
+| `extract_from_reply()` (the real call) | ✅ built, `tests/agent/test_llm_extract.py` (13 tests, all against a mocked client) |
+| Live call against the real API | ⬜ **blocked, 2026-08-31 — see below** |
 | Wired into the live webhook → DIAGNOSE path | ⬜ not yet connected end to end |
 
-No real API call has been made against this code yet. Every test in
-`test_llm_extract.py` uses a `MagicMock` standing in for
+Every test in `test_llm_extract.py` uses a `MagicMock` standing in for
 `anthropic.Anthropic()` — the suite passes with no `ANTHROPIC_API_KEY` set
 at all, matching this project's policy for `RazorpayRail`
-(`tests/agent/test_razorpay_rail_live.py` is opt-in-only). The first real
-call should be a single hand-picked reply, checked by eye against what it
-extracted, before it's trusted inside a larger run.
+(`tests/agent/test_razorpay_rail_live.py` is opt-in-only).
+
+## Live verification, 2026-08-31 — a real, specific blocker
+
+Two real calls were attempted via `tools/verify_credentials.py`. Both
+failed with the same error, not a timeout or a malformed request:
+
+```
+400 invalid_request_error: anthropic-workspace-id is required when
+authenticating with an identity-linked API key; send the id of the
+workspace this request acts in.
+```
+
+The key supplied is **identity-linked** — created against a personal
+Console login rather than issued as a plain workspace-scoped key — so
+Anthropic needs to be told explicitly which workspace the request should
+act in. This is a real account fact, not a code bug: `_default_client()`
+in `agent/diagnose/llm_extract.py` now reads an `ANTHROPIC_WORKSPACE_ID`
+env var and sends it as the `anthropic-workspace-id` header when set
+(`tests/agent/test_llm_extract.py::TestDefaultClient`, 2 tests), but no
+value was available to put there — finding a workspace id needs Console
+access this session doesn't have. Two ways to unblock, either works:
+generate a plain workspace-scoped API key instead (skips the header
+entirely), or set `ANTHROPIC_WORKSPACE_ID` from Console → Workspaces.
+
+The first real, successful call should still be a single hand-picked
+reply, checked by eye against what it extracted, before it's trusted
+inside a larger run — that check hasn't happened yet either.

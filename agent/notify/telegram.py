@@ -62,6 +62,19 @@ class TelegramChannel:
             detail={"chat_id": result["chat"]["id"], "date": result["date"]},
         )
 
+    def get_me(self) -> dict:
+        """Confirms the bot token is valid and returns the bot's own
+        identity (id, username) -- read-only, no message sent, for a quick
+        credential check (tools/verify_credentials.py)."""
+        try:
+            response = self._client.get(f"{self._base}/getMe")
+        except httpx.HTTPError as exc:
+            raise ChannelUnavailable("telegram", str(exc)) from exc
+        body = response.json()
+        if not body.get("ok"):
+            raise ChannelUnavailable("telegram", body.get("description", "getMe failed"))
+        return body["result"]
+
     def get_updates(self) -> list[dict]:
         """Thin wrapper over getUpdates — used by tools/telegram_get_chat_id.py,
         not by the pipeline itself. A bot has no other way to learn a chat_id

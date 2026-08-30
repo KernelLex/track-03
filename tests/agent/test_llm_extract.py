@@ -13,7 +13,7 @@ import httpx2
 import pytest
 
 from agent.diagnose.extract import DiagnosisClass, ExtractionResult, Family
-from agent.diagnose.llm_extract import SYSTEM_PROMPT, ExtractionFailed, extract_from_reply
+from agent.diagnose.llm_extract import SYSTEM_PROMPT, ExtractionFailed, _default_client, extract_from_reply
 
 
 def _fake_client(parsed_output=None, raw_text_blocks=None):
@@ -121,3 +121,19 @@ class TestExtractFromReply:
 
         with pytest.raises(ExtractionFailed):
             extract_from_reply("hello", client=client)
+
+
+class TestDefaultClient:
+    """Some Anthropic API keys are identity-linked and need an explicit
+    anthropic-workspace-id header -- discovered live while wiring this up,
+    see docs/LLM_EXTRACTION.md."""
+
+    def test_no_workspace_env_var_builds_a_plain_client(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_WORKSPACE_ID", raising=False)
+        client = _default_client()
+        assert isinstance(client, anthropic.Anthropic)
+
+    def test_workspace_env_var_is_sent_as_a_default_header(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_WORKSPACE_ID", "wrkspc_test123")
+        client = _default_client()
+        assert client.default_headers.get("anthropic-workspace-id") == "wrkspc_test123"

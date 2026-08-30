@@ -32,14 +32,29 @@ class TwilioVoiceChannel:
         auth_token: str,
         from_number: str,
         *,
+        auth_username: str | None = None,
         client: httpx.Client | None = None,
+        transport: httpx.BaseTransport | None = None,
         timeout: float = 15.0,
     ):
+        """`auth_token` is the HTTP Basic Auth *password* — either the
+        account's classic Auth Token (leave `auth_username` unset, it
+        defaults to `account_sid`), or a Twilio API Key's Secret (pass the
+        matching API Key SID, `SKxxx`, as `auth_username`). `account_sid`
+        always identifies the account in the URL path either way — Twilio's
+        API Key scheme authenticates *as* an API key but still acts *on* a
+        specific account, so the two are independent, not alternatives.
+
+        `transport` (e.g. `httpx.MockTransport` in tests) plugs into the
+        client this constructor builds, so auth_username/auth_token are
+        still exercised for real — unlike passing a fully pre-built
+        `client`, which is used as-is and owns its own auth setup."""
         if not (account_sid and auth_token and from_number):
             raise ValueError("TwilioVoiceChannel requires account_sid, auth_token, and from_number")
         self._sid = account_sid
         self._from = from_number
-        self._client = client or httpx.Client(timeout=timeout, auth=(account_sid, auth_token))
+        username = auth_username or account_sid
+        self._client = client or httpx.Client(timeout=timeout, auth=(username, auth_token), transport=transport)
         self._base = f"{TWILIO_API_BASE}/Accounts/{account_sid}"
 
     def send(self, *, to: str, text: str) -> MessageSendResult:
@@ -75,6 +90,21 @@ class TwilioVoiceChannel:
             status="sent",
             detail={"status": body.get("status")},
         )
+
+    def verify_credentials(self) -> dict | None:
+        """Fetches the account resource -- read-only, no call placed, no
+        cost. Returns the account's {friendly_name, status} on success or
+        None on any auth/network failure, for a quick "do these credentials
+        actually work" check (tools/verify_credentials.py) without the
+        side effect (and cost) of send()."""
+        try:
+            response = self._client.get(f"{self._base}.json")
+        except httpx.HTTPError:
+            return None
+        if response.status_code != 200:
+            return None
+        body = response.json()
+        return {"friendly_name": body.get("friendly_name"), "status": body.get("status")}
 
     def close(self) -> None:
         self._client.close()

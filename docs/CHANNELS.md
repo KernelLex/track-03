@@ -51,20 +51,46 @@ what's actually exercised."
 
 | Channel | Module | Tested | Live-verified |
 |---|---|---|---|
-| Telegram | `agent/notify/telegram.py` | ✅ mocked (`tests/agent/test_notify_channels.py`) | ⬜ needs `TELEGRAM_BOT_TOKEN` |
-| Twilio voice (`ivr`) | `agent/notify/twilio_voice.py` | ✅ mocked | ⬜ needs `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN`/`TWILIO_FROM_NUMBER` |
+| Telegram | `agent/notify/telegram.py` | ✅ mocked (`tests/agent/test_notify_channels.py`) | ✅ 2026-08-31 — see below |
+| Twilio voice (`ivr`) | `agent/notify/twilio_voice.py` | ✅ mocked | ✅ 2026-08-31 — see below |
 | Simulated | `agent/notify/simulated.py` | ✅ | n/a — never touches the network by design |
-| SMS / email / WhatsApp | not implemented | — | — |
+| SMS / email / WhatsApp | not implemented | — | — (a Twilio WhatsApp sandbox number is sitting unused in `.env` — not built, see note below) |
 
 "Tested" means the request shape (URL, body, form/JSON encoding) and every
 response path (success, a clean API-level rejection, a network failure) are
 asserted against `httpx.MockTransport` — no real network call happens in
 the default test run, matching this project's existing policy for
 `RazorpayRail` (`tests/agent/test_razorpay_rail_live.py` is opt-in only).
-"Live-verified" will mean one real send confirmed the same way
-`docs/RAIL_CAPABILITIES.md` confirmed Razorpay: this doc gets a dated
-result appended the first time each credential is actually used, not
-before.
+
+## Live verification, 2026-08-31
+
+Run via `uv run python tools/verify_credentials.py` (never prints a secret
+value):
+
+- **Telegram — confirmed.** `TelegramChannel.get_me()` returned the real
+  bot's identity. No `chat_id` was available yet at verification time (the
+  account hasn't messaged the bot) — `send()` itself (an actual message,
+  not just the identity check) is still unverified live; see
+  `tools/telegram_get_chat_id.py` for the missing step.
+- **Twilio — confirmed.** `TwilioVoiceChannel.verify_credentials()`
+  authenticated successfully and returned the account's `friendly_name`
+  and `status=active`. This is deliberately the read-only account-fetch
+  endpoint, not a real call — no phone rang, no cost was incurred.
+  Authenticated via a Twilio **API Key** (`TWILIO_API_KEY_SID`/
+  `TWILIO_API_KEY_SECRET`), not the classic Account Auth Token, which
+  wasn't provided — this required a real fix, not a workaround:
+  `TwilioVoiceChannel` now takes an `auth_username` parameter (the API Key
+  SID goes in the HTTP Basic Auth *username*, its Secret in the password;
+  `account_sid` still identifies the account in the URL path regardless of
+  which auth scheme is used). `send()` (an actual call) is still
+  unverified live — it needs a real destination number, which wasn't
+  provided, and placing one wasn't done speculatively since it rings a
+  real phone and costs real money.
+
+A Twilio WhatsApp sandbox number (`TWILIO_WHATSAPP_FROM`) was included with
+the credentials but is intentionally unused — the agreed channel split is
+Telegram for messaging, Twilio for voice only. Noted here rather than
+silently ignored; ask before a WhatsApp channel gets built on it.
 
 ## Wiring a live send
 

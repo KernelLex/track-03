@@ -90,8 +90,47 @@ class TestTelegramChannel:
         updates = channel.get_updates()
         assert updates[0]["message"]["chat"]["id"] == 555
 
+    def test_get_me_returns_bot_identity(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"ok": True, "result": {"id": 123, "username": "truecommit_bot"}})
+
+        channel = TelegramChannel("test-token", client=_client_with(handler))
+        me = channel.get_me()
+        assert me["username"] == "truecommit_bot"
+
+    def test_get_me_raises_on_invalid_token(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(401, json={"ok": False, "description": "Unauthorized"})
+
+        channel = TelegramChannel("bad-token", client=_client_with(handler))
+        with pytest.raises(ChannelUnavailable):
+            channel.get_me()
+
 
 class TestTwilioVoiceChannel:
+    def test_can_authenticate_via_an_api_key_instead_of_the_classic_auth_token(self):
+        """No classic Auth Token -- an API Key SID/Secret pair authenticates
+        instead, with the API Key SID as the basic-auth username and the
+        account_sid still used in the URL path."""
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["authorization"] = request.headers["authorization"]
+            captured["url"] = str(request.url)
+            return httpx.Response(201, json={"sid": "CA1", "status": "queued"})
+
+        channel = TwilioVoiceChannel(
+            "ACxxx", "the-api-key-secret", "+15551234567",
+            auth_username="SKxxx", transport=httpx.MockTransport(handler),
+        )
+        channel.send(to="+919876543210", text="hi")
+
+        import base64
+        expected = "Basic " + base64.b64encode(b"SKxxx:the-api-key-secret").decode()
+        assert captured["authorization"] == expected
+        assert captured["url"].endswith("/Accounts/ACxxx/Calls.json")  # account_sid, not the API key, in the path
+
+
     def test_send_success_posts_to_from_and_twiml(self):
         captured = {}
 
@@ -148,3 +187,32 @@ class TestTwilioVoiceChannel:
             TwilioVoiceChannel("ACxxx", "", "+15551234567")
         with pytest.raises(ValueError):
             TwilioVoiceChannel("ACxxx", "authtoken", "")
+
+    def test_verify_credentials_fetches_the_account_resource_not_a_call(self):
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["method"] = request.method
+            captured["url"] = str(request.url)
+            return httpx.Response(200, json={"friendly_name": "My test account", "status": "active"})
+
+        channel = TwilioVoiceChannel("ACxxx", "authtoken", "+15551234567", client=_client_with(handler))
+        info = channel.verify_credentials()
+
+        assert captured["method"] == "GET"
+        assert captured["url"].endswith("/Accounts/ACxxx.json")
+        assert info == {"friendly_name": "My test account", "status": "active"}
+
+    def test_verify_credentials_returns_none_on_bad_auth(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(401, json={"message": "Authenticate"})
+
+        channel = TwilioVoiceChannel("ACxxx", "wrong", "+15551234567", client=_client_with(handler))
+        assert channel.verify_credentials() is None
+
+    def test_verify_credentials_returns_none_on_network_error(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("connection refused", request=request)
+
+        channel = TwilioVoiceChannel("ACxxx", "authtoken", "+15551234567", client=_client_with(handler))
+        assert channel.verify_credentials() is None

@@ -9,7 +9,7 @@ A tested, working implementation of TrueCommit's **pure-logic safety and
 compliance core** (DEVDOC_v6 §5.2's "the judgment"), **now also wired to a
 real, live Razorpay test-mode account** (as of 2026-08-30) for the
 capabilities that account actually has, plus a real (if minimal) HTTP
-webhook receiver. **579 tests passing / 11 skipped as of 2026-08-31**,
+webhook receiver. **587 tests passing / 11 skipped as of 2026-08-31**,
 measured without live credentials in the shell (the 11 skipped are the
 Razorpay-live-only suite, which skips cleanly rather than failing —
 no credentials are required to run the main suite). It is still **not**:
@@ -29,13 +29,18 @@ no credentials are required to run the main suite). It is still **not**:
   itself now exists and is tested (`agent/diagnose/llm_extract.py`, see
   `docs/LLM_EXTRACTION.md`), but nothing yet invokes it from the DIAGNOSE
   stage automatically when a webhook carries free text instead of a
-  structured code, and it has never been run against the real API (needs
-  `ANTHROPIC_API_KEY`)
-- A live messaging send — Telegram and Twilio-voice channels exist and are
-  wired into ACT (`agent/notify/`, see `docs/CHANNELS.md`), tested against
-  mocked HTTP, but neither has sent a real message yet (needs
-  `TELEGRAM_BOT_TOKEN`, and `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN`/
-  `TWILIO_FROM_NUMBER`)
+  structured code. **A real, specific blocker as of 2026-08-31**: the
+  supplied API key is identity-linked and every live call fails with a 400
+  asking for an `anthropic-workspace-id` header — support for that header
+  is now built (`ANTHROPIC_WORKSPACE_ID` env var), but no value exists yet
+  to put there. See `docs/LLM_EXTRACTION.md` for the exact error and the
+  two ways to unblock it
+- A live message *sent* (as opposed to credentials confirmed) — Telegram
+  and Twilio-voice both have real, live-verified credentials as of
+  2026-08-31 (`docs/CHANNELS.md`), but `send()` itself (an actual message,
+  an actual call) hasn't been exercised live: Telegram has no `chat_id` yet
+  (nobody has messaged the bot), and Twilio needs a real destination number
+  that wasn't provided
 
 ## Webhook receiver (§19) — built and registered live once; current uptime unknown
 
