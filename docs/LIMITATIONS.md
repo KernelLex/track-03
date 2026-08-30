@@ -79,13 +79,17 @@ dashboard inspection, not a server-side create call).
 
 ## Regulatory sourcing (the most important gap)
 
-**Every `clause_ref` in `agent/bounds/rules.yaml`'s regulatory section is a
-literal `TODO` placeholder.** The circular name/date, the ₹15,000 ceiling,
-the 24-hour notification window, and the MSMED Act section numbers all come
-from DEVDOC_v6 itself — this build did not independently pull and read the
-RBI circular or cross-check the MSMED Act's statutory text. Fixing this is
-the single highest-value next step for the compliance story: it's reading
-one circular and six statutory sections, not new code.
+**Update, 2026-08-30**: four of the six regulatory `clause_ref` values in
+`agent/bounds/rules.yaml` now cite a real section of the actual RBI
+circular (`RBI/DPSS/2026-27/396`, fetched directly from `rbi.org.in`, not
+guessed — see `docs/SIMULATOR_PROVENANCE.md` §4 for exactly which sections
+and the caveat on how they were extracted). `RBI_FPC_HOURS` is sourced more
+weakly, to secondary summaries rather than RBI's own text. `TRAI_DND`
+remains a `TODO`, and the MSMED Act's trader-exclusion OMs
+(`config/statutory_params.yaml`) are still DEVDOC_v6's own reading, dated
+and flagged `contested: true` rather than independently re-verified. Better
+section citations are progress on *coverage*, not on the legal-review claim
+below, which still stands unchanged.
 
 **Compliance requires external review, which this project does not have**
 (DEVDOC_v6 §13.4, repeated here in those words on purpose). The

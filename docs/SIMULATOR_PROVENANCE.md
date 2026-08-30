@@ -105,17 +105,35 @@ unconfirmed.
 
 ## 4. RBI/MSMED/TRAI regulatory text
 
-**Not independently sourced in this pass at all.** Every `clause_ref` in
-`agent/bounds/rules.yaml` for the RBI e-mandate rules is a literal `TODO`
-placeholder (see `docs/BOUNDS.md`, generated, which flags every one). The
-circular name and date
-(`RBI/DPSS/2026-27/396, 21 April 2026`), the ₹15,000 AFA-free ceiling, the
-24-hour pre-debit notification requirement, and the MSMED Act sections
-(2(b), 2(n), 15, 16, 23, 43B(h)) all come from DEVDOC_v6 itself, not from
-this build independently pulling and reading the primary legal texts.
-**This is the single most important sourcing gap in the project** — see
-`docs/LIMITATIONS.md` and `docs/REGULATORY_MAP.md`'s "honestly not
-implemented" section.
+**Update, 2026-08-30 — partially resourced from the primary text itself.**
+Found the actual circular via web search (`RBI/DPSS/2026-27/396` ->
+`rbi.org.in/Scripts/BS_ViewMasDirections.aspx?id=13374`, not guessed — a
+search for the circular number led to it) and fetched its section
+structure directly. Four of the six regulatory rules now cite a real
+section number from the primary document: `RBI_EMANDATE_PREDEBIT_24H` ->
+Section 6(a)/6(b), `RBI_EMANDATE_AFA_CEILING` -> Section 8(a)/8(b),
+`RBI_EMANDATE_POSTDEBIT` -> Section 7, `RBI_EMANDATE_OPTOUT` -> Section
+6(c). **This is still one step short of a verbatim read**: the fetch was
+processed by an automated summarizer extracting section structure, not
+read character-by-character by a person — treat the exact sub-clause
+letters as a strong lead, not a citation ready to withstand scrutiny
+unchallenged, and re-verify against the circular directly before relying
+on them in a real compliance claim.
+
+`RBI_FPC_HOURS` (calling-hours restriction) is sourced more weakly — to
+"para 55" of Master Circular DBR.LEG.BC.21/09.07.005/2024-25, per several
+secondary legal-summary/blog sources found by search, **not verified
+against RBI's own primary document** the way the e-mandate clauses were.
+Flagged as a materially weaker sourcing tier directly in
+`agent/bounds/rules.yaml`'s comment for that rule, not silently presented
+at the same confidence as the others.
+
+`TRAI_DND`'s clause and the MSMED Act's own OM-based trader exclusion
+(§14.1, already separately dated and flagged `contested: true` in
+`config/statutory_params.yaml`) remain unsourced beyond DEVDOC_v6 itself.
+**Compliance still requires external review, which this project does not
+have** — better section-level citations are not the same thing as legal
+sign-off. See `docs/LIMITATIONS.md` and `docs/REGULATORY_MAP.md`.
 
 ## 5. Stripe test mode (§5.5, optional)
 

@@ -16,7 +16,7 @@ version: 1
 regulatory:
   - id: RBI_EMANDATE_PREDEBIT_24H
     source: "RBI Digital Payments E-Mandate Framework, 2026 (RBI/DPSS/2026-27/396, 21-04-2026)"
-    clause_ref: "TODO — paragraph number from the circular; not yet pinned down (§13.1)"
+    clause_ref: "Section 6(a)+6(b) — fetched 2026-08-30, not yet independently verified (§13.1 sourcing note)"
     machine: >-
       not action.presents_mandate_debit or
       (mandate.last_notification_at is not None and
@@ -30,28 +30,30 @@ regulatory:
   - id: RBI_EMANDATE_AFA_CEILING
     source: "Same circular — Rs 15,000 AFA-free ceiling; the Rs 1L exception is
              insurance/SIP/credit-card only and does not extend to B2B payables"
-    clause_ref: "TODO — paragraph number from the circular; not yet pinned down (§13.1)"
+    clause_ref: "Section 8(a)+8(b) — fetched 2026-08-30, not yet independently verified (§13.1 sourcing note)"
     machine: "debit_paise <= 1500000 or action.afa_reference is not None"
     human: "Above Rs 15,000 the account holder must authenticate. No exception applies here."
     test: "tests/regulatory/test_afa_ceiling.py::test_blocks_unauthenticated_large_debit"
 
   - id: RBI_EMANDATE_POSTDEBIT
     source: "RBI Digital Payments E-Mandate Framework, 2026"
-    clause_ref: "TODO"
+    clause_ref: "Section 7 — fetched 2026-08-30, not yet independently verified"
     machine: "not action.presents_mandate_debit or post_debit_notification_queued == True"
     human: "Every presented debit is followed by a confirmation the customer can act on."
     test: "tests/regulatory/test_postdebit.py::test_requires_postdebit_notification"
 
   - id: RBI_EMANDATE_OPTOUT
     source: "RBI Digital Payments E-Mandate Framework, 2026"
-    clause_ref: "TODO"
+    clause_ref: "Section 6(c) — fetched 2026-08-30, not yet independently verified"
     machine: "not action.presents_mandate_debit or not (debtor.opted_out_cycle or mandate.status == 'revoked')"
     human: "An opted-out cycle or a revoked mandate is never debited, no exceptions."
     test: "tests/regulatory/test_optout.py::test_blocks_debit_after_optout"
 
   - id: RBI_FPC_HOURS
-    source: "RBI Fair Practices Code"
-    clause_ref: "TODO"
+    source: "RBI Fair Practices Code — Master Circular DBR.LEG.BC.21/09.07.005/2024-25"
+    clause_ref: "para 55, per secondary legal-summary sources (2026-08-30) — NOT verified against
+                 RBI's primary document directly, unlike the e-mandate clause_refs above. Weaker
+                 sourcing tier; treat as a lead to check, not a citation to rely on."
     machine: "time(8, 0) <= debtor.local_time < time(19, 0)"
     human: "Collection contact happens between 8am and 7pm, the debtor's local time."
     test: "tests/regulatory/test_fpc_hours.py::test_blocks_contact_outside_hours"

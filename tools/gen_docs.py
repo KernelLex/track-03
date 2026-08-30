@@ -148,10 +148,11 @@ def gen_regulatory_map_md() -> str:
         "",
         "| Requirement | Status |",
         "|---|---|",
-        "| MSMED Act statutory ladder rungs 5-6 (year-end 43B(h) notice, MSME Samadhaan referral) | Documented, stubbed (§14.4) — not implemented |",
+        "| MSMED Act statutory ladder rungs 5-6 (year-end 43B(h) notice, MSME Samadhaan referral) | Documented, stubbed with a clear NotImplementedError (§14.4) — not implemented |",
         "| Per-clause regulatory tests (`tests/regulatory/`) | Directory exists, no tests written yet |",
-        "| Live conformance against a real Razorpay account | Blocked on test API keys — SimulatedRail-only so far (§5.1) |",
+        "| Live conformance against a real Razorpay account | **Done** (2026-08-30) — `agent/rails/razorpay_rail.py`, verified in `tests/agent/test_razorpay_rail_live.py` against a live test-mode account (§5.1, §5.4) |",
         "| NACH/eNACH return-code taxonomy | Not sourced yet (data/failure_taxonomy.yaml's `not_yet_sourced` section) |",
+        "| `RBI_FPC_HOURS` and `TRAI_DND` clause_refs | Weakest-sourced (`RBI_FPC_HOURS`, secondary summaries only) or unsourced (`TRAI_DND`, still a TODO) rows in this table — re-check before relying on either |",
         "",
     ]
     return "\n".join(lines) + "\n"

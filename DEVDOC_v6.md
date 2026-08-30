@@ -527,7 +527,7 @@ Versioned YAML. Mandatory `source`. Two registers.
 - id: RBI_EMANDATE_PREDEBIT_24H
   kind: regulatory
   source: "RBI Digital Payments E-Mandate Framework, 2026 (RBI/DPSS/2026-27/396, 21-04-2026)"
-  clause_ref: "<paragraph number from the circular>"
+  clause_ref: "Section 6(a) (24h timing) and 6(b) (mandatory fields) — see sourcing note below"
   machine: "action.presents_mandate_debit =>
             (mandate.last_notification_at <= now - 24h
              AND notification.fields ⊇ {merchant_name, amount, debit_datetime,
@@ -540,12 +540,15 @@ Versioned YAML. Mandatory `source`. Two registers.
   kind: regulatory
   source: "Same circular — ₹15,000 AFA-free ceiling; the ₹1L exception is
            insurance/SIP/credit-card only and does not extend to B2B payables"
+  clause_ref: "Section 8(a) (₹15,000 ceiling) and 8(b) (the three-category exception)"
   machine: "debit_paise <= 1500000 OR action.afa_reference IS NOT NULL"
   human: "Above ₹15,000 the account holder must authenticate. No exception applies here."
   test: "tests/regulatory/test_afa_ceiling.py::test_blocks_unauthenticated_large_debit"
 
-- id: RBI_EMANDATE_POSTDEBIT     ; machine: "action.presents_mandate_debit => post_debit_notification_queued == TRUE"
-- id: RBI_EMANDATE_OPTOUT        ; machine: "action.presents_mandate_debit =>
+- id: RBI_EMANDATE_POSTDEBIT     ; clause_ref: "Section 7"
+                                 ; machine: "action.presents_mandate_debit => post_debit_notification_queued == TRUE"
+- id: RBI_EMANDATE_OPTOUT        ; clause_ref: "Section 6(c)"
+                                 ; machine: "action.presents_mandate_debit =>
                                              NOT (debtor.opted_out_cycle OR mandate.status == REVOKED)"
 - id: RBI_FPC_HOURS              ; machine: "08:00 <= debtor.local_time < 19:00"
 - id: TRAI_DND                   ; machine: "action.channel IS NULL OR action.channel NOT IN debtor.opted_out_channels"
@@ -560,6 +563,21 @@ Three corrections to this register, all found while implementing it rather than 
 - **`MSMED_INTEREST_BASIS`** had the same defect, guarded here to the one action type that actually asserts a statutory interest figure.
 - **`TRAI_DND`** still read the single blanket `debtor.opted_out` boolean this section originally had, even after §11.1 replaced it with per-channel `opted_out_channels` (added for `CHANNEL_HOPPER`, §24.3) — the two sections had drifted apart. Updated to check the specific channel this action would use.
 - **`RBI_EMANDATE_OPTOUT`** had the identical unconditional-rule defect, discovered the hard way: unscoped, it doesn't just block debits on an opted-out mandate, it blocks *every* action while `debtor.opted_out_cycle` is true — including `revoke_mandate` itself, which is precisely the action §11.6 requires to run *autonomously* on opt-out. The rule meant to honour the opt-out was blocking the one action that honours it. Guarded the same way as the other three.
+
+**Sourcing note (2026-08-30):** the four `clause_ref` values above come from
+fetching `rbi.org.in/Scripts/BS_ViewMasDirections.aspx?id=13374` (found via
+web search for the circular number, not guessed) and extracting its
+section structure — Sections 1–11, with the pre-debit/post-debit/AFA/opt-out
+requirements at 6(a), 6(b), 7, 8(a), 8(b), and 6(c) respectively. This
+closes most of what was previously a `TODO` placeholder in every prior
+revision. It is still **one step short of a verbatim manual read**: the
+fetch was processed by an automated summarizer, not read character-by-character
+by the person implementing this, so treat the exact sub-clause letters as
+"very likely correct, not yet independently verified" — re-check against
+the circular directly before citing these in a compliance claim that needs
+to survive scrutiny. `RBI_FPC_HOURS` (Fair Practices Code) and
+`MSMED_INTEREST_BASIS`'s clause (already Section 16 of the Act itself, not
+a circular) are unaffected by this note.
 
 **Every regulatory rule carries a `clause_ref` and a named `test`.** Both feed `REGULATORY_MAP.md`.
 
