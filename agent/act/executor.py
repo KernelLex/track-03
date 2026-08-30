@@ -24,9 +24,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from pydantic import BaseModel
+
 from agent.act.actions import ActionType
 from agent.bounds.context import BoundsContext
 from agent.bounds.engine import BoundsResult, check_bounds
+from agent.ledger.models import LedgerEntry
+from agent.ledger.store import Ledger
 from agent.rails.protocol import Rail
 from agent.rails.types import InvoiceSpec, LinkSpec, MandateDelta, MandateSpec
 
@@ -192,6 +196,16 @@ def _dispatch(action_type: ActionType, rail: Rail, payload: dict) -> tuple[str |
     raise UnknownActionType(f"ACT has no dispatch logic for {action_type.value!r}")
 
 
+def _json_safe(value: object) -> object:
+    if isinstance(value, BaseModel):
+        return value.model_dump()
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
+
+
 def execute_action(
     *,
     action_type: ActionType,
@@ -201,10 +215,21 @@ def execute_action(
     bounds_context: BoundsContext,
     rail: Rail,
     outbound_store: OutboundActionStore,
+    ledger: Ledger,
     payload: dict,
+    actor: str = "ACT",
 ) -> ActionOutcome:
+    """Law 4: agents coordinate only through the ledger -- every call here
+    writes exactly one LedgerEntry, whether the action was accepted,
+    refused, or deduped as a retry. `ledger` is required, not optional:
+    a code path that could dispatch a real action without a ledger record
+    is exactly the kind of gap DEVDOC_v6's Law 4 exists to close, so there
+    is no "skip the ledger" parameter to reach for under time pressure."""
     bounds_result = check_bounds(bounds_context)
+    verdict_dicts = [v.to_dict() for v in bounds_result.verdicts]
+
     if not bounds_result.passed:
+        ledger.append(LedgerEntry(actor=actor, debtor_id=debtor_id, bounds_checks=verdict_dicts))
         raise ActionRefused(bounds_result)
 
     key = compute_idempotency_key(
@@ -221,15 +246,26 @@ def execute_action(
                 f"idempotency_key={key} was claimed but never finalized -- a prior "
                 "dispatch is in flight or crashed before completing"
             )
-        return ActionOutcome(
-            action_type=action_type, idempotency_key=key, external_ref=external_ref,
-            rail_tag=getattr(rail, "rail_tag", None), was_duplicate=True, detail=detail,
-        )
+        was_duplicate = True
+    else:
+        external_ref, detail = _dispatch(action_type, rail, payload)
+        outbound_store.finalize(key, external_ref, detail)
+        was_duplicate = False
 
-    external_ref, detail = _dispatch(action_type, rail, payload)
-    outbound_store.finalize(key, external_ref, detail)
+    rail_tag = getattr(rail, "rail_tag", None)
+    ledger.append(LedgerEntry(
+        actor=actor, debtor_id=debtor_id, bounds_checks=verdict_dicts,
+        action={
+            "type": action_type.value,
+            "payload": _json_safe(payload),
+            "bounds_context_snapshot": bounds_context.to_dict(),
+        },
+        idempotency_key=key,
+        rail_tag=rail_tag,
+        outcome={"external_ref": external_ref, "was_duplicate": was_duplicate, "detail": _json_safe(detail)},
+    ))
 
     return ActionOutcome(
         action_type=action_type, idempotency_key=key, external_ref=external_ref,
-        rail_tag=getattr(rail, "rail_tag", None), was_duplicate=False, detail=detail,
+        rail_tag=rail_tag, was_duplicate=was_duplicate, detail=detail,
     )

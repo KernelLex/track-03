@@ -98,6 +98,7 @@ def test_act_executor_dispatches_create_payment_link_against_the_live_rail(tmp_p
     from agent.act.actions import ActionType
     from agent.act.executor import OutboundActionStore, execute_action
     from agent.bounds.context import ActionCtx, BoundsContext, ConfigCtx, DebtorCtx, DecisionCtx, InvoiceCtx, MandateCtx
+    from agent.ledger.store import Ledger
 
     ctx = BoundsContext(
         debtor=DebtorCtx(id="live_debtor_1", state="ENGAGED"),
@@ -107,11 +108,11 @@ def test_act_executor_dispatches_create_payment_link_against_the_live_rail(tmp_p
         invoice=InvoiceCtx(id="live_inv_1"),
         config=ConfigCtx(),
     )
-    with OutboundActionStore(tmp_path / "outbound.db") as store:
+    with OutboundActionStore(tmp_path / "outbound.db") as store, Ledger(tmp_path / "ledger.db") as ledger:
         rail = RazorpayRail(KEY_ID, KEY_SECRET)
         outcome = execute_action(
             action_type=ActionType.CREATE_PAYMENT_LINK, debtor_id="live_debtor_1", invoice_id="live_inv_1",
-            decision_seq=1, bounds_context=ctx, rail=rail, outbound_store=store,
+            decision_seq=1, bounds_context=ctx, rail=rail, outbound_store=store, ledger=ledger,
             payload={"amount_paise": 100, "description": "ACT executor live probe"},
         )
     assert outcome.external_ref.startswith("plink_")

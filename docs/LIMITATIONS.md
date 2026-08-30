@@ -132,12 +132,24 @@ account has no analogue for any of those.
 
 §11.2 Path B's **schema** (`agent/diagnose/extract.py`) and the objection-marker
 / deemed-acceptance logic built on top of it (`agent/diagnose/objection.py`)
-are built and tested. §17.8's stratified golden set and §11.7's Auditor
-(extractor-drift sampling, bounds-integrity re-check) do not exist yet —
-both depend on an actual LLM extractor producing real extractions to sample
-and drift-check, and no model call exists anywhere in this codebase.
-Chain-integrity, the one Auditor job that needs no model, is fully built
-(`Ledger.verify_chain()`).
+are built and tested. §17.8's stratified golden set does not exist yet — it
+needs real extractions to label, and no model call exists anywhere in this
+codebase.
+
+§11.7's Auditor is **built for its two model-free jobs**: chain integrity
+(wraps `Ledger.verify_chain()`) and bounds integrity (`agent/auditor
+/auditor.py::check_bounds_integrity()` — recomputes `check_bounds()` from
+each sampled action's own recorded inputs and raises `BoundsIntegrityBreach`
+on a mismatch; `tests/agent/test_auditor.py` includes a test that forges a
+recorded verdict and confirms it's caught). This only works because
+`agent/act/executor.py` now writes a JSON-safe `bounds_context_snapshot`
+into every `LedgerEntry` it appends — a real structural gap found while
+building the Auditor: ACT never wrote to the ledger at all before this,
+which meant Law 4 ("agents coordinate only through the ledger") was simply
+not upheld for the one stage that moves money. **Extractor drift is not
+built** — it needs a live model producing real extractions to sample and
+re-run. Neither job runs on a schedule yet; both are library functions a
+caller invokes, not a running periodic process.
 
 ## EV gate
 

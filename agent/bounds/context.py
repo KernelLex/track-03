@@ -105,6 +105,88 @@ class BoundsContext:
     interest_computed_from: float | None = None
     promise_date: datetime | None = None
 
+    def to_dict(self) -> dict[str, object]:
+        """A JSON-safe snapshot, for storing inside a LedgerEntry's `action`
+        field so the Auditor's bounds-integrity job (§11.7) can later
+        reconstruct this exact context and recompute check_bounds() from
+        ledger inputs alone — not from live, possibly-since-changed state."""
+        return {
+            "debtor": {
+                "id": self.debtor.id, "state": self.debtor.state, "touches_7d": self.debtor.touches_7d,
+                "opted_out_cycle": self.debtor.opted_out_cycle,
+                "opted_out_channels": sorted(self.debtor.opted_out_channels),
+                "local_time": self.debtor.local_time.isoformat(),
+                "promise_credibility": self.debtor.promise_credibility,
+            },
+            "mandate": {
+                "id": self.mandate.id, "status": self.mandate.status,
+                "last_notification_at": self.mandate.last_notification_at.isoformat() if self.mandate.last_notification_at else None,
+                "afa_required": self.mandate.afa_required,
+            },
+            "action": {
+                "type": self.action.type, "channel": self.action.channel, "afa_reference": self.action.afa_reference,
+                "human_approval_id": self.action.human_approval_id, "carries_legal_number": self.action.carries_legal_number,
+                "rail_tag": self.action.rail_tag, "is_regulatory_notice": self.action.is_regulatory_notice,
+                "presents_mandate_debit": self.action.presents_mandate_debit,
+                "params": self.action.params, "debtor_stated_params": self.action.debtor_stated_params,
+                "clamp_direction": self.action.clamp_direction,
+            },
+            "decision": {"ev_paise": self.decision.ev_paise},
+            "invoice": {
+                "id": self.invoice.id, "recovery_attempts": self.invoice.recovery_attempts,
+                "disputed_paise": self.invoice.disputed_paise,
+            },
+            "config": {
+                "promise_credibility_floor": self.config.promise_credibility_floor,
+                "grace_days": self.config.grace_days, "rbi_bank_rate": self.config.rbi_bank_rate,
+                "as_of_age_days": self.config.as_of_age_days,
+            },
+            "notification": {"fields": sorted(self.notification.fields)},
+            "now": self.now.isoformat(),
+            "debit_paise": self.debit_paise,
+            "post_debit_notification_queued": self.post_debit_notification_queued,
+            "interest_computed_from": self.interest_computed_from,
+            "promise_date": self.promise_date.isoformat() if self.promise_date else None,
+        }
+
+    @staticmethod
+    def from_dict(data: dict) -> "BoundsContext":
+        d, m, a, dec, inv, cfg, notif = (
+            data["debtor"], data["mandate"], data["action"], data["decision"],
+            data["invoice"], data["config"], data["notification"],
+        )
+        return BoundsContext(
+            debtor=DebtorCtx(
+                id=d["id"], state=d["state"], touches_7d=d["touches_7d"], opted_out_cycle=d["opted_out_cycle"],
+                opted_out_channels=frozenset(d["opted_out_channels"]),
+                local_time=time.fromisoformat(d["local_time"]), promise_credibility=d["promise_credibility"],
+            ),
+            mandate=MandateCtx(
+                id=m["id"], status=m["status"],
+                last_notification_at=datetime.fromisoformat(m["last_notification_at"]) if m["last_notification_at"] else None,
+                afa_required=m["afa_required"],
+            ),
+            action=ActionCtx(
+                type=a["type"], channel=a["channel"], afa_reference=a["afa_reference"],
+                human_approval_id=a["human_approval_id"], carries_legal_number=a["carries_legal_number"],
+                rail_tag=a["rail_tag"], is_regulatory_notice=a["is_regulatory_notice"],
+                presents_mandate_debit=a["presents_mandate_debit"], params=a["params"],
+                debtor_stated_params=a["debtor_stated_params"], clamp_direction=a["clamp_direction"],
+            ),
+            decision=DecisionCtx(ev_paise=dec["ev_paise"]),
+            invoice=InvoiceCtx(id=inv["id"], recovery_attempts=inv["recovery_attempts"], disputed_paise=inv["disputed_paise"]),
+            config=ConfigCtx(
+                promise_credibility_floor=cfg["promise_credibility_floor"], grace_days=cfg["grace_days"],
+                rbi_bank_rate=cfg["rbi_bank_rate"], as_of_age_days=cfg["as_of_age_days"],
+            ),
+            notification=NotificationCtx(fields=frozenset(notif["fields"])),
+            now=datetime.fromisoformat(data["now"]),
+            debit_paise=data["debit_paise"],
+            post_debit_notification_queued=data["post_debit_notification_queued"],
+            interest_computed_from=data["interest_computed_from"],
+            promise_date=datetime.fromisoformat(data["promise_date"]) if data["promise_date"] else None,
+        )
+
     def to_namespace(self) -> dict[str, object]:
         return {
             "debtor": self.debtor,
