@@ -92,6 +92,25 @@ def test_malformed_but_signature_valid_body_is_rejected_with_400(client):
     assert response.status_code == 400
 
 
+def test_auditor_scheduler_starts_when_ledger_db_is_configured(tmp_path, monkeypatch):
+    monkeypatch.setenv("TRUECOMMIT_EVENTS_DB", str(tmp_path / "events.db"))
+    monkeypatch.setenv("TRUECOMMIT_WEBHOOK_SECRET_SIMULATED", SECRET)
+    monkeypatch.setenv("TRUECOMMIT_LEDGER_DB", str(tmp_path / "ledger.db"))
+
+    from agent.api.app import app
+
+    with TestClient(app) as c:
+        assert app.state.auditor_scheduler is not None
+        assert app.state.auditor_scheduler.running
+    assert not app.state.auditor_scheduler.running  # shut down cleanly on exit
+
+
+def test_auditor_scheduler_does_not_start_without_ledger_db_configured(client):
+    from agent.api.app import app
+
+    assert app.state.auditor_scheduler is None
+
+
 def test_unrecognized_event_type_is_still_ingested_with_200(client):
     from agent.rails.webhook_signing import sign
 

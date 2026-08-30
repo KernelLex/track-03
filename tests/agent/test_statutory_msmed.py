@@ -12,7 +12,10 @@ from agent.statutory.msmed import (
     EligibilityInput,
     IneligibilityReason,
     RbiBankRateConfig,
+    SamadhaanReferralStub,
     StaleStatutoryParam,
+    StatutoryRungNotImplemented,
+    YearEndNoticeStub,
     check_eligibility,
     compute_due_date,
     compute_statutory_interest_paise,
@@ -135,6 +138,19 @@ def test_zero_or_negative_principal_is_rejected():
             principal_paise=0, due_date=date(2026, 1, 1), payment_date=date(2026, 4, 1),
             rate_config=FRESH_RATE, today=date(2026, 8, 30),
         )
+
+
+# ---- Rungs 5-6: documented and stubbed, not implemented (§14.4) ----
+
+
+def test_rung_5_year_end_notice_is_stubbed_not_implemented():
+    with pytest.raises(StatutoryRungNotImplemented):
+        YearEndNoticeStub(invoice_id="inv_1", financial_year="2026-27").build()
+
+
+def test_rung_6_samadhaan_referral_is_stubbed_not_implemented():
+    with pytest.raises(StatutoryRungNotImplemented):
+        SamadhaanReferralStub(invoice_id="inv_1", total_due_paise=500_000).build()
 
 
 def test_loads_the_committed_config_file_matching_devdoc_values():

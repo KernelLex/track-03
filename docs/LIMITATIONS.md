@@ -13,10 +13,12 @@ webhook receiver. Roughly 508 tests passing with live credentials present,
 497 passing / 11 skipped without (the live suite skips cleanly — no
 credentials are required to run the main suite). It is still **not**:
 
-- A running multi-stage service with a scheduler or a dashboard UI — no
-  APScheduler wiring, no Jinja templates, no human-queue view. There *is*
-  now a real webhook receiver (`agent/api/app.py`, `uv run trucommit
-  serve`) — see below for exactly what that does and doesn't close.
+- A running multi-stage pipeline with a dashboard UI — no Jinja templates,
+  no human-queue view, and no scheduler running `DIAGNOSE -> DECIDE ->
+  BOUNDS -> ACT` end to end. There *is* now a real webhook receiver
+  (`agent/api/app.py`, `uv run trucommit serve`) and a real scheduled
+  Auditor (`agent/auditor/scheduler.py`, APScheduler in-process) running
+  alongside it — see below for exactly what each does and doesn't close.
 - The four-arm evaluation (§17) — no personas, no pre-registration commit,
   no eval harness
 - Wired to a real LLM for Path B extraction (§11.2) — no extractor exists
@@ -148,8 +150,16 @@ building the Auditor: ACT never wrote to the ledger at all before this,
 which meant Law 4 ("agents coordinate only through the ledger") was simply
 not upheld for the one stage that moves money. **Extractor drift is not
 built** — it needs a live model producing real extractions to sample and
-re-run. Neither job runs on a schedule yet; both are library functions a
-caller invokes, not a running periodic process.
+re-run.
+
+Both model-free jobs **do now run on a schedule** — `agent/auditor
+/scheduler.py`, APScheduler in-process, wired into `agent/api/app.py`'s
+lifespan behind the `TRUECOMMIT_LEDGER_DB` env var (`uv run trucommit
+serve` starts both alongside the webhook receiver; it warns loudly, rather
+than silently, if that variable isn't set). A trip currently logs at
+`CRITICAL` rather than DEVDOC_v6 §11.7's own "halt the arm, write
+WHAT_BROKE.md" — "arm" is a concept from the eval harness (§17), which
+doesn't exist yet, so there's nothing to halt in the sense the spec means.
 
 ## EV gate
 

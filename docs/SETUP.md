@@ -86,6 +86,30 @@ your account), so treat them as you would any other credential: don't
 paste them into a committed file, a shared terminal log, or a screen
 recording for the pitch video.
 
+## Running the webhook receiver and the scheduled Auditor
+
+```
+TRUECOMMIT_WEBHOOK_SECRET_SIMULATED=your-secret \
+TRUECOMMIT_LEDGER_DB=ledger.db \
+uv run trucommit serve
+```
+
+Starts the FastAPI webhook receiver (`agent/api/app.py`) on
+`http://127.0.0.1:8000`. `POST /webhooks/{source}` needs a
+`TRUECOMMIT_WEBHOOK_SECRET_<SOURCE>` env var per source (uppercased) or it
+refuses the request with a 500 rather than accepting an unverifiable
+webhook. Setting `TRUECOMMIT_LEDGER_DB` also starts the Auditor's two
+model-free jobs on a schedule (`agent/auditor/scheduler.py`) — chain
+integrity every 5 minutes, bounds integrity (10% sample) every 15 — logging
+at `CRITICAL` on a trip. Omit it and the server still runs, but logs a
+warning that nothing is watching the ledger.
+
+Pointing a real Razorpay webhook at this needs a publicly reachable URL
+(this binds to localhost by default; `--host 0.0.0.0` plus a tunnel like
+ngrok, or an actual deployment) and manually configuring that URL and a
+webhook secret in the Razorpay dashboard — both outside what this project
+can do unattended.
+
 ## Environment
 
 - Python 3.12 (pinned via `uv python install 3.12`; the project also runs

@@ -172,3 +172,48 @@ def compute_statutory_interest_paise(
         principal = (principal + interest).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
 
     return int(principal) - principal_paise
+
+
+# ---- §14.4 Ladder, rungs 5-6 — documented and stubbed, not implemented ----
+
+
+class StatutoryRungNotImplemented(Exception):
+    """Rungs 5 and 6 are documented and stubbed, not implemented (§14.4) —
+    this build ships rung 4 only. Raised rather than silently no-opping, so
+    a caller can never mistake "not implemented" for "nothing to do here"."""
+
+
+@dataclass(frozen=True, slots=True)
+class YearEndNoticeStub:
+    """Rung 5: a year-end notice tied to Section 22 / 43B(h) disallowance,
+    typically issued once per financial year for dues still outstanding at
+    year-end. Not implemented — would need a financial-year-boundary
+    scheduler trigger and specific 43B(h) notice/disclosure language this
+    build has not sourced."""
+
+    invoice_id: str
+    financial_year: str
+
+    def build(self) -> None:
+        raise StatutoryRungNotImplemented(
+            f"rung 5 (year-end 43B(h) notice) is not implemented — stubbed only, invoice_id={self.invoice_id!r}"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class SamadhaanReferralStub:
+    """Rung 6: referral to the MSME Samadhaan portal — a statutory dispute
+    resolution mechanism, and the terminal rung of the ladder (§14.4). Not
+    implemented — this is fundamentally a human-initiated filing on a
+    government portal, not something an autonomous API call could complete
+    even once built out; the realistic implementation is a human-gated
+    action that prepares the referral packet, never an autonomous filing."""
+
+    invoice_id: str
+    total_due_paise: int
+
+    def build(self) -> None:
+        raise StatutoryRungNotImplemented(
+            f"rung 6 (MSME Samadhaan referral) is not implemented — stubbed only, "
+            f"invoice_id={self.invoice_id!r}; always human-gated and terminal even once built"
+        )

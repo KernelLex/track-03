@@ -14,12 +14,14 @@ what this build can do unattended. See docs/LIMITATIONS.md.
 
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from fastapi import FastAPI, HTTPException, Request
 
+from agent.auditor.scheduler import start_auditor_scheduler
 from agent.ingest.listen import UnrecognizedWebhookEvent, facts_from_webhook
 from agent.ingest.webhooks import EventStore, MalformedWebhook, SignatureInvalid, verify_and_ingest
 
@@ -28,10 +30,21 @@ from agent.ingest.webhooks import EventStore, MalformedWebhook, SignatureInvalid
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     db_path = os.environ.get("TRUECOMMIT_EVENTS_DB", "events.db")
     app.state.event_store = EventStore(db_path)
+
+    ledger_db_path = os.environ.get("TRUECOMMIT_LEDGER_DB")
+    app.state.auditor_scheduler = start_auditor_scheduler(ledger_db_path) if ledger_db_path else None
+    if app.state.auditor_scheduler is None:
+        logging.getLogger("trucommit.api").warning(
+            "TRUECOMMIT_LEDGER_DB not set -- the Auditor is not running. "
+            "check_bounds() will still refuse bad actions; nothing is watching for a "
+            "gate that silently stops being called (§11.7)."
+        )
     try:
         yield
     finally:
         app.state.event_store.close()
+        if app.state.auditor_scheduler is not None:
+            app.state.auditor_scheduler.shutdown(wait=False)
 
 
 app = FastAPI(title="TrueCommit", lifespan=lifespan)
