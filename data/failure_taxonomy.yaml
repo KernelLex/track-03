@@ -1,0 +1,157 @@
+# Failure taxonomy for family A (instrument failure) structured diagnosis — DEVDOC_v6 §11.2.
+#
+# This file also defines the *entire* failure surface `SimulatedRail` is permitted
+# to emit (§5.4, §5.5): the simulator may only ever return a `code` listed below.
+# Sourcing is cited in docs/SIMULATOR_PROVENANCE.md — never invent a code here.
+#
+# `disposition` answers one specific question: "does it make sense for the
+# system to automatically schedule another `retry_charge` for this failure?"
+# It is NOT the source page's own "is this retryable" framing, which usually
+# means "can the customer try again right now" — a different question. Where
+# the two disagree, this file follows DEVDOC_v6 §11.2's own worked examples
+# (insufficient_funds -> RETRYABLE, card_expired -> TERMINAL, payment_cancelled
+# -> TERMINAL) and extends the same logic to every other code. TERMINAL never
+# means "abandon the invoice" — it means retry_charge specifically is wrong;
+# repair_mandate or create_payment_link (a different instrument) may still apply.
+
+version: 1
+
+sourced_from:
+  - url: "https://razorpay.com/docs/errors/payments/cards/"
+    fetched: "2026-08-30"
+  - url: "https://razorpay.com/docs/errors/payments/upi/"
+    fetched: "2026-08-30"
+
+not_yet_sourced:
+  - subject: "NACH/eNACH mandate return codes"
+    reason: >
+      Needs NPCI's return-code circular, not yet pulled in. §12.3's REPEAT_NSF
+      detector is implemented against the *count* of consecutive returns, not
+      specific NACH reason codes, so this gap doesn't block that detector —
+      it blocks giving a human-readable reason string for *why* a mandate
+      debit bounced. Declared in LIMITATIONS.md, not silently worked around.
+  - subject: "official error-reason spreadsheet (payments_error_reasons.xlsx)"
+    reason: >
+      Referenced in DEVDOC_v6 §5.5 as the primary source; not machine-fetchable
+      as a binary file through this pass's tooling. The two public error pages
+      below were used instead. Cross-check against the spreadsheet before
+      relying on this file for anything beyond development/eval use.
+
+codes:
+  cards:
+    - code: payment_timed_out
+      source: customer
+      disposition: RETRYABLE
+      description: "Customer exceeded the ~10 minute time limit for payment processing."
+    - code: gateway_technical_error
+      source: bank
+      disposition: RETRYABLE
+      description: "Partner bank downtime preventing payment completion."
+    - code: payment_cancelled
+      source: customer
+      disposition: TERMINAL
+      description: "Customer initiated cancellation, or bank-side cancellation."
+    - code: card_declined
+      source: bank
+      disposition: RETRYABLE
+      description: "Payment was declined by the customer's bank."
+    - code: insufficient_funds
+      source: bank
+      disposition: RETRYABLE
+      description: "Customer's bank account did not have enough funds."
+    - code: card_not_enrolled
+      source: customer
+      disposition: TERMINAL
+      description: "Card was not activated or enabled by the customer for online transactions."
+      note: "Needs the customer to act with their bank; an automated retry_charge cannot fix this."
+    - code: bank_technical_error
+      source: bank
+      disposition: RETRYABLE
+      description: "Bank downtime causing payment failure."
+    - code: card_disabled_for_online_payments
+      source: customer
+      disposition: TERMINAL
+      description: "Card was not activated or enabled by the customer for online transactions."
+      note: "Same as card_not_enrolled — Razorpay's pages list both; kept distinct to match the source."
+    - code: authentication_failed
+      source: customer
+      disposition: RETRYABLE
+      description: "Incorrect OTP/verification details, or the browser closed during authentication."
+    - code: payment_risk_check_failed
+      source: bank
+      disposition: TERMINAL
+      description: "Customer's bank declined the payment, citing it as fraudulent."
+      note: "Overridden from the source page's 'retryable: yes'. Auto-retrying a fraud-flagged
+             charge is exactly the aggressive-bot behaviour this system is designed to avoid;
+             this should route toward human review, not another retry_charge."
+    - code: incorrect_cvv
+      source: customer
+      disposition: RETRYABLE
+      description: "Customer entered an incorrect CVV during payment."
+    - code: debit_instrument_blocked
+      source: bank
+      disposition: TERMINAL
+      description: "Card blocked, either by the customer or their bank."
+      note: "Needs unblocking outside this system; blind retry cannot succeed."
+    - code: card_expired
+      source: customer
+      disposition: TERMINAL
+      description: "Customer's card expiration date has passed."
+    - code: transaction_limit_exceeded
+      source: bank
+      disposition: RETRYABLE
+      description: "Customer reached the maximum transaction limit on their card."
+      note: "Limits are typically time-boxed (daily/monthly) and reset; worth a later retry."
+
+  upi:
+    - code: bank_technical_error
+      source: bank
+      disposition: RETRYABLE
+      description: "Payment failed due to downtime on the UPI provider."
+    - code: credit_failed_account_mismatch
+      source: customer
+      disposition: TERMINAL
+      description: "Customer used a different bank account than the one registered."
+      note: "Needs the customer to correct registration; not fixable by retry_charge."
+    - code: credit_failed_partner_downtime
+      source: bank
+      disposition: RETRYABLE
+      description: "Payment failed due to downtime on Razorpay's partner bank."
+    - code: gateway_technical_error
+      source: bank
+      disposition: RETRYABLE
+      description: "Technical issue or downtime at the partner bank."
+    - code: insufficient_funds
+      source: customer
+      disposition: RETRYABLE
+      description: "Customer's bank account did not have enough funds."
+      note: "Source page marks this 'retryable: no' (can't succeed in the same session), but
+             DEVDOC_v6 §11.2's own worked example classifies insufficient_funds as RETRYABLE
+             for the purpose of scheduling a *later* retry_charge — followed here for
+             consistency with the cards entry of the same code."
+    - code: invalid_vpa
+      source: customer
+      disposition: TERMINAL
+      description: "Customer's VPA is not a valid UPI user handle."
+      note: "Needs a corrected VPA from the customer; not fixable by retry_charge."
+    - code: payment_cancelled
+      source: customer
+      disposition: TERMINAL
+      description: "Customer cancelled the transaction or pressed back."
+    - code: payment_collect_request_expired
+      source: customer
+      disposition: RETRYABLE
+      description: "Customer exceeded the ~10 minute window to approve the collect request."
+    - code: payment_declined
+      source: bank
+      disposition: RETRYABLE
+      description: "Funds could not be debited from the customer's bank account."
+    - code: payment_timed_out
+      source: customer
+      disposition: RETRYABLE
+      description: "Customer exceeded the payment processing time limit."
+    - code: vpa_resolution_failed
+      source: gateway
+      disposition: TERMINAL
+      description: "Failed to resolve the transaction against the customer's UPI ID."
+      note: "Source page flags this as requiring Razorpay support intervention."
