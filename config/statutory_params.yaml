@@ -1,0 +1,18 @@
+# Statutory parameters — DEVDOC_v6 §14.1, §14.3. Values here are the doc's own,
+# not independently sourced by this build; treat as a starting point to
+# re-verify, not a settled legal position (see docs/LIMITATIONS.md).
+
+trader_exclusion:
+  applied: true
+  basis: >-
+    MSME OMs 02.07.2021 and 01.09.2021 — Udyam benefits for retail/wholesale
+    trade limited to priority sector lending; delayed-payment provisions excluded
+  position_as_of: "2026-08-30"
+  contested: true
+  note: "Executive memoranda, not statute. Re-check before relying on this in production."
+
+rbi_bank_rate:
+  value: 0.0550
+  as_of: "2026-08-05"
+  source: "RBI Monetary Policy — Bank Rate / MSF; unchanged since 05-12-2025"
+  stale_after_days: 120
