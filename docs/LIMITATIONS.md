@@ -208,13 +208,24 @@ resistance tests are built** (`data/injection_corpus.jsonl`,
 (no live model is exercised; see below). §24.2's stopping-rule DoS fixes
 are built and tested in the bounds engine itself.
 
-**Still not built**: §17's experimental design (personas, arms, the
-pre-registration + eval harness), §24.3's four adversarial personas run
-against a live population, §25's autonomy/economics reporting, and §27's
-vignette study. These need, respectively: a persona-simulation harness that
-doesn't exist, a recruited human study, and — cutting across all of it —
-an actual LLM extractor to generate realistic simulated debtor replies and
-to be the thing personas attack. Genuinely large, separate pieces of work.
+**`eval/PREREGISTRATION.md` is committed** — §17.6's parameter classification
+table, filled in honestly: swept-parameter ranges are declared (they don't
+need a source, by definition), fitted parameters are marked `PENDING` with
+the exact dataset and access blocker named, and the four arms are defined
+with their real status. **Arm A (the control) is implemented and tested**
+(`eval/arms/a/schedule.py`, `tests/eval/test_arm_a_schedule.py`) — a fixed
+schedule needs no model, so it's the one arm buildable in isolation.
+
+**Still not built**: Arms B1, B2, and C as runnable arms (B1/B2 need a live
+LLM; C needs a fitted `p_base`), the persona-simulation engine that would
+let any arm run against a population and produce a comparable ₹ figure,
+§24.3's four adversarial personas run against that population, §25's
+autonomy/economics reporting (which needs arms to have run), and §27's
+vignette study (needs 25 recruited human respondents — unambiguously a
+human-input item, not a code gap). Building the persona-simulation engine
+itself doesn't strictly need external credentials, but doing it without a
+real LLM to drive B1/B2/C would produce numbers with nothing to compare
+them against, so it wasn't started speculatively.
 
 ## No static lint rule against float arithmetic on `Money`
 
