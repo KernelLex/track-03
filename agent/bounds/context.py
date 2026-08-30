@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, time
 
-ALL_CHANNELS: frozenset[str] = frozenset({"sms", "email", "whatsapp", "ivr"})
+ALL_CHANNELS: frozenset[str] = frozenset({"sms", "email", "whatsapp", "ivr", "telegram"})
 
 
 @dataclass

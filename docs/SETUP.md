@@ -143,6 +143,58 @@ in this session — every subscribed event needs a completed checkout
 `create_refund` in `LIMITATIONS.md`. Registration and endpoint reachability
 are confirmed; a live-triggered delivery isn't yet.
 
+## Wiring the Claude API extractor (Path B)
+
+```
+ANTHROPIC_API_KEY=sk-ant-xxx uv run pytest tests/agent/test_llm_extract.py
+```
+
+That test file never makes a real call (the client is always mocked) and
+passes with no key set at all. To try one real extraction:
+
+```python
+from agent.diagnose.llm_extract import extract_from_reply
+print(extract_from_reply("we will clear this after the Diwali bonus lands"))
+```
+
+See `docs/LLM_EXTRACTION.md` for the model choice, the cost math, and
+exactly what "tested" does and doesn't mean here. Not yet wired into the
+live webhook path — DIAGNOSE doesn't call this automatically yet when a
+webhook carries free text.
+
+## Wiring the messaging channels (Telegram, Twilio voice)
+
+```
+TELEGRAM_BOT_TOKEN=xxx uv run python tools/telegram_get_chat_id.py
+```
+
+Message your bot first (Telegram bots can't cold-message a chat_id that
+hasn't messaged them), then run the above to find the `chat_id` to send to.
+Then:
+
+```python
+from agent.notify.telegram import TelegramChannel
+channel = TelegramChannel(bot_token)
+channel.send(to=chat_id, text="Invoice INV-1 is 22 days overdue.")
+```
+
+Twilio voice needs three env vars (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`,
+a `TWILIO_FROM_NUMBER` — a Twilio trial account provides one free, with
+~75 free trial minutes):
+
+```python
+from agent.notify.twilio_voice import TwilioVoiceChannel
+channel = TwilioVoiceChannel(account_sid, auth_token, from_number)
+channel.send(to="+91xxxxxxxxxx", text="This is a call about invoice INV-1.")
+```
+
+Both implement the same `MessageChannel.send(to, text)` shape and can be
+passed straight into `execute_action(..., channel=channel)` — see
+`docs/CHANNELS.md` for why messaging is a separate protocol from `Rail`,
+and why Telegram/Twilio-voice were chosen over SMS/WhatsApp. Neither has
+sent a real message yet in this build; `tests/agent/test_notify_channels.py`
+covers both against mocked HTTP with zero network access.
+
 ## Environment
 
 - Python 3.12 (pinned via `uv python install 3.12`; the project also runs

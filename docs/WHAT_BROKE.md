@@ -139,6 +139,36 @@ test_bounds_md_contains_no_bare_newline_inside_a_table_row` and
 `test_cell_collapses_embedded_newlines_and_repeated_whitespace` — the
 latter is a direct unit test of the exact bug, not just the visible symptom.
 
+## 6. A closed-world test fixture broke the moment the world grew a channel
+
+**Symptom.** Adding `"telegram"` to `ALL_CHANNELS` (agent/bounds/context.py)
+to support a real Telegram messaging channel made
+`test_channel_exhaustion_routes_to_human_instead_of_going_silent` fail:
+`CHANNEL_EXHAUSTION` returned `PASS` where the test expected `REFUSE`.
+
+**Root cause.** The test built its "debtor has opted out of everything"
+fixture by hand-listing the four channels that existed when it was written
+(`frozenset({"sms", "email", "whatsapp", "ivr"})`) instead of referencing
+`ALL_CHANNELS` itself. The rule's own logic
+(`len(debtor.opted_out_channels) < len(ALL_CHANNELS)`) was never wrong —
+once a fifth channel exists, a debtor who opted out of only the original
+four genuinely *hasn't* exhausted their contact options anymore (Telegram
+is still open to them), so `PASS` was the correct answer to the question
+the stale fixture was accidentally now asking. The bug was the fixture
+silently assuming a closed world, not the rule.
+
+**Fix.** Changed the three "every channel" fixtures in
+`tests/agent/test_bounds_engine.py` to opt out of `ALL_CHANNELS` directly
+rather than a hardcoded copy of its current members, so the test keeps
+asking the question it means to ask ("every channel exhausted") regardless
+of how many channels exist later.
+
+**Verification.**
+`tests/agent/test_bounds_engine.py::test_channel_exhaustion_routes_to_human_instead_of_going_silent`
+passes against the five-channel set; the full suite (561 tests at time of
+writing) was re-run afterward specifically to catch any other place a
+channel list had been copied instead of imported — none found.
+
 ## What this list is for
 
 Every one of these was found by actually building against DEVDOC_v6, not

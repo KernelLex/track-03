@@ -121,6 +121,43 @@ def test_message_only_action_never_touches_the_rail(store, rail, ledger):
     assert len(rail._links) == 0
 
 
+def test_message_only_action_with_a_channel_and_recipient_sends_for_real(store, rail, ledger):
+    """Passing a MessageChannel plus a payload carrying to/text turns the old
+    stub into a real send, through the exact same bounds check and
+    idempotency claim as any other action -- see agent.notify.protocol."""
+    from agent.notify.simulated import SimulatedChannel
+
+    channel = SimulatedChannel()
+    ctx = passing_bounds_context(action=ActionCtx(type="send_reminder", channel="telegram", rail_tag="simulated"))
+    outcome = execute_action(
+        action_type=ActionType.SEND_REMINDER, debtor_id="debtor_1", invoice_id="inv_1",
+        decision_seq=1, bounds_context=ctx, rail=rail, outbound_store=store, ledger=ledger,
+        payload={"to": "123456789", "text": "Invoice 1 is 22 days overdue."},
+        channel=channel,
+    )
+    assert outcome.detail["channel_status"] == "sent"
+    assert outcome.external_ref == "sim-1"
+    assert channel.sent == [{"to": "123456789", "text": "Invoice 1 is 22 days overdue."}]
+
+
+def test_message_only_action_without_to_or_text_falls_back_to_stub_even_with_a_channel(store, rail, ledger):
+    """A channel alone isn't enough -- the payload has to actually carry a
+    recipient and text, or this stays the old no-op-but-logged behaviour
+    rather than guessing at defaults."""
+    from agent.notify.simulated import SimulatedChannel
+
+    channel = SimulatedChannel()
+    ctx = passing_bounds_context(action=ActionCtx(type="send_reminder", channel="email", rail_tag="simulated"))
+    outcome = execute_action(
+        action_type=ActionType.SEND_REMINDER, debtor_id="debtor_1", invoice_id="inv_1",
+        decision_seq=1, bounds_context=ctx, rail=rail, outbound_store=store, ledger=ledger,
+        payload={"template": "gentle_nudge"},
+        channel=channel,
+    )
+    assert outcome.detail["message_dispatched"] is True
+    assert channel.sent == []
+
+
 def test_create_payment_link_creates_exactly_once_and_tags_simulated(store, rail, ledger):
     ctx = passing_bounds_context()
     outcome = execute_action(

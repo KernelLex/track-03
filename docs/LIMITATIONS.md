@@ -9,9 +9,10 @@ A tested, working implementation of TrueCommit's **pure-logic safety and
 compliance core** (DEVDOC_v6 §5.2's "the judgment"), **now also wired to a
 real, live Razorpay test-mode account** (as of 2026-08-30) for the
 capabilities that account actually has, plus a real (if minimal) HTTP
-webhook receiver. Roughly 508 tests passing with live credentials present,
-497 passing / 11 skipped without (the live suite skips cleanly — no
-credentials are required to run the main suite). It is still **not**:
+webhook receiver. **561 tests passing / 11 skipped as of 2026-08-31**,
+measured without live credentials in the shell (the 11 skipped are the
+Razorpay-live-only suite, which skips cleanly rather than failing —
+no credentials are required to run the main suite). It is still **not**:
 
 - A running multi-stage pipeline with a dashboard UI — no Jinja templates,
   no human-queue view, and no scheduler running `DIAGNOSE -> DECIDE ->
@@ -21,21 +22,36 @@ credentials are required to run the main suite). It is still **not**:
   alongside it — see below for exactly what each does and doesn't close.
 - The four-arm evaluation (§17) — no personas, no pre-registration commit,
   no eval harness
-- Wired to a real LLM for Path B extraction (§11.2) — no extractor exists
+- Wired end to end from the live webhook to a real LLM call — the call
+  itself now exists and is tested (`agent/diagnose/llm_extract.py`, see
+  `docs/LLM_EXTRACTION.md`), but nothing yet invokes it from the DIAGNOSE
+  stage automatically when a webhook carries free text instead of a
+  structured code, and it has never been run against the real API (needs
+  `ANTHROPIC_API_KEY`)
+- A live messaging send — Telegram and Twilio-voice channels exist and are
+  wired into ACT (`agent/notify/`, see `docs/CHANNELS.md`), tested against
+  mocked HTTP, but neither has sent a real message yet (needs
+  `TELEGRAM_BOT_TOKEN`, and `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN`/
+  `TWILIO_FROM_NUMBER`)
 
-## Webhook receiver (§19) — built, not yet reachable from a real webhook
+## Webhook receiver (§19) — built and registered live once; current uptime unknown
 
 `agent/api/app.py` is a minimal FastAPI app (`POST /webhooks/{source}`,
 `GET /health`) wired directly into `verify_and_ingest()` and
 `facts_from_webhook()` — tested end to end through real HTTP request/response
 via FastAPI's `TestClient` (`tests/agent/test_api_webhooks.py`, 8 tests,
 using real `SimulatedRail`-emitted webhooks). `uv run trucommit serve` runs
-it with uvicorn. **What's missing to point a real Razorpay webhook at it**:
-a publicly reachable URL (this runs on localhost) and manually configuring
-that URL plus a webhook secret in the Razorpay dashboard — both need a
-human with dashboard access and, for a public URL, either a deployment or
-a tunnel (ngrok or similar). No dashboard UI exists yet — only the
-receiver endpoint.
+it with uvicorn. **Update, 2026-08-31**: this has been done for real, once —
+a `cloudflared` quick tunnel gave it a public URL and `client.webhook.create()`
+registered that URL with the live Razorpay account (see `docs/SETUP.md`).
+That tunnel is ephemeral by design (dies with the process, no uptime
+guarantee even while running), so whether it's currently reachable depends
+on whether that specific `trucommit serve` + `cloudflared` process pair is
+still alive — not tracked here because it isn't a code fact, it's live
+process state that changes outside of any commit. A real Razorpay-triggered
+delivery reaching the receiver has still not been observed (every
+subscribed event needs a completed checkout to fire). No dashboard UI
+exists yet — only the receiver endpoint.
 
 ## Live rail status (2026-08-30) — a real upgrade from "assumed"
 
@@ -152,9 +168,13 @@ account has no analogue for any of those.
 
 §11.2 Path B's **schema** (`agent/diagnose/extract.py`) and the objection-marker
 / deemed-acceptance logic built on top of it (`agent/diagnose/objection.py`)
-are built and tested. §17.8's stratified golden set does not exist yet — it
-needs real extractions to label, and no model call exists anywhere in this
-codebase.
+are built and tested. **Update, 2026-08-31**: a real model call now exists
+(`agent/diagnose/llm_extract.py::extract_from_reply()`, `client.messages.parse()`
+against `claude-sonnet-5`, constructing a real `ExtractionResult` so every
+existing validator runs on the model's output) — tested against a mocked
+client (`tests/agent/test_llm_extract.py`, 11 tests), never yet against the
+real API. §17.8's stratified golden set still does not exist — it needs
+real extractions to label, and none have been produced yet.
 
 §11.7's Auditor is **built for its two model-free jobs**: chain integrity
 (wraps `Ledger.verify_chain()`) and bounds integrity (`agent/auditor
@@ -250,16 +270,20 @@ with their real status. **Arm A (the control) is implemented and tested**
 (`eval/arms/a/schedule.py`, `tests/eval/test_arm_a_schedule.py`) — a fixed
 schedule needs no model, so it's the one arm buildable in isolation.
 
-**Still not built**: Arms B1, B2, and C as runnable arms (B1/B2 need a live
-LLM; C needs a fitted `p_base`), the persona-simulation engine that would
-let any arm run against a population and produce a comparable ₹ figure,
-§24.3's four adversarial personas run against that population, §25's
-autonomy/economics reporting (which needs arms to have run), and §27's
-vignette study (needs 25 recruited human respondents — unambiguously a
-human-input item, not a code gap). Building the persona-simulation engine
-itself doesn't strictly need external credentials, but doing it without a
-real LLM to drive B1/B2/C would produce numbers with nothing to compare
-them against, so it wasn't started speculatively.
+**Still not built**: Arms B1, B2, and C as runnable arms, and the
+persona-simulation engine that would let any arm run against a population
+and produce a comparable ₹ figure. **Update, 2026-08-31**: the two things
+this paragraph previously named as blockers are no longer accurate —
+`p_base` is fitted (see the EV gate section above) and a live LLM call now
+exists (`agent/diagnose/llm_extract.py`, see `docs/LLM_EXTRACTION.md`). The
+actual remaining gap is orchestration: nothing yet threads a diagnosis
+through `compute_ev()` and `select_instrument()` into a runnable arm, and
+no persona generator exists to sample a population from the fitted Kaggle
+distributions. §24.3's four adversarial personas run against that
+population, §25's autonomy/economics reporting (which needs arms to have
+run), and §27's vignette study (built and ready to send — needs 25 human
+respondents, unambiguously a human-input item, not a code gap) all still
+follow behind this.
 
 ## No static lint rule against float arithmetic on `Money`
 

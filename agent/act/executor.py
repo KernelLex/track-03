@@ -31,6 +31,7 @@ from agent.bounds.context import BoundsContext
 from agent.bounds.engine import BoundsResult, check_bounds
 from agent.ledger.models import LedgerEntry
 from agent.ledger.store import Ledger
+from agent.notify.protocol import MessageChannel
 from agent.rails.protocol import Rail
 from agent.rails.types import InvoiceSpec, LinkSpec, MandateDelta, MandateSpec
 
@@ -153,8 +154,16 @@ class OutboundActionStore:
         return external_ref, (json.loads(detail_json) if detail_json else {})
 
 
-def _dispatch(action_type: ActionType, rail: Rail, payload: dict) -> tuple[str | None, dict]:
+def _dispatch(
+    action_type: ActionType, rail: Rail, payload: dict, channel: MessageChannel | None = None
+) -> tuple[str | None, dict]:
     if action_type in MESSAGE_ONLY_ACTIONS:
+        if channel is not None and "to" in payload and "text" in payload:
+            result = channel.send(to=payload["to"], text=payload["text"])
+            return result.external_ref, {
+                "message_dispatched": True, "channel": result.channel,
+                "channel_status": result.status, **result.detail,
+            }
         return None, {"message_dispatched": True, **{k: v for k, v in payload.items() if isinstance(v, (str, int, float, bool))}}
 
     if action_type == ActionType.CREATE_PAYMENT_LINK:
@@ -218,13 +227,22 @@ def execute_action(
     ledger: Ledger,
     payload: dict,
     actor: str = "ACT",
+    channel: MessageChannel | None = None,
 ) -> ActionOutcome:
     """Law 4: agents coordinate only through the ledger -- every call here
     writes exactly one LedgerEntry, whether the action was accepted,
     refused, or deduped as a retry. `ledger` is required, not optional:
     a code path that could dispatch a real action without a ledger record
     is exactly the kind of gap DEVDOC_v6's Law 4 exists to close, so there
-    is no "skip the ledger" parameter to reach for under time pressure."""
+    is no "skip the ledger" parameter to reach for under time pressure.
+
+    `channel` is optional and additive: omitting it preserves the original
+    stub behaviour for MESSAGE_ONLY_ACTIONS (message_dispatched=True, no
+    real send) so every existing caller and test keeps working unchanged.
+    Passing a MessageChannel (agent.notify.*) makes a message-only action
+    result in a real send, gated by the exact same check_bounds() call and
+    idempotency claim as every other action -- there is no separate,
+    lighter-touch path for messages."""
     bounds_result = check_bounds(bounds_context)
     verdict_dicts = [v.to_dict() for v in bounds_result.verdicts]
 
@@ -248,7 +266,7 @@ def execute_action(
             )
         was_duplicate = True
     else:
-        external_ref, detail = _dispatch(action_type, rail, payload)
+        external_ref, detail = _dispatch(action_type, rail, payload, channel)
         outbound_store.finalize(key, external_ref, detail)
         was_duplicate = False
 

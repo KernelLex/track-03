@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from datetime import datetime, time, timedelta
 
-from agent.bounds.context import ActionCtx, BoundsContext, ConfigCtx, DebtorCtx, DecisionCtx, InvoiceCtx, MandateCtx, NotificationCtx
+from agent.bounds.context import ALL_CHANNELS, ActionCtx, BoundsContext, ConfigCtx, DebtorCtx, DecisionCtx, InvoiceCtx, MandateCtx, NotificationCtx
 from agent.bounds.engine import check_bounds
 
 
@@ -157,19 +157,19 @@ def test_channel_exhaustion_routes_to_human_instead_of_going_silent():
     Once none remain, ordinary contact actions are refused, but escalate_human
     and regulatory notices are still allowed — the case surfaces, it doesn't stall."""
     all_opted_out = base_context(
-        debtor=DebtorCtx(id="d", state="ENGAGED", opted_out_channels=frozenset({"sms", "email", "whatsapp", "ivr"})),
+        debtor=DebtorCtx(id="d", state="ENGAGED", opted_out_channels=ALL_CHANNELS),
         action=ActionCtx(type="send_reminder", channel="email", rail_tag="simulated"),
     )
     assert verdict_for(check_bounds(all_opted_out), "CHANNEL_EXHAUSTION") == "REFUSE"
 
     escalation = base_context(
-        debtor=DebtorCtx(id="d", state="ENGAGED", opted_out_channels=frozenset({"sms", "email", "whatsapp", "ivr"})),
+        debtor=DebtorCtx(id="d", state="ENGAGED", opted_out_channels=ALL_CHANNELS),
         action=ActionCtx(type="escalate_human", rail_tag="simulated"),
     )
     assert verdict_for(check_bounds(escalation), "CHANNEL_EXHAUSTION") == "PASS"
 
     statutory_notice = base_context(
-        debtor=DebtorCtx(id="d", state="ENGAGED", opted_out_channels=frozenset({"sms", "email", "whatsapp", "ivr"})),
+        debtor=DebtorCtx(id="d", state="ENGAGED", opted_out_channels=ALL_CHANNELS),
         action=ActionCtx(type="send_statutory_notice", is_regulatory_notice=True,
                           carries_legal_number=True, human_approval_id="a1", rail_tag="simulated"),
     )
