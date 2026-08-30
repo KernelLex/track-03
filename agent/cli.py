@@ -101,14 +101,28 @@ def _demo() -> int:
     return 0
 
 
+def _serve(host: str, port: int) -> int:
+    import uvicorn
+
+    print(f"Starting the webhook receiver on http://{host}:{port} (see agent/api/app.py).")
+    print("Configure TRUECOMMIT_WEBHOOK_SECRET_<SOURCE> env vars before pointing a real webhook at this.")
+    uvicorn.run("agent.api.app:app", host=host, port=port)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="trucommit", description="TrueCommit -- bounded AR-recovery agent")
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("demo", help="Run a small real end-to-end demo on one synthetic debtor")
+    serve_parser = subparsers.add_parser("serve", help="Run the webhook receiver (agent/api/app.py) with uvicorn")
+    serve_parser.add_argument("--host", default="127.0.0.1")
+    serve_parser.add_argument("--port", type=int, default=8000)
 
     args = parser.parse_args(argv)
     if args.command == "demo":
         return _demo()
+    if args.command == "serve":
+        return _serve(args.host, args.port)
     parser.print_help()
     return 1
 

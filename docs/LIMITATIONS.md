@@ -8,16 +8,32 @@ don't bury it.
 A tested, working implementation of TrueCommit's **pure-logic safety and
 compliance core** (DEVDOC_v6 §5.2's "the judgment"), **now also wired to a
 real, live Razorpay test-mode account** (as of 2026-08-30) for the
-capabilities that account actually has. 499 tests passing with live
-credentials present, 489 passing / 10 skipped without (the live suite
-skips cleanly — no credentials are required to run the main suite). It is
-still **not**:
+capabilities that account actually has, plus a real (if minimal) HTTP
+webhook receiver. Roughly 508 tests passing with live credentials present,
+497 passing / 11 skipped without (the live suite skips cleanly — no
+credentials are required to run the main suite). It is still **not**:
 
-- A running multi-stage service (no scheduler, no FastAPI dashboard, no
-  live webhook receiver process)
+- A running multi-stage service with a scheduler or a dashboard UI — no
+  APScheduler wiring, no Jinja templates, no human-queue view. There *is*
+  now a real webhook receiver (`agent/api/app.py`, `uv run trucommit
+  serve`) — see below for exactly what that does and doesn't close.
 - The four-arm evaluation (§17) — no personas, no pre-registration commit,
   no eval harness
 - Wired to a real LLM for Path B extraction (§11.2) — no extractor exists
+
+## Webhook receiver (§19) — built, not yet reachable from a real webhook
+
+`agent/api/app.py` is a minimal FastAPI app (`POST /webhooks/{source}`,
+`GET /health`) wired directly into `verify_and_ingest()` and
+`facts_from_webhook()` — tested end to end through real HTTP request/response
+via FastAPI's `TestClient` (`tests/agent/test_api_webhooks.py`, 8 tests,
+using real `SimulatedRail`-emitted webhooks). `uv run trucommit serve` runs
+it with uvicorn. **What's missing to point a real Razorpay webhook at it**:
+a publicly reachable URL (this runs on localhost) and manually configuring
+that URL plus a webhook secret in the Razorpay dashboard — both need a
+human with dashboard access and, for a public URL, either a deployment or
+a tunnel (ngrok or similar). No dashboard UI exists yet — only the
+receiver endpoint.
 
 ## Live rail status (2026-08-30) — a real upgrade from "assumed"
 

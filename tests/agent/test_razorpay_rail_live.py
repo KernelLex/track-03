@@ -91,6 +91,33 @@ def test_fetch_unknown_kind_raises_rail_unavailable(rail):
         rail.fetch("not_a_real_kind", "whatever")
 
 
+def test_act_executor_dispatches_create_payment_link_against_the_live_rail(tmp_path):
+    """The ACT executor (agent/act/executor.py) was only exercised against
+    SimulatedRail before this -- proves it's genuinely rail-agnostic, not
+    accidentally coupled to SimulatedRail's specific behaviour."""
+    from agent.act.actions import ActionType
+    from agent.act.executor import OutboundActionStore, execute_action
+    from agent.bounds.context import ActionCtx, BoundsContext, ConfigCtx, DebtorCtx, DecisionCtx, InvoiceCtx, MandateCtx
+
+    ctx = BoundsContext(
+        debtor=DebtorCtx(id="live_debtor_1", state="ENGAGED"),
+        mandate=MandateCtx(),
+        action=ActionCtx(type="create_payment_link", channel="email", rail_tag="razorpay"),
+        decision=DecisionCtx(ev_paise=1000),
+        invoice=InvoiceCtx(id="live_inv_1"),
+        config=ConfigCtx(),
+    )
+    with OutboundActionStore(tmp_path / "outbound.db") as store:
+        rail = RazorpayRail(KEY_ID, KEY_SECRET)
+        outcome = execute_action(
+            action_type=ActionType.CREATE_PAYMENT_LINK, debtor_id="live_debtor_1", invoice_id="live_inv_1",
+            decision_seq=1, bounds_context=ctx, rail=rail, outbound_store=store,
+            payload={"amount_paise": 100, "description": "ACT executor live probe"},
+        )
+    assert outcome.external_ref.startswith("plink_")
+    assert outcome.rail_tag == "razorpay"
+
+
 def test_razorpay_rail_passes_the_shared_conformance_suite():
     """§5.4's actual claim: the SAME suite that passes against SimulatedRail
     (tests/agent/test_conformance.py) also passes against the real rail --

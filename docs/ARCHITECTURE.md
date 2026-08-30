@@ -68,9 +68,13 @@ No stage calls another directly anywhere in the code that exists — the
 pieces that exist communicate by one module calling another's pure
 function (e.g. the CLI's `demo` command calling `select_instrument()` then
 `check_bounds()` then `SimulatedRail`), which is the "ledger is the only
-bus" principle in miniature, but there is no running multi-stage pipeline
-process yet, since DECIDE and the full ACT/LISTEN orchestration aren't
-built.
+bus" principle in miniature. `agent/api/app.py` (`[built]`, `uv run
+trucommit serve`) gives `INGEST`/`LISTEN` a real HTTP endpoint —
+`verify_and_ingest()` then `facts_from_webhook()` on every `POST
+/webhooks/{source}` — but there is still no scheduler and no orchestrating
+process that runs `DIAGNOSE -> DECIDE -> BOUNDS -> ACT` end to end on a
+timer; each stage's pieces are called explicitly (by the CLI, by a test)
+rather than by a running pipeline.
 
 ## Path B's extraction schema (§11.2)
 
