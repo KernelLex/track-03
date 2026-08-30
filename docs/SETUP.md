@@ -86,6 +86,16 @@ your account), so treat them as you would any other credential: don't
 paste them into a committed file, a shared terminal log, or a screen
 recording for the pitch video.
 
+**Pace live runs.** Test-mode accounts have rate limits, observed directly
+at the end of this build session: `payment_link.create` started returning
+`BadRequestError: Too many requests` after repeated back-to-back live test
+runs, while `orders`/`invoices`/`plans`/`subscriptions` kept working —
+consistent with a per-endpoint limit, not an account suspension. Not a code
+bug (the same call succeeded many times earlier in the same session). If
+you hit this, wait a few minutes before re-running
+`tests/agent/test_razorpay_rail_live.py` rather than assuming something
+broke.
+
 ## Running the webhook receiver and the scheduled Auditor
 
 ```

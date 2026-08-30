@@ -67,6 +67,20 @@ lifecycle diagram literally (`pending_afa`, `notified_24h`, ...) — a real
 drift the conformance suite exists to surface, mapped conservatively in
 `_mandate_status_from_subscription()` rather than papered over.
 
+**Observed, 2026-08-30, end of session**: after the cumulative volume of
+live API calls made while building and re-running the live test suite
+repeatedly in one session, `payment_link.create` specifically started
+returning `BadRequestError: Too many requests` — a test-mode rate limit,
+not a code defect (the same `RazorpayRail.create_payment_link()` call
+succeeded repeatedly earlier in this same session, and `create_order`,
+`create_invoice`, `create_mandate`, and `revoke_mandate` were unaffected
+when this was observed, pointing at a per-endpoint limit rather than an
+account-wide one). No retry/backoff logic exists in `RazorpayRail` — a
+reasonable future enhancement, deliberately not added reactively at the
+end of a session already consuming the very quota it would need to test
+against. If `tests/agent/test_razorpay_rail_live.py` fails with this exact
+error, wait before re-running rather than assuming the code regressed.
+
 **Still not live-verified**: `create_refund` (implemented against the
 documented SDK method, but refunding needs an actually-captured payment,
 which needs a completed checkout with 3DS/OTP — not reachable from a
