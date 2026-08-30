@@ -115,10 +115,33 @@ at `CRITICAL` on a trip. Omit it and the server still runs, but logs a
 warning that nothing is watching the ledger.
 
 Pointing a real Razorpay webhook at this needs a publicly reachable URL
-(this binds to localhost by default; `--host 0.0.0.0` plus a tunnel like
-ngrok, or an actual deployment) and manually configuring that URL and a
-webhook secret in the Razorpay dashboard — both outside what this project
-can do unattended.
+(this binds to localhost by default; `--host 0.0.0.0` plus a tunnel, or an
+actual deployment) and registering that URL with Razorpay.
+
+**Done once, live, 2026-08-31** — registered via the API itself rather than
+the dashboard, using `cloudflared tunnel --url http://127.0.0.1:<port>`
+(a `trycloudflare.com` quick tunnel — no account needed, unlike ngrok,
+which now requires signup even for its free tier) for the public URL, and
+`client.webhook.create(...)` for the registration. **One real API-shape
+finding worth recording**: the SDK's `events` parameter is a **dict**
+(`{"payment.captured": True, ...}`), not a list — passing a list produces
+the unhelpful `BadRequestError: Invalid event name/names: 1, 2, 3, 4`
+(Razorpay's API read the list's indices as the "event names"). Confirmed
+registered via `client.webhook.all()` afterward.
+
+**Caveat**: a `trycloudflare.com` quick tunnel is ephemeral — it dies with
+the `cloudflared` process, and Cloudflare states no uptime guarantee even
+while it's running. A webhook registered against one will start silently
+failing deliveries once the tunnel (or the local server behind it) stops.
+For anything beyond a same-session demo, either keep both processes
+running for the duration, or register a new webhook (or edit the existing
+one via `client.webhook.edit(webhook_id, {...})`) pointing at a real
+deployment's URL instead. Real end-to-end delivery (an actual Razorpay-
+triggered `payment.captured` reaching this receiver) was **not** observed
+in this session — every subscribed event needs a completed checkout
+(3DS/OTP) to fire, the same headless-reachability limit already noted for
+`create_refund` in `LIMITATIONS.md`. Registration and endpoint reachability
+are confirmed; a live-triggered delivery isn't yet.
 
 ## Environment
 

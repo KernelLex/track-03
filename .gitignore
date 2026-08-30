@@ -22,3 +22,6 @@ build/
 .vscode/
 .idea/
 desktop.ini
+
+# locally downloaded tooling binaries -- not project source, never committed
+.local-bin/
