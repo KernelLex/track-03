@@ -1,0 +1,80 @@
+generated_by: tools/fit_persona_params.py
+generated_at: '2026-08-31T00:45:56'
+ibm_ar:
+  source: IBM Late Payment Histories (kaggle.com/hhenry/finance-factoring-ibm-late-payment-histories)
+  fetched_via: kagglehub.dataset_download, anonymous, no auth required
+  fetched_at: '2026-08-31'
+  n_invoices: 2466
+  invoice_amount_distribution_usd:
+    mean: 59.9
+    median: 60.56
+    std: 20.44
+    p10: 32.86
+    p90: 85.94
+    note: USD, from a US dataset -- use as the SHAPE of a distribution (spread, skew)
+      for persona generation, not as INR amounts.
+  dispute_base_rate: 0.2275
+  days_late_conditional_on_disputed:
+    disputed:
+      mean: 8.58
+      median: 7.0
+      std: 8.81
+    not_disputed:
+      mean: 1.93
+      median: 0.0
+      std: 4.28
+p_base_model:
+  source: Payment Date Prediction for Invoices (kaggle.com/datasets/pradumn203/payment-date-prediction-for-invoices-dataset)
+  fetched_via: kagglehub.dataset_download, anonymous, no auth required
+  fetched_at: '2026-08-31'
+  n_invoices_total: 50000
+  n_closed_used_for_fitting: 40000
+  n_still_open_excluded: 10000
+  horizon_days: 30
+  model: LogisticRegression(feature=log1p(total_open_amount), standardized)
+  train_size: 32000
+  holdout_size: 8000
+  holdout_brier_score: 0.0206
+  holdout_base_rate: 0.9789
+  reliability_diagram_deciles:
+  - mean_predicted: 0.9597
+    mean_actual: 0.9625
+    n: 800
+  - mean_predicted: 0.9699
+    mean_actual: 0.9725
+    n: 800
+  - mean_predicted: 0.9747
+    mean_actual: 0.9725
+    n: 800
+  - mean_predicted: 0.9778
+    mean_actual: 0.9762
+    n: 800
+  - mean_predicted: 0.9794
+    mean_actual: 0.975
+    n: 800
+  - mean_predicted: 0.9804
+    mean_actual: 0.9712
+    n: 800
+  - mean_predicted: 0.9817
+    mean_actual: 0.9788
+    n: 800
+  - mean_predicted: 0.9829
+    mean_actual: 0.9925
+    n: 800
+  - mean_predicted: 0.9839
+    mean_actual: 0.9988
+    n: 800
+  - mean_predicted: 0.9853
+    mean_actual: 0.9888
+    n: 800
+  coefficients:
+    intercept: 3.826387649292502
+    log1p_amount_coef: 0.29978079076209607
+    scaler_mean: 9.40724832206887
+    scaler_scale: 1.7807041076845067
+  usage_note: p_base(pay within horizon_days | amount) = sigmoid(intercept + coef
+    * (log1p(amount) - scaler_mean) / scaler_scale) -- see agent/decide/fitted_p_base.py.
+    Genuinely fitted and holdout-evaluated, not a declared prior -- but it's a single-feature
+    model on a US B2B dataset, not an Indian one, and 'total_open_amount' on a closed
+    row is assumed (not independently verified) to represent the original invoice
+    amount. A stand-in until Indian-market data exists. See docs/LIMITATIONS.md.

@@ -57,7 +57,7 @@ responsibility table added while implementing this):
 |---|---|---|
 | `INGEST` | Verify webhook signatures, de-duplicate by `(source, event_id)` | `[built]` — `agent/ingest/webhooks.py` |
 | `DIAGNOSE` | Path A structured lookup (`[built]`, `agent/diagnose/taxonomy.py`); Path B schema + objection logic (`[built]`, `extract.py`/`objection.py`); the actual model call (`[pending]`) | partial |
-| `DECIDE` | EV computation, `p_base` x `lift_prior` | `[pending]` — no `agent/decide/ev.py` yet; needs the Kaggle/IBM datasets fitted for `p_base` |
+| `DECIDE` | EV computation, `p_base` x `lift_prior` | `[built]` as pure arithmetic — `agent/decide/ev.py` (`Prior[float]`, `compute_ev()`, `decision_flips_under_perturbation()`) and `agent/decide/fitted_p_base.py` (a real fitted, holdout-evaluated model — see below). `[pending]`: nothing yet calls this from a live diagnosis to produce a real `Decision` end to end |
 | `BOUNDS` | `check_bounds()`, the Law 3 gate | `[built]` — `agent/bounds/engine.py`, full rule register, differential test |
 | `ACT` | Execute an accepted action against a `Rail` | `[built]` — `agent/act/executor.py`: `check_bounds()` first (Law 3), then a claim-then-act idempotency gate (§9.4) before ever calling the rail, dispatching `create_payment_link`, `reissue_artifact`, `create_mandate`, `retry_charge`, `initiate_refund`, `revoke_mandate`, `repair_mandate`, and message-only actions. **Law 4**: every call — accepted, refused, or deduped as a retry — writes exactly one `LedgerEntry`, including a JSON-safe `bounds_context_snapshot` (`BoundsContext.to_dict()`/`.from_dict()`) that the Auditor's bounds-integrity job later recomputes `check_bounds()` from. `ledger` is a required parameter, not optional, so there is no code path that dispatches without a ledger record |
 | `LISTEN` | Turn rail webhooks into `SYSTEM`-provenance facts | `[built]` — `agent/ingest/listen.py::facts_from_webhook()`, covering every event type `SimulatedRail` emits (payment captured/failed, mandate activated/revoked/notified, refund processed, link/invoice paid) |
@@ -126,21 +126,34 @@ dispute's window elapses.
 
 ## The EV gate (§11.4)
 
-`[pending]`. `agent/decide/` exists as an empty package. When built:
+`[built]`, the arithmetic and both halves' typing:
 
 ```python
 ev_paise = int(p_base * lift_prior * recoverable_paise) - cost_paise(action)
 #          ^^^^^^ fitted, calibrated   ^^^^^^^^^^ a declared prior, typed Prior[float]
 ```
 
-`p_base` needs the Kaggle IBM Late Payment Histories / Payment Date
-Prediction datasets fitted and calibrated (Brier score + reliability
-diagram, per §17.5) — not done. `lift_prior` needs to be typed as
-`Prior[float]`, not `float`, specifically so a code reviewer can't mistake
-it for a fitted value — that type doesn't exist yet either. The bounds
-engine's `EV_FLOOR` rule (`agent/bounds/rules.yaml`) already checks
-`decision.ev_paise > 0` structurally, ready for whatever produces a real
-`Decision` once this exists.
+`agent/decide/ev.py`: `lift_prior` is wrapped in a real `Prior` class
+(`isinstance`-checkable, not a `NewType` fiction that vanishes at runtime),
+`compute_ev()` raises `TypeError` if handed a bare `float` for it, and
+`decision_flips_under_perturbation()` implements §17.5's flip-rate
+methodology for one `(p_base, lift_prior)` cell at a time.
+
+`p_base` **is fitted** — `agent/decide/fitted_p_base.py` loads real
+coefficients from `data/fitted_params.yaml`, produced by
+`tools/fit_persona_params.py` fitting a logistic regression against the
+Kaggle Payment Date Prediction dataset (50,000 rows, committed in
+`data/ar_seed/`), evaluated on an 8,000-row holdout (Brier score 0.0206,
+reliability-diagram data included). See `docs/LIMITATIONS.md` for the
+honest caveat: the dataset's 97.9% base rate means this is a well-calibrated
+but weakly discriminative fit, not a strong predictive signal — real
+evidence, correctly scoped, not a claim of more than it shows.
+
+The bounds engine's `EV_FLOOR` rule (`agent/bounds/rules.yaml`) already
+checks `decision.ev_paise > 0` structurally. **Still `[pending]`**: nothing
+orchestrates DIAGNOSE's output into `compute_ev()`'s inputs to produce a
+real `Decision` end to end — the pieces exist, the wiring between them
+doesn't yet.
 
 ## Typed actions and their Razorpay objects (§11.5)
 

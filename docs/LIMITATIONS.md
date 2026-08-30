@@ -181,11 +181,27 @@ doesn't exist yet, so there's nothing to halt in the sense the spec means.
 
 ## EV gate
 
-`p_base` is not fitted (needs the Kaggle IBM Late Payment Histories /
-Payment Date Prediction datasets, not pulled into this build), and
-`lift_prior` is not typed as `Prior[float]` because `agent/decide/` doesn't
-exist yet. `EV_FLOOR`'s bounds rule is ready and tested against a synthetic
-`ev_paise` value; nothing yet computes a real one.
+**Update, 2026-08-31**: both halves of this section's original claim are
+now out of date. `lift_prior` is typed as `Prior[float]`
+(`agent/decide/ev.py`) — a real class, `isinstance`-checkable, not a
+`NewType` fiction. `p_base` **is fitted** —
+`tools/fit_persona_params.py` fits a logistic regression against the
+Kaggle Payment Date Prediction dataset (50,000 rows, committed in
+`data/ar_seed/`), evaluated on an 8,000-row holdout (Brier score 0.0206),
+with the reliability-diagram data in `data/fitted_params.yaml`. Loaded at
+runtime with no fitting dependencies via `agent/decide/fitted_p_base.py`
+(pure `math`, no pandas/scikit-learn needed outside the one-time fit).
+
+**The honest caveat, stated where the number lives, not just here**: the
+dataset's holdout base rate is 97.9% — almost every invoice in it pays
+within 30 days regardless of amount — so a Brier score of 0.02 reflects a
+well-calibrated model on a lopsided target, not a strongly discriminative
+one. It's a real, evaluated fit on a real (if US, not Indian) dataset —
+genuinely stronger evidence than a declared prior — but not a claim that
+invoice amount predicts payment timing well. `EV_FLOOR`'s bounds rule is
+ready and tested; nothing yet calls `compute_ev()` from a live diagnosis to
+produce a `Decision` end to end — that's the DECIDE-stage orchestration
+gap noted in `ARCHITECTURE.md`, not a data gap anymore.
 
 ## Statutory ladder
 

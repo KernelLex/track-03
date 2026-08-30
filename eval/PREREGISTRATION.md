@@ -5,22 +5,29 @@ hour, and is the general-form answer to every 'you chose that number'
 objection." `RESULTS.md` will cite this file's git commit hash once it
 exists.
 
-**Status: parameters declared, harness not yet built.** No arm has run.
-This file exists so that when the harness is built, fitting or sweeping a
-parameter is a matter of filling in a value already committed to a class —
-never a choice made after seeing a result. Where a value can't yet be
-supplied (a fitted parameter blocked on dataset access), that's marked
-explicitly rather than left implicit or filled with a plausible-looking
-number.
+**Status: most Fitted parameters are now actually fitted; harness not yet
+built.** No arm has run. This file exists so that when the harness is
+built, fitting or sweeping a parameter is a matter of filling in a value
+already committed to a class — never a choice made after seeing a result.
+
+**Correction, 2026-08-31**: this file previously marked the two Kaggle
+datasets `PENDING`, on the assumption that Kaggle access needs an account
+and API token. That's true of the classic `kaggle` CLI/API, but
+`kagglehub.dataset_download(...)` fetches public datasets anonymously —
+no auth at all. Both datasets are now committed in `data/ar_seed/` and
+fitted by `tools/fit_persona_params.py`, output in `data/fitted_params.yaml`.
+Parameters still genuinely blocked (Atradius, published dunning benchmarks)
+remain marked `PENDING` below, honestly — that block wasn't a wrong
+assumption, just not yet done.
 
 ## Parameter classification (§17.2)
 
 | Parameter | Class | Value | Basis |
 |---|---|---|---|
-| Invoice amount and term distributions | Fitted | **PENDING** — blocked on Kaggle IBM Late Payment Histories dataset access (`kaggle.com/hhenry/finance-factoring-ibm-late-payment-histories`, requires a Kaggle account + API token; confirmed unreachable anonymously — see docs/LIMITATIONS.md) | IBM AR set |
-| `DaysLate` distribution conditional on `Disputed` | Fitted | **PENDING** — same dataset | IBM AR set |
-| Dispute base rate | Fitted | **PENDING** — same dataset | IBM AR set |
-| `p_base` payment-date model | Fitted | **PENDING** — blocked on `kaggle.com/datasets/pradumn203/payment-date-prediction-for-invoices-dataset`, same access constraint | Payment Date Prediction dataset |
+| Invoice amount and term distributions | Fitted | **Done** (2026-08-31) — mean $59.90, median $60.56, std $20.44 (USD, shape only — see `data/fitted_params.yaml`) | IBM AR set, `tools/fit_persona_params.py` |
+| `DaysLate` distribution conditional on `Disputed` | Fitted | **Done** — disputed: mean 8.58d / median 7d; not disputed: mean 1.93d / median 0d | IBM AR set |
+| Dispute base rate | Fitted | **Done** — 0.2275 (22.75% of 2,466 invoices) | IBM AR set |
+| `p_base` payment-date model | Fitted | **Done** — logistic regression on log1p(amount), holdout Brier score 0.0206 (n=8,000). Honest caveat: the holdout base rate is 97.9% (almost everything pays within 30 days regardless of amount in this dataset), so this Brier score reflects a well-calibrated but weakly discriminative model, not a strong predictive signal — see `agent/decide/fitted_p_base.py` | Payment Date Prediction dataset, 50,000 rows |
 | Overdue share, DSO | Fitted | **PENDING** — needs the Atradius Payment Practices Barometer (Asia), not yet pulled into this build | Atradius |
 | Card-retry recovery base rate | Fitted | **PENDING** — needs published dunning benchmarks, not yet sourced | Published benchmarks |
 | Instrument-conversion lift vs message | Swept | **Range declared**: 0.5x to 4.0x, 8 points log-spaced | No credible source exists (§17.2) — this is the parameter §17.3's break-even analysis is built around |
