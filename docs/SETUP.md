@@ -64,12 +64,27 @@ Requires a free Razorpay test-mode account (no KYC needed — DEVDOC_v6 §5.1):
 RAZORPAY_KEY_ID=rzp_test_xxx RAZORPAY_KEY_SECRET=xxx uv run python tools/probe_rails.py
 ```
 
-This has **not** been run yet in this build (no test keys were available)
-— see `docs/RAIL_CAPABILITIES.md`. Running it is the single highest-value
-next step: everything else in the mandate/instrument layer already works
-against `SimulatedRail` regardless of the outcome (§5.2 — "the judgment is
-the product, the rail is plumbing"), but the live-verified claims in a
-README or pitch video depend on this having actually run.
+**This has been run** (2026-08-30) — see `docs/RAIL_CAPABILITIES.md` for
+the real, generated results. The account cleared `orders`, `payment_links`,
+`invoices`, `customers`, `plans`, `subscriptions`, and `settlements`.
+
+## Running the live RazorpayRail tests
+
+The same two env vars unlock `tests/agent/test_razorpay_rail_live.py` (9
+tests) and enable the live half of the conformance suite — skipped
+cleanly without them, so this is opt-in, not required:
+
+```
+RAZORPAY_KEY_ID=rzp_test_xxx RAZORPAY_KEY_SECRET=xxx uv run pytest
+```
+
+Store your keys in a local `.env` (already in `.gitignore` — never commit
+it) and `source .env` (bash) or load it however your shell prefers before
+running commands. These are test-mode keys — the calls create real objects
+in Razorpay's test-mode sandbox (no real money, but real API usage against
+your account), so treat them as you would any other credential: don't
+paste them into a committed file, a shared terminal log, or a screen
+recording for the pitch video.
 
 ## Environment
 

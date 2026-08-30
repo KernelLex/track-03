@@ -6,17 +6,58 @@ don't bury it.
 ## What this build is, honestly
 
 A tested, working implementation of TrueCommit's **pure-logic safety and
-compliance core** — the parts DEVDOC_v6 §5.2 calls "the judgment," which
-need no Razorpay test-mode credentials, no LLM API key, and no external
-dataset to build or verify. 334 tests passing. It is **not**:
+compliance core** (DEVDOC_v6 §5.2's "the judgment"), **now also wired to a
+real, live Razorpay test-mode account** (as of 2026-08-30) for the
+capabilities that account actually has. 499 tests passing with live
+credentials present, 489 passing / 10 skipped without (the live suite
+skips cleanly — no credentials are required to run the main suite). It is
+still **not**:
 
 - A running multi-stage service (no scheduler, no FastAPI dashboard, no
   live webhook receiver process)
 - The four-arm evaluation (§17) — no personas, no pre-registration commit,
   no eval harness
-- Wired to a real Razorpay account (§5, §6) — the day-zero probe
-  (`tools/probe_rails.py`) has never executed against live test keys
 - Wired to a real LLM for Path B extraction (§11.2) — no extractor exists
+
+## Live rail status (2026-08-30) — a real upgrade from "assumed"
+
+`tools/probe_rails.py` has now run against a real test-mode account.
+**The account clears more than DEVDOC_v6 §6's own "Expected" table
+anticipated**: `orders`, `payment_links`, `invoices`, `customers`,
+`plans`, `subscriptions`, and `settlements` all cleared live (see
+`docs/RAIL_CAPABILITIES.md`, regenerated from the real run, not the
+doc's own predictions). `agent/rails/razorpay_rail.py` is a real
+`RazorpayRail` implementation, and `tests/agent/test_razorpay_rail_live.py`
+(9 tests, skipped without credentials, all passing with them) verifies it
+against the live account — including running the *exact same*
+`run_conformance_suite()` that passes against `SimulatedRail`.
+
+**The one structural finding worth being precise about**: `subscriptions`
+clearing does **not** mean UPI Autopay/eNACH-style variable mandates work.
+The only recurring-payment primitive this account can create is a
+Plan+Subscription, which bills a **fixed** amount per cycle on Razorpay's
+own schedule — not the "debit up to max_amount, on demand" instrument
+`MandateSpec`/`present_debit` were modelled on (§12). `RazorpayRail.
+present_debit()` and `.modify_mandate()` both raise `RailUnavailable`
+honestly rather than guess at a call this build hasn't verified exists.
+`create_mandate` (as Plan+Subscription) and `revoke_mandate`
+(`subscription.cancel`) **are** live-verified. Also found: real Razorpay
+subscription statuses (`created`, `authenticated`, `active`, `pending`,
+`halted`, `cancelled`, `completed`, `expired`) don't match the
+TrueCommit-internal vocabulary `SimulatedRail` invented to mirror §12.5's
+lifecycle diagram literally (`pending_afa`, `notified_24h`, ...) — a real
+drift the conformance suite exists to surface, mapped conservatively in
+`_mandate_status_from_subscription()` rather than papered over.
+
+**Still not live-verified**: `create_refund` (implemented against the
+documented SDK method, but refunding needs an actually-captured payment,
+which needs a completed checkout with 3DS/OTP — not reachable from a
+headless script); real webhook delivery and its exact envelope shape
+(`SimulatedRail`'s envelope convention is still this build's own, unverified
+against a captured real webhook — see `docs/SIMULATOR_PROVENANCE.md`);
+`tokens_recurring`, `upi_autopay`, `emandate` specifically (the probe
+flags these `NOT_DIRECTLY_PROBEABLE` — they need a real checkout session or
+dashboard inspection, not a server-side create call).
 
 ## Regulatory sourcing (the most important gap)
 
@@ -54,15 +95,22 @@ are implemented," not "clauses are implemented correctly."
   against a captured real Razorpay webhook payload.
 - NACH/eNACH mandate return codes are not sourced at all yet.
 
-## What §5.4's conformance suite would and wouldn't prove — not built yet
+## What §5.4's conformance suite proves, and what it can't yet
 
-There is no shared conformance test suite running the same assertions
-against both `SimulatedRail` and a real `RazorpayRail` yet
-(`agent/rails/conformance/` is an empty package). When built, remember its
-scope is narrow by design (§5.4): object shape, state transitions, error
-vocabulary, webhook structure, idempotency — never NACH return timing, real
-failure distributions, or issuer-specific behaviour, because the reachable
-CRUD surface on an unactivated account has no analogue for any of those.
+`agent/rails/conformance/suite.py::run_conformance_suite()` is built and
+passing against `SimulatedRail` (`tests/agent/test_conformance.py`) — one
+function, rail-agnostic by construction (it takes a factory, not a rail
+instance), so the identical call with a `RazorpayRail` factory is the only
+change needed once test keys exist. Its scope is narrow by design (§5.4):
+object shape, one state transition (mandate revocation), webhook structure
+and signature, and redelivery idempotency. It does **not** and can't yet
+check error-code vocabulary meaningfully (`_check_failure_codes_are_in_
+the_published_vocabulary` is honestly a near-no-op today — there's no
+generic "list all payments" call on the `Rail` protocol to inspect a real
+failure through, so it mostly reports "skipped, not failed"). Never claims
+anything about NACH return timing, real failure distributions, or
+issuer-specific behaviour — the reachable CRUD surface on an unactivated
+account has no analogue for any of those.
 
 ## Golden set, extractor, Auditor
 

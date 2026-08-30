@@ -67,6 +67,24 @@ What *was* directly verified, by inspecting the installed package
 (the directory exists, empty, for exactly this), and diff `SimulatedRail`'s
 emitted object shapes against them.
 
+**Update, 2026-08-30 — this has now partly happened for real.** With live
+test-mode credentials, `agent/rails/razorpay_rail.py` was built and
+verified against the actual API (`tests/agent/test_razorpay_rail_live.py`,
+9 tests), and the shared conformance suite
+(`agent/rails/conformance/suite.py`) passes against both `SimulatedRail`
+and the live rail. One real shape mismatch was found this way, not
+guessed: real Razorpay subscription statuses are `created`, `authenticated`,
+`active`, `pending`, `halted`, `cancelled`, `completed`, `expired` —
+`SimulatedRail`'s invented vocabulary (`pending_afa`, `notified_24h`, ...)
+doesn't match, because it was built to mirror DEVDOC_v6 §12.5's own
+lifecycle diagram literally rather than a real API response.
+`RazorpayRail._mandate_status_from_subscription()` maps between them
+conservatively. `Order`, `PaymentLink`, `Invoice`, and `Mandate`-via-
+Subscription object shapes are now genuinely conformance-tested against
+the real API for the fields this build's reduced schema captures — not
+diffed field-by-field against the SDK's full fixture set, which is still
+the outstanding action above.
+
 ## 3. Webhook envelope and signature scheme (`agent/rails/webhook_signing.py`)
 
 The signature scheme (`hmac.new(secret, body, sha256).hexdigest()`,

@@ -5,6 +5,29 @@ marker on each piece — this is a design document, not a claim that
 everything below is running code. See `docs/LIMITATIONS.md` for the
 consolidated list of what's pending and why.
 
+## The rail layer (§5.3)
+
+`[built]` and `[live-verified]` where the account allows it, as of
+2026-08-30. `agent/rails/protocol.py`'s `Rail` protocol has two real
+implementations: `SimulatedRail` (`[built]`, no external dependency) and
+`RazorpayRail` (`[built]`, `agent/rails/razorpay_rail.py`, exercised
+against a live test-mode account in `tests/agent/test_razorpay_rail_live.py`
+— skipped without credentials, 9/9 passing with them). `HybridRail`
+(composing the two, tagging every call per Law 6) is `[pending]` — nothing
+needs it yet since no orchestrating pipeline calls both rails in the same
+run.
+
+The shared conformance suite (`agent/rails/conformance/suite.py`) is
+`[built]` and passes against **both** rails — the same function, not two
+parallel implementations of "conforms." Live-verified: `create_order`,
+`create_payment_link`, `create_invoice`, `create_mandate` (as a
+Plan+Subscription — see `docs/LIMITATIONS.md` for why that's a materially
+different instrument from a variable eNACH/UPI Autopay mandate), and
+`revoke_mandate`. Honestly unverified rather than guessed:
+`RazorpayRail.present_debit()` and `.modify_mandate()` both raise
+`RailUnavailable` — no call this build has confirmed exists presents an
+ad-hoc debit against a Subscription on demand.
+
 ## Law 1, made concrete
 
 > The model may SEE and SPEAK, never SPEND. No model output becomes an
@@ -37,7 +60,7 @@ responsibility table added while implementing this):
 | `DECIDE` | EV computation, `p_base` x `lift_prior` | `[pending]` — no `agent/decide/ev.py` yet; needs the Kaggle/IBM datasets fitted for `p_base` |
 | `BOUNDS` | `check_bounds()`, the Law 3 gate | `[built]` — `agent/bounds/engine.py`, full rule register, differential test |
 | `ACT` | Execute an accepted action against a `Rail` | `[built]` — `agent/act/executor.py`: `check_bounds()` first (Law 3), then a claim-then-act idempotency gate (§9.4) before ever calling the rail, dispatching `create_payment_link`, `reissue_artifact`, `create_mandate`, `retry_charge`, `initiate_refund`, `revoke_mandate`, `repair_mandate`, and message-only actions |
-| `LISTEN` | Turn rail webhooks into `SYSTEM`-provenance facts | partial — `SimulatedRail` emits signed webhooks and `verify_and_ingest()` parses them; nothing yet turns a parsed webhook into a `Fact` object specifically |
+| `LISTEN` | Turn rail webhooks into `SYSTEM`-provenance facts | `[built]` — `agent/ingest/listen.py::facts_from_webhook()`, covering every event type `SimulatedRail` emits (payment captured/failed, mandate activated/revoked/notified, refund processed, link/invoice paid) |
 | `SETTLE` | Attribute a `captured` payment via `recovery_ledger` | `[built]` — `agent/ledger/recovery.py`, Law 7's `UNIQUE(payment_id)` |
 | `AUDITOR` *(not one of the seven)* | Extractor drift, bounds integrity, chain integrity — read-only, out-of-band | partial — chain integrity is exactly `Ledger.verify_chain()` (`[built]`); extractor-drift sampling and the bounds-integrity re-check job (§11.7) are `[pending]`, and there's no scheduler running the Auditor periodically |
 

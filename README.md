@@ -36,8 +36,8 @@ amount and authentication regime, not sending another message.
 
 | Real/simulated | What's true right now |
 |---|---|
-| **rail-confirmed** | Nothing yet — `tools/probe_rails.py` has never run against a live Razorpay account (no test keys were available while building this) |
-| **simulated-rail** | The ledger, bounds gate, debtor state machine, instrument selection, mandate health, MSMED statutory module, and reversal path are built and tested (334 tests) against `SimulatedRail` and pure logic — see `docs/ARCHITECTURE.md` for exactly what's built vs. pending, module by module |
+| **rail-confirmed** | `orders`, `payment_links`, `invoices`, `plans`+`subscriptions` (create and revoke), and `settlements` are **live-verified** against a real Razorpay test-mode account (`docs/RAIL_CAPABILITIES.md`, generated from an actual run, not a prediction) — `agent/rails/razorpay_rail.py`, tested in `tests/agent/test_razorpay_rail_live.py`. `present_debit` and `modify_mandate` honestly raise "not verified" rather than guess — see `docs/LIMITATIONS.md` for the real structural finding (Subscriptions bill a fixed amount on their own schedule; they are not a variable eNACH/UPI-Autopay-style mandate) |
+| **simulated-rail** | The ledger, bounds gate, debtor state machine, instrument selection, mandate health, MSMED statutory module, reversal path, ACT executor, and LISTEN stage are built and tested against `SimulatedRail` and pure logic — see `docs/ARCHITECTURE.md` for exactly what's built vs. pending, module by module |
 | **simulated-response** | No persona model or eval harness exists yet (DEVDOC_v6 §17) — there is no ₹ recovery figure to report, real or simulated, honest or otherwise |
 
 Run it yourself:
@@ -45,7 +45,7 @@ Run it yourself:
 ```
 uv sync
 uv run trucommit demo     # a small, real, end-to-end walk of one debtor
-uv run pytest             # 334 tests
+uv run pytest             # ~490 tests, no credentials needed (10 more run live with Razorpay test keys set)
 ```
 
 See [`docs/SETUP.md`](docs/SETUP.md) for the verified clean-clone timing

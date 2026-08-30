@@ -4,8 +4,6 @@ same verify() the ingest stage uses (§9.2)."""
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-
 import pytest
 
 from agent.rails.protocol import Rail
@@ -15,21 +13,7 @@ from agent.rails.webhook_signing import verify
 
 SECRET = "test-webhook-secret"
 
-
-class FakeClock:
-    def __init__(self, start: datetime):
-        self.now = start
-
-    def __call__(self) -> datetime:
-        return self.now
-
-    def advance(self, **kwargs) -> None:
-        self.now += timedelta(**kwargs)
-
-
-@pytest.fixture
-def clock():
-    return FakeClock(datetime(2026, 1, 1, tzinfo=timezone.utc))
+# `clock` fixture (a controllable FakeClock) comes from tests/agent/conftest.py.
 
 
 @pytest.fixture

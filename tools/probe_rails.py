@@ -72,7 +72,7 @@ def probe_all(client: razorpay.Client) -> list[ProbeResult]:
 
     results.append(_run_probe("payment_links", lambda: client.payment_link.create({
         "amount": 100, "currency": "INR", "description": "probe",
-        "customer": {"name": "Probe", "contact": "+919999999999", "email": "probe@example.com"},
+        "customer": {"name": "Probe", "contact": "+919123456780", "email": "probe@example.com"},
     })))
 
     results.append(_run_probe("invoices", lambda: client.invoice.create({
@@ -81,7 +81,7 @@ def probe_all(client: razorpay.Client) -> list[ProbeResult]:
     })))
 
     results.append(_run_probe("customers", lambda: client.customer.create({
-        "name": "Probe Customer", "email": "probe@example.com", "contact": "+919999999999",
+        "name": "Probe Customer", "email": "probe@example.com", "contact": "+919123456780",
     })))
 
     # plans/subscriptions/tokens_recurring/upi_autopay/emandate are the ones §5.1
