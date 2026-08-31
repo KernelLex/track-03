@@ -97,6 +97,21 @@ value):
   HTTP status, not the actual send status, so this exact failure would
   have shown as a false "sent" in the UI) — both fixed, see `docs/DEMO_UI.md`.
 
+**A second, newly-generated API Key was tried and rejected outright** —
+`401`, Twilio error code
+[70051](https://www.twilio.com/docs/errors/70051), `"Authorization Error:
+actor doesn't have any assertions"`. This is a *different* failure mode
+than the trial-account limit above: it means the key itself has no
+permissions granted, before Twilio even gets to evaluate the call —
+consistent with the key having been generated from a restricted-scope
+section of the Console (e.g. a Voice/Video SDK access-token page) rather
+than the general-purpose Account -> API keys & tokens page that issues
+"Standard" keys with REST API access. Reverted `.env` to the
+previously-working key (`SK4c10bb...`) rather than keep a key that fails
+even the read-only `verify_credentials()` check. If a working replacement
+key is wanted, it needs to come from Twilio Console's **API keys & tokens**
+page specifically, type **Standard**.
+
 A Twilio WhatsApp sandbox number (`TWILIO_WHATSAPP_FROM`) was included with
 the credentials but is intentionally unused — the agreed channel split is
 Telegram for messaging, Twilio for voice only. Noted here rather than
