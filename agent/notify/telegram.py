@@ -75,12 +75,16 @@ class TelegramChannel:
             raise ChannelUnavailable("telegram", body.get("description", "getMe failed"))
         return body["result"]
 
-    def get_updates(self) -> list[dict]:
-        """Thin wrapper over getUpdates — used by tools/telegram_get_chat_id.py,
-        not by the pipeline itself. A bot has no other way to learn a chat_id
-        before someone has messaged it."""
+    def get_updates(self, *, offset: int | None = None) -> list[dict]:
+        """Thin wrapper over getUpdates — used by tools/telegram_get_chat_id.py
+        and agent/api/demo.py's reply-polling endpoint. Without `offset`,
+        Telegram returns its full retained backlog every time; passing the
+        highest `update_id` seen so far plus one returns only updates newer
+        than that, which is what makes repeated polling for "did they reply
+        yet" cheap and non-redundant rather than re-scanning history."""
+        params = {"offset": offset} if offset is not None else {}
         try:
-            response = self._client.get(f"{self._base}/getUpdates")
+            response = self._client.get(f"{self._base}/getUpdates", params=params)
         except httpx.HTTPError as exc:
             raise ChannelUnavailable("telegram", str(exc)) from exc
         body = response.json()

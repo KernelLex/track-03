@@ -17,6 +17,8 @@ SECRET = "test-demo-secret"
 
 class _FakeChannel:
     sent: list[dict] = []
+    updates: list[dict] = []
+    last_offset = None
 
     def __init__(self, *args, **kwargs):
         pass
@@ -24,6 +26,10 @@ class _FakeChannel:
     def send(self, *, to, text):
         _FakeChannel.sent.append({"to": to, "text": text})
         return MessageSendResult(channel="fake", external_ref="fake-1", status="sent", detail={})
+
+    def get_updates(self, *, offset=None):
+        _FakeChannel.last_offset = offset
+        return _FakeChannel.updates
 
     def close(self):
         pass
@@ -33,6 +39,8 @@ class _FakeChannel:
 def _reset_rate_limit():
     demo_module._last_triggered_at.clear()
     _FakeChannel.sent = []
+    _FakeChannel.updates = []
+    _FakeChannel.last_offset = None
     yield
     demo_module._last_triggered_at.clear()
 
@@ -157,3 +165,80 @@ def test_missing_contact_config_returns_a_clear_error_not_a_500(client, monkeypa
     monkeypatch.delenv("DEMO_CONTACT_TELEGRAM_CHAT_ID", raising=False)
     response = client.post("/demo/trigger", json={"secret": SECRET, "channel": "telegram", "scenario": "b2b"})
     assert response.status_code == 503
+
+
+class TestCheckReply:
+    """/demo/check-reply -- the reactive piece: did the demo owner reply on
+    Telegram yet, and if so, what does the real extractor make of it."""
+
+    def _update(self, update_id, chat_id, text):
+        return {"update_id": update_id, "message": {"chat": {"id": chat_id}, "text": text}}
+
+    def test_no_updates_means_no_reply(self, client):
+        _FakeChannel.updates = []
+        response = client.post("/demo/check-reply", json={"secret": SECRET, "diagnose": False})
+        assert response.status_code == 200
+        assert response.json() == {"has_reply": False}
+
+    def test_a_new_message_from_the_configured_chat_is_surfaced(self, client):
+        _FakeChannel.updates = [self._update(101, "999888777", "we'll pay next week")]
+        response = client.post("/demo/check-reply", json={"secret": SECRET, "diagnose": False})
+        body = response.json()
+        assert body["has_reply"] is True
+        assert body["text"] == "we'll pay next week"
+        assert body["update_id"] == 101
+
+    def test_a_message_from_a_different_chat_is_never_surfaced(self, client):
+        """A stranger messaging the bot during a live demo must never be
+        mistaken for the demo's own configured debtor."""
+        _FakeChannel.updates = [self._update(101, "someone-elses-chat-id", "hello?")]
+        response = client.post("/demo/check-reply", json={"secret": SECRET, "diagnose": False})
+        assert response.json() == {"has_reply": False}
+
+    def test_after_update_id_is_translated_to_telegrams_offset_semantics(self, client):
+        client.post("/demo/check-reply", json={"secret": SECRET, "after_update_id": 55, "diagnose": False})
+        assert _FakeChannel.last_offset == 56  # Telegram's offset excludes the given id; +1 gets "strictly after"
+
+    def test_no_after_update_id_means_no_offset_sent(self, client):
+        client.post("/demo/check-reply", json={"secret": SECRET, "diagnose": False})
+        assert _FakeChannel.last_offset is None
+
+    def test_diagnose_true_runs_the_real_extractor_and_returns_its_result(self, client, monkeypatch):
+        from agent.diagnose.extract import DiagnosisClass, ExtractionResult, Family
+
+        fake_result = ExtractionResult(family=Family.C, class_=DiagnosisClass.PROMISE_STATED, confidence=0.9)
+        monkeypatch.setattr(demo_module, "extract_from_reply", lambda text, **kw: fake_result)
+
+        _FakeChannel.updates = [self._update(101, "999888777", "we'll pay next week")]
+        response = client.post("/demo/check-reply", json={"secret": SECRET, "diagnose": True})
+        body = response.json()
+        assert body["diagnosis"] == {"family": "C", "class": "PROMISE_STATED", "confidence": 0.9}
+
+    def test_diagnose_false_skips_the_extractor_entirely(self, client, monkeypatch):
+        called = []
+        monkeypatch.setattr(demo_module, "extract_from_reply", lambda text, **kw: called.append(text))
+
+        _FakeChannel.updates = [self._update(101, "999888777", "we'll pay next week")]
+        client.post("/demo/check-reply", json={"secret": SECRET, "diagnose": False})
+        assert called == []
+
+    def test_extraction_failure_is_reported_not_a_500(self, client, monkeypatch):
+        from agent.diagnose.llm_extract import ExtractionFailed
+
+        def _raise(text, **kw):
+            raise ExtractionFailed("no budget left")
+        monkeypatch.setattr(demo_module, "extract_from_reply", _raise)
+
+        _FakeChannel.updates = [self._update(101, "999888777", "we'll pay next week")]
+        response = client.post("/demo/check-reply", json={"secret": SECRET, "diagnose": True})
+        assert response.status_code == 200
+        assert "no budget left" in response.json()["diagnosis"]["error"]
+
+    def test_wrong_secret_is_refused(self, client):
+        response = client.post("/demo/check-reply", json={"secret": "wrong"})
+        assert response.status_code == 403
+
+    def test_missing_contact_config_returns_a_clear_error(self, client, monkeypatch):
+        monkeypatch.delenv("DEMO_CONTACT_TELEGRAM_CHAT_ID", raising=False)
+        response = client.post("/demo/check-reply", json={"secret": SECRET})
+        assert response.status_code == 503

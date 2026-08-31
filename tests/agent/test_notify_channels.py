@@ -90,6 +90,28 @@ class TestTelegramChannel:
         updates = channel.get_updates()
         assert updates[0]["message"]["chat"]["id"] == 555
 
+    def test_get_updates_sends_offset_when_given(self):
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["params"] = dict(request.url.params)
+            return httpx.Response(200, json={"ok": True, "result": []})
+
+        channel = TelegramChannel("test-token", client=_client_with(handler))
+        channel.get_updates(offset=42)
+        assert captured["params"]["offset"] == "42"
+
+    def test_get_updates_omits_offset_when_not_given(self):
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["params"] = dict(request.url.params)
+            return httpx.Response(200, json={"ok": True, "result": []})
+
+        channel = TelegramChannel("test-token", client=_client_with(handler))
+        channel.get_updates()
+        assert "offset" not in captured["params"]
+
     def test_get_me_returns_bot_identity(self):
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, json={"ok": True, "result": {"id": 123, "username": "truecommit_bot"}})

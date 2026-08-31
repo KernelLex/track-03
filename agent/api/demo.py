@@ -37,6 +37,7 @@ from pydantic import BaseModel
 
 from agent.bounds.context import ActionCtx, BoundsContext, ConfigCtx, DebtorCtx, DecisionCtx, InvoiceCtx, MandateCtx
 from agent.bounds.engine import check_bounds
+from agent.diagnose.llm_extract import ExtractionFailed, extract_from_reply
 from agent.notify.protocol import ChannelUnavailable
 from agent.notify.telegram import TelegramChannel
 from agent.notify.twilio_voice import TwilioVoiceChannel
@@ -181,3 +182,72 @@ def trigger_demo_contact(payload: DemoTriggerRequest) -> dict[str, object]:
         "external_ref": result.external_ref,
         "detail": result.detail,
     }
+
+
+class CheckReplyRequest(BaseModel):
+    secret: str
+    after_update_id: int | None = None
+    diagnose: bool = True
+
+
+@router.post("/check-reply")
+def check_reply(payload: CheckReplyRequest) -> dict[str, object]:
+    """Polled by the dashboard after a live Telegram send, to make the demo
+    genuinely reactive rather than fire-and-forget: did the debtor (the
+    demo owner, replying on their own phone) reply yet, and if so, what
+    does the real extractor (agent.diagnose.llm_extract) make of it.
+
+    Cost is bounded by construction, not by a rate limit: `after_update_id`
+    is round-tripped by the caller and passed straight to Telegram's own
+    `offset` semantics, so a poll that finds nothing new costs nothing --
+    only a genuinely new reply ever reaches extract_from_reply() (a real,
+    budget-tracked call). No rate limit is applied here for that reason;
+    /trigger's is about not spamming a real message/call, which doesn't
+    apply to read-only polling.
+
+    Only messages from the server-configured DEMO_CONTACT_TELEGRAM_CHAT_ID
+    are ever considered -- a stranger messaging the bot during a live demo
+    can never have their message surface as if it were the demo's own
+    debtor replying.
+    """
+    _require_secret(payload.secret)
+
+    chat_id = os.environ.get("DEMO_CONTACT_TELEGRAM_CHAT_ID")
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not chat_id or not token:
+        raise HTTPException(status_code=503, detail="Telegram demo contact not configured on this server")
+
+    channel_obj = TelegramChannel(token)
+    try:
+        offset = (payload.after_update_id + 1) if payload.after_update_id is not None else None
+        updates = channel_obj.get_updates(offset=offset)
+    except ChannelUnavailable as exc:
+        raise HTTPException(status_code=502, detail=f"channel unavailable: {exc}") from exc
+    finally:
+        channel_obj.close()
+
+    matching = [
+        u for u in updates
+        if u.get("message") and "text" in u["message"] and str(u["message"]["chat"]["id"]) == str(chat_id)
+    ]
+    if not matching:
+        return {"has_reply": False}
+
+    latest = matching[-1]
+    text = latest["message"]["text"]
+    result: dict[str, object] = {
+        "has_reply": True, "text": text, "update_id": latest["update_id"], "diagnosis": None,
+    }
+
+    if payload.diagnose:
+        try:
+            extraction = extract_from_reply(text, purpose="demo_dashboard_live_reply")
+            result["diagnosis"] = {
+                "family": extraction.family.value,
+                "class": extraction.class_.value,
+                "confidence": extraction.confidence,
+            }
+        except ExtractionFailed as exc:
+            result["diagnosis"] = {"error": str(exc)}
+
+    return result

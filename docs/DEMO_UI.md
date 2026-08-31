@@ -61,9 +61,30 @@ link and secret both leaked: someone could repeatedly message or call
 `trucommit serve` (or unsetting `DEMO_TRIGGER_SECRET`) once you're done
 demoing.
 
-## What's still scripted with no live equivalent
+## Reactive Telegram: polling for a real reply
 
-The debtor's replies in the conversation thread are written, not generated
-— there's no live listener polling Telegram for an actual reply mid-demo.
-Extending that is possible (poll `getUpdates` after a live send) but wasn't
-built here; flagged rather than implied.
+After a live Telegram send, the dashboard now polls `/demo/check-reply`
+every 3 seconds (up to ~2 minutes, or "Stop waiting"/"Check now" on
+demand). Reply on your actual phone, and the dashboard: appends your real
+message to the conversation thread, runs it through the real
+`extract_from_reply()` (an actual, budget-tracked Claude call), and shows
+the live diagnosis (family / class / confidence).
+
+**Cost is bounded by construction, not a rate limit.** `after_update_id` is
+round-tripped by the client and passed straight to Telegram's `offset`
+semantics — a poll that finds nothing new costs nothing (confirmed live:
+polling twice with the same reply returned `has_reply: false` the second
+time, no second charge). Only a genuinely new reply ever reaches the real
+extractor. Live-tested end to end, 2026-08-31: a real reply ("Send me
+link") was correctly classified `family=C, class=STALLING,
+confidence=0.35` — a low, honest confidence for a genuinely ambiguous
+one-liner, not a confident wrong guess.
+
+**Only the configured chat is ever considered.** `/demo/check-reply`
+filters every update to `DEMO_CONTACT_TELEGRAM_CHAT_ID` before doing
+anything else — a stranger messaging the bot mid-demo can never surface as
+if they were the demo's own debtor.
+
+**What's still scripted with no live equivalent**: Twilio calls are
+one-way TTS in this build — there's no inbound response capture for a
+voice reply, only for Telegram text.
