@@ -192,6 +192,12 @@ class SimulatedRail:
         return refund
 
     def fetch(self, kind: str, id: str) -> dict:
+        if kind == "mandates":
+            record = self._mandates.get(id)
+            if record is None:
+                raise SimulatedRailError(f"no mandate with id={id!r}")
+            return record.mandate.model_dump()
+
         store = {
             "orders": self._orders,
             "payment_links": self._links,

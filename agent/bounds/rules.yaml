@@ -59,8 +59,21 @@ regulatory:
     test: "tests/regulatory/test_fpc_hours.py::test_blocks_contact_outside_hours"
 
   - id: TRAI_DND
-    source: "TRAI TCCCPA / DLT framework"
-    clause_ref: "TODO"
+    source: "Telecom Commercial Communications Customer Preference Regulations, 2018
+             (in force 28-02-2019) — Regulation 6(1) (a Subscriber's right to register
+             a preference/revoke consent) and Regulation 9 (an Access Provider shall
+             ensure no commercial communication is made except per the Subscriber's
+             registered preference)"
+    clause_ref: "Regulations 6(1) and 9 — fetched 2026-09-01 via indiankanoon.org's
+                 reproduction of the regulation text (a secondary legal database, not
+                 trai.gov.in's own PDF read directly). Same weaker sourcing tier as
+                 RBI_FPC_HOURS above: a real, specific citation, not the prior TODO, but
+                 not yet independently verified against TRAI's primary gazette document —
+                 re-check before relying on the exact sub-clause numbers in a compliance
+                 claim that needs to survive scrutiny. Regulation 7 additionally requires
+                 a registered preference take effect within 24h -- not modelled here,
+                 since this rule enforces the steady-state obligation (never use an
+                 opted-out channel again), not the transition window."
     machine: "action.channel is None or action.channel not in debtor.opted_out_channels"
     human: "A channel the debtor opted out of is never used again for that channel."
     test: "tests/regulatory/test_trai_dnd.py::test_blocks_opted_out_channel"

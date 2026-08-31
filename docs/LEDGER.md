@@ -14,19 +14,19 @@ See `agent/ledger/models.py::LedgerEntry`. `seq`, `ts`, `prev_hash` and `hash` a
 
 | seq | actor | prev_hash (truncated) | hash (truncated) | outcome |
 |---|---|---|---|---|
-| 1 | INGEST | `000000000000...` | `5548d95c75a8...` | {'debtor_state_after': 'AT_RISK'} |
-| 2 | DIAGNOSE | `5548d95c75a8...` | `a386eeaecee0...` | {'debtor_state_after': 'DIAGNOSED'} |
-| 3 | DECIDE | `a386eeaecee0...` | `1a0a4cd7a388...` | {'debtor_state_after': 'ENGAGED'} |
-| 4 | ACT | `1a0a4cd7a388...` | `4d8bf86b7600...` | {'debtor_state_after': 'PROMISED'} |
-| 5 | LISTEN | `4d8bf86b7600...` | `f33d641c4235...` | {'debtor_state_after': 'INSTRUMENTED'} |
-| 6 | SETTLE | `f33d641c4235...` | `303d8842ad9f...` | {'debtor_state_after': 'RECOVERED', 'recovered_paise': 1200000} |
+| 1 | INGEST | `000000000000...` | `28d5d46e9843...` | {'debtor_state_after': 'AT_RISK'} |
+| 2 | DIAGNOSE | `28d5d46e9843...` | `0e9b3fad45d5...` | {'debtor_state_after': 'DIAGNOSED'} |
+| 3 | DECIDE | `0e9b3fad45d5...` | `38711ba765b7...` | {'debtor_state_after': 'ENGAGED'} |
+| 4 | ACT | `38711ba765b7...` | `7f73eb7cd06f...` | {'debtor_state_after': 'PROMISED'} |
+| 5 | LISTEN | `7f73eb7cd06f...` | `e14a50620fb7...` | {'debtor_state_after': 'INSTRUMENTED'} |
+| 6 | SETTLE | `e14a50620fb7...` | `5e367c1dba6a...` | {'debtor_state_after': 'RECOVERED', 'recovered_paise': 1200000} |
 
 ## Tamper evidence — actual output
 
 Row `seq=3`'s payload was mutated directly in the SQLite file (bypassing the `Ledger` API entirely), then `verify_chain()` was called:
 
 ```
-ChainIntegrityError: chain break at seq=3: stored hash '1a0a4cd7a38813d826d784daa2b651513e687f0565ce0e6292ad77697ded44e0' does not match recomputed hash '9e9478a9eb0f3de46495d5b68f21e7087cb1e805d2393c753929c25990d58ab9' — payload was tampered with after being written
+ChainIntegrityError: chain break at seq=3: stored hash '38711ba765b7ca8006d4a996c29c7ea8c8baea514c9e6e28d06ca4270630f081' does not match recomputed hash 'bc04b7d3c5da2575467ad5ca49495688f112c295a47d2611cf13642df8ab75ba' — payload was tampered with after being written
 ```
 
 ## Deliberately not stored
