@@ -9,13 +9,15 @@ from agent.decide.ev import Prior
 from eval.simulate import (
     DEFAULT_TOUCH_COST_PAISE,
     Outcome,
+    family_b_only,
     run_arm_a,
     run_arm_b2,
     run_arm_c,
     run_comparison,
+    run_comparison_raw,
     summarize,
 )
-from eval.personas.generator import generate_population
+from eval.personas.generator import Blocker, generate_population
 import random
 
 
@@ -77,6 +79,59 @@ class TestStructuralInvariants:
                                touch_cost_paise=45_000_00)
         assert summarize("cheap", cheap).mean_touches > summarize("expensive", expensive).mean_touches
         assert summarize("expensive", expensive).mean_touches < 0.5
+
+
+class TestBoundsViolations:
+    """§17.7's "violations column" -- a real, shadow check_bounds() call
+    against Arm A/B2's touches, never gating them (that's the whole point
+    of these two arms), only counting."""
+
+    def test_arm_c_never_violates_by_construction(self):
+        summaries = run_comparison(n_personas=400, seed=30, window_days=30, lift=2.0)
+        assert summaries["C"].total_bounds_violations == 0
+
+    def test_arm_a_and_b2_accumulate_real_violations_on_disputed_personas(self):
+        """At n=400 the population reliably contains disputed personas
+        (DISPUTE_BASE_RATE is a real, nonzero fitted rate) -- both ungated
+        arms touch them with a plain reminder, which the real
+        DISPUTE_FREEZE rule refuses were it actually gating."""
+        summaries = run_comparison(n_personas=400, seed=30, window_days=30, lift=2.0)
+        assert summaries["A"].total_bounds_violations > 0
+        assert summaries["B2"].total_bounds_violations > 0
+
+    def test_a_non_disputed_persona_never_contributes_a_violation(self):
+        personas = generate_population(200, seed=31)
+        outcomes = run_arm_a(personas, window_days=30, rng=random.Random(31))
+        disputed_ids = {p.id for p in personas if p.true_blocker is Blocker.DISPUTE}
+        non_disputed_outcomes = [o for o in outcomes if o.persona_id not in disputed_ids]
+        assert all(o.bounds_violations == 0 for o in non_disputed_outcomes)
+
+
+class TestFamilyBBreakout:
+    def test_family_b_only_returns_strictly_administrative_personas(self):
+        personas, outcomes_by_arm = run_comparison_raw(n_personas=400, seed=32, window_days=30, lift=2.0)
+        admin_ids = {p.id for p in personas if p.true_blocker is Blocker.ADMINISTRATIVE}
+        filtered = family_b_only(personas, outcomes_by_arm["A"])
+        assert filtered
+        assert {o.persona_id for o in filtered} == admin_ids
+
+    def test_family_b_subset_is_strictly_smaller_than_the_full_population(self):
+        personas, outcomes_by_arm = run_comparison_raw(n_personas=400, seed=32, window_days=30, lift=2.0)
+        filtered = family_b_only(personas, outcomes_by_arm["C"])
+        assert 0 < len(filtered) < len(outcomes_by_arm["C"])
+
+
+class TestRunComparisonRaw:
+    def test_matches_run_comparison_when_summarized(self):
+        """run_comparison is just run_comparison_raw + summarize -- confirm
+        they never drift apart into two sources of truth."""
+        personas, outcomes_by_arm = run_comparison_raw(n_personas=200, seed=33, window_days=30, lift=2.0)
+        raw_summaries = {arm: summarize(arm, outcomes) for arm, outcomes in outcomes_by_arm.items()}
+        assert raw_summaries == run_comparison(n_personas=200, seed=33, window_days=30, lift=2.0)
+
+    def test_returns_the_real_population(self):
+        personas, _ = run_comparison_raw(n_personas=200, seed=33, window_days=30, lift=2.0)
+        assert len(personas) == 200
 
 
 class TestSummarize:

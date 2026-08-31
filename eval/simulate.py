@@ -122,6 +122,13 @@ class Outcome:
     escalated_to_human: bool
     contact_exhausted: bool
     touches: int
+    bounds_violations: int = 0
+    """How many of this persona's touches the REAL check_bounds() would
+    have refused, checked as a shadow call that never gates anything (the
+    whole point of Arms A/B2 is "what if nothing gated") -- §17.7's
+    "violations column", the thing that makes an ungated arm's raw-rupee
+    lead the wrong comparison to lead with. Always 0 for Arm C by
+    construction: it's the one arm that actually obeys what this counts."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,11 +146,44 @@ class ArmSummary:
     human_escalation_rate: float
     contact_exhausted_rate: float
     mean_touches: float
+    total_bounds_violations: int
+    """Sum of Outcome.bounds_violations across the arm's population --
+    §17.7's "violations column". Structurally 0 for Arm C."""
 
 
 def _resolution_prob(true_blocker: Blocker, matched: bool) -> float:
     table = ASSUMED_RESOLUTION_PROB_MATCHED.value if matched else ASSUMED_RESOLUTION_PROB_MISMATCHED.value
     return table[true_blocker]
+
+
+def _shadow_bounds_violation(p: Persona) -> bool:
+    """True if a plain collection touch (send_reminder, not escalate_human)
+    against this persona's REAL ground-truth situation is something the
+    real check_bounds() refuses. Arms A and B2 are blind to true_blocker
+    (that's the whole point of "no diagnosis") and touch regardless -- this
+    checks what an omniscient auditor watching from outside would flag,
+    the same shadow-audit spirit agent.auditor.auditor already applies to
+    real actions, applied here to a hypothetical one instead of gating it.
+
+    Narrowly scoped to DISPUTE_FREEZE on purpose: it's the one rule this
+    harness's touch model can trigger honestly (a real dispute exists in
+    the ground truth, a generic touch isn't escalate_human/no_action).
+    Rules like RBI_EMANDATE_AFA_CEILING or NO_MANDATE_ON_DISPUTE need a
+    real mandate/debit action this simplified touch model never proposes
+    for A/B2 -- reporting a violation count for those here would be
+    fabricating a check this harness can't actually exercise, not a real
+    finding. See docs/RESULTS.md for what this does and doesn't cover."""
+    if p.true_blocker != Blocker.DISPUTE:
+        return False
+    ctx = BoundsContext(
+        debtor=DebtorCtx(id=p.id, state="DISPUTED_FROZEN", touches_7d=0),
+        mandate=MandateCtx(),
+        action=ActionCtx(type="send_reminder", channel="telegram", rail_tag="simulated"),
+        decision=DecisionCtx(ev_paise=1),
+        invoice=InvoiceCtx(id=f"inv_{p.id}", recovery_attempts=0, disputed_paise=p.amount_paise),
+        config=ConfigCtx(),
+    )
+    return not check_bounds(ctx).passed
 
 
 def run_arm_a(personas: list[Persona], *, window_days: int, rng: random.Random) -> list[Outcome]:
@@ -158,6 +198,7 @@ def run_arm_a(personas: list[Persona], *, window_days: int, rng: random.Random) 
         opted_out = False
         resolved_day: int | None = None
         touches = 0
+        violations = 0
         for day in range(1, window_days + 1):
             if opted_out or resolved_day is not None:
                 break
@@ -165,6 +206,8 @@ def run_arm_a(personas: list[Persona], *, window_days: int, rng: random.Random) 
                 continue
             touches += 1
             touches_on_channel += 1
+            if _shadow_bounds_violation(p):
+                violations += 1
             if rng.random() < _resolution_prob(p.true_blocker, matched=(p.true_blocker is Blocker.NONE)):
                 resolved_day = day
                 break
@@ -174,7 +217,7 @@ def run_arm_a(personas: list[Persona], *, window_days: int, rng: random.Random) 
             persona_id=p.id, amount_paise=p.amount_paise, resolved_day=resolved_day,
             recovered_paise=p.amount_paise if resolved_day is not None else 0,
             escalated_to_human=False, contact_exhausted=opted_out and resolved_day is None,
-            touches=touches,
+            touches=touches, bounds_violations=violations,
         ))
     return outcomes
 
@@ -193,11 +236,14 @@ def run_arm_b2(personas: list[Persona], *, window_days: int, rng: random.Random)
         opted_out = False
         resolved_day: int | None = None
         touches = 0
+        violations = 0
         for day in CHECKIN_DAYS:
             if day > window_days or opted_out or resolved_day is not None:
                 break
             touches += 1
             touches_on_channel += 1
+            if _shadow_bounds_violation(p):
+                violations += 1
             matched = rng.random() < DIAGNOSTIC_ACCURACY.value
             if rng.random() < _resolution_prob(p.true_blocker, matched=matched):
                 resolved_day = day
@@ -208,7 +254,7 @@ def run_arm_b2(personas: list[Persona], *, window_days: int, rng: random.Random)
             persona_id=p.id, amount_paise=p.amount_paise, resolved_day=resolved_day,
             recovered_paise=p.amount_paise if resolved_day is not None else 0,
             escalated_to_human=False, contact_exhausted=opted_out and resolved_day is None,
-            touches=touches,
+            touches=touches, bounds_violations=violations,
         ))
     return outcomes
 
@@ -295,7 +341,31 @@ def summarize(arm: str, outcomes: list[Outcome]) -> ArmSummary:
         human_escalation_rate=sum(o.escalated_to_human for o in outcomes) / n if n else 0.0,
         contact_exhausted_rate=sum(o.contact_exhausted for o in outcomes) / n if n else 0.0,
         mean_touches=statistics.mean(o.touches for o in outcomes) if outcomes else 0.0,
+        total_bounds_violations=sum(o.bounds_violations for o in outcomes),
     )
+
+
+def run_comparison_raw(
+    *, n_personas: int, seed: int, window_days: int, lift: float,
+    touch_cost_paise: int = DEFAULT_TOUCH_COST_PAISE,
+) -> tuple[list[Persona], dict[str, list[Outcome]]]:
+    """Same as run_comparison, but returns the population and each arm's
+    raw per-persona Outcomes rather than pre-aggregated summaries -- what
+    eval/report.py needs for cuts run_comparison can't offer (a Family B
+    breakout, a decision-flip-rate calculation over the real population)
+    without re-running the simulation from scratch."""
+    p_base_model = load_fitted_p_base()
+    personas = generate_population(n_personas, seed=seed, p_base_model=p_base_model)
+    lift_prior = Prior(lift)
+
+    return personas, {
+        "A": run_arm_a(personas, window_days=window_days, rng=random.Random(seed)),
+        "B2": run_arm_b2(personas, window_days=window_days, rng=random.Random(seed)),
+        "C": run_arm_c(
+            personas, window_days=window_days, rng=random.Random(seed),
+            lift_prior=lift_prior, touch_cost_paise=touch_cost_paise,
+        ),
+    }
 
 
 def run_comparison(
@@ -305,27 +375,30 @@ def run_comparison(
     """The same population, same seed, run through all three arms -- the
     fairness property §17.6 pre-registration exists to protect: nobody's
     strategy gets easier cases than anyone else's."""
-    p_base_model = load_fitted_p_base()
-    personas = generate_population(n_personas, seed=seed, p_base_model=p_base_model)
-    lift_prior = Prior(lift)
+    _, outcomes_by_arm = run_comparison_raw(
+        n_personas=n_personas, seed=seed, window_days=window_days, lift=lift, touch_cost_paise=touch_cost_paise,
+    )
+    return {arm: summarize(arm, outcomes) for arm, outcomes in outcomes_by_arm.items()}
 
-    return {
-        "A": summarize("A", run_arm_a(personas, window_days=window_days, rng=random.Random(seed))),
-        "B2": summarize("B2", run_arm_b2(personas, window_days=window_days, rng=random.Random(seed))),
-        "C": summarize("C", run_arm_c(
-            personas, window_days=window_days, rng=random.Random(seed),
-            lift_prior=lift_prior, touch_cost_paise=touch_cost_paise,
-        )),
-    }
+
+def family_b_only(personas: list[Persona], outcomes: list[Outcome]) -> list[Outcome]:
+    """Filters an arm's outcomes down to the Family-B-shaped (administrative
+    blocker) subpopulation -- §17.7's own instruction ("Family B broken out
+    alone, because it is the margin claim") and §26.1's identification
+    argument: the control arm's action set contains no action that removes
+    a blocking artifact defect, so this comparison is identified by the
+    action sets, not by the response model."""
+    admin_ids = {p.id for p in personas if p.true_blocker is Blocker.ADMINISTRATIVE}
+    return [o for o in outcomes if o.persona_id in admin_ids]
 
 
 def _print_summary(summaries: dict[str, ArmSummary]) -> None:
-    print(f"{'Arm':<4} {'n':>5} {'Recovered':>10} {'Resolved':>9} {'Avg days':>9} {'Human esc':>10} {'Lost':>6} {'Touches':>8}")
+    print(f"{'Arm':<4} {'n':>5} {'Recovered':>10} {'Resolved':>9} {'Avg days':>9} {'Human esc':>10} {'Lost':>6} {'Touches':>8} {'Violations':>10}")
     for arm, s in summaries.items():
         avg_days = f"{s.mean_days_to_resolution:.1f}" if s.mean_days_to_resolution is not None else "n/a"
         print(
             f"{arm:<4} {s.n:>5} {s.recovered_fraction:>9.1%} {s.resolved_fraction:>9.1%} "
-            f"{avg_days:>9} {s.human_escalation_rate:>9.1%} {s.contact_exhausted_rate:>6.1%} {s.mean_touches:>8.2f}"
+            f"{avg_days:>9} {s.human_escalation_rate:>9.1%} {s.contact_exhausted_rate:>6.1%} {s.mean_touches:>8.2f} {s.total_bounds_violations:>10}"
         )
 
 
