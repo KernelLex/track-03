@@ -35,6 +35,7 @@ import time
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from agent.auditor.extraction_log import ExtractionLog
 from agent.bounds.context import ActionCtx, BoundsContext, ConfigCtx, DebtorCtx, DecisionCtx, InvoiceCtx, MandateCtx
 from agent.bounds.engine import check_bounds
 from agent.diagnose.llm_extract import ExtractionFailed, extract_from_reply
@@ -241,7 +242,9 @@ def check_reply(payload: CheckReplyRequest) -> dict[str, object]:
 
     if payload.diagnose:
         try:
-            extraction = extract_from_reply(text, purpose="demo_dashboard_live_reply")
+            log_path = os.environ.get("TRUECOMMIT_EXTRACTION_LOG", "extraction_log.db")
+            with ExtractionLog(log_path) as extraction_log:
+                extraction = extract_from_reply(text, purpose="demo_dashboard_live_reply", extraction_log=extraction_log)
             result["diagnosis"] = {
                 "family": extraction.family.value,
                 "class": extraction.class_.value,

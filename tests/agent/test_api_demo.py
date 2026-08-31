@@ -48,6 +48,7 @@ def _reset_rate_limit():
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("TRUECOMMIT_EVENTS_DB", str(tmp_path / "events.db"))
+    monkeypatch.setenv("TRUECOMMIT_EXTRACTION_LOG", str(tmp_path / "extraction_log.db"))
     monkeypatch.setenv("DEMO_TRIGGER_SECRET", SECRET)
     monkeypatch.setenv("DEMO_CONTACT_TELEGRAM_CHAT_ID", "999888777")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "fake-token")

@@ -10,7 +10,15 @@ import sqlite3
 
 from agent.act.actions import ActionType
 from agent.act.executor import OutboundActionStore, execute_action
-from agent.auditor.scheduler import run_bounds_integrity_once, run_chain_integrity_once, start_auditor_scheduler
+from agent.auditor.extraction_log import ExtractionLog
+from agent.auditor.scheduler import (
+    add_extractor_drift_job,
+    run_bounds_integrity_once,
+    run_chain_integrity_once,
+    run_extractor_drift_once,
+    start_auditor_scheduler,
+)
+from agent.diagnose.extract import DiagnosisClass, ExtractionResult, Family
 from agent.bounds.context import ActionCtx, BoundsContext, ConfigCtx, DebtorCtx, DecisionCtx, InvoiceCtx, MandateCtx
 from agent.ledger.store import Ledger
 from agent.rails.simulated import SimulatedRail
@@ -90,6 +98,57 @@ def test_scheduler_starts_registers_both_jobs_and_shuts_down_cleanly(tmp_path):
         assert scheduler.running
         job_ids = {job.id for job in scheduler.get_jobs()}
         assert job_ids == {"chain_integrity", "bounds_integrity"}
+        # Extractor drift is deliberately NOT auto-registered -- it spends
+        # real money per real run, unlike the two free jobs above.
+        assert "extractor_drift" not in job_ids
     finally:
         scheduler.shutdown(wait=False)
     assert not scheduler.running
+
+
+def _result(**overrides) -> ExtractionResult:
+    defaults = dict(family=Family.C, **{"class": DiagnosisClass.PROMISE_STATED}, confidence=0.8)
+    defaults.update(overrides)
+    return ExtractionResult(**defaults)
+
+
+def test_extractor_drift_job_logs_nothing_to_sample_on_an_empty_log(tmp_path, caplog):
+    log_path = str(tmp_path / "extraction_log.db")
+    with caplog.at_level(logging.INFO, logger="trucommit.auditor"):
+        run_extractor_drift_once(log_path)
+    assert any("nothing to sample yet" in r.message for r in caplog.records)
+    assert not any(r.levelno >= logging.CRITICAL for r in caplog.records)
+
+
+def test_extractor_drift_job_logs_ok_on_agreement(tmp_path, caplog):
+    log_path = str(tmp_path / "extraction_log.db")
+    with ExtractionLog(log_path) as log:
+        log.record(reply_text="will pay Friday", result=_result(), model="claude-sonnet-5", purpose="path_b_extraction")
+
+    with caplog.at_level(logging.INFO, logger="trucommit.auditor"):
+        run_extractor_drift_once(log_path, sample_rate=1.0, rerun=lambda text: _result())
+    assert any("extractor drift OK" in r.message for r in caplog.records)
+    assert not any(r.levelno >= logging.CRITICAL for r in caplog.records)
+
+
+def test_extractor_drift_job_logs_critical_on_quarantine(tmp_path, caplog):
+    log_path = str(tmp_path / "extraction_log.db")
+    with ExtractionLog(log_path) as log:
+        log.record(reply_text="will pay Friday", result=_result(), model="claude-sonnet-5", purpose="path_b_extraction")
+
+    disagreeing = _result(family=Family.D, **{"class": DiagnosisClass.AMOUNT})
+    with caplog.at_level(logging.INFO, logger="trucommit.auditor"):
+        run_extractor_drift_once(log_path, sample_rate=1.0, rerun=lambda text: disagreeing)
+    assert any(r.levelno == logging.CRITICAL and "EXTRACTOR DRIFT QUARANTINE" in r.message for r in caplog.records)
+
+
+def test_add_extractor_drift_job_registers_it_as_opt_in(tmp_path):
+    db_path = _populated_db(tmp_path)
+    log_path = str(tmp_path / "extraction_log.db")
+    scheduler = start_auditor_scheduler(db_path, chain_interval_seconds=3600, bounds_interval_seconds=3600)
+    try:
+        add_extractor_drift_job(scheduler, log_path, interval_seconds=3600)
+        job_ids = {job.id for job in scheduler.get_jobs()}
+        assert "extractor_drift" in job_ids
+    finally:
+        scheduler.shutdown(wait=False)

@@ -26,6 +26,7 @@ from datetime import date
 import anthropic
 from pydantic import ValidationError
 
+from agent.auditor.extraction_log import ExtractionLog
 from agent.diagnose.extract import ExtractionResult
 from agent.spend import SpendLedger, estimate_cost_usd
 
@@ -119,6 +120,7 @@ def extract_from_reply(
     client: anthropic.Anthropic | None = None,
     model: str = DEFAULT_MODEL,
     spend_ledger: SpendLedger | None = None,
+    extraction_log: ExtractionLog | None = None,
     purpose: str = "path_b_extraction",
     today: date | None = None,
 ) -> ExtractionResult:
@@ -126,6 +128,12 @@ def extract_from_reply(
     untrusted counterparty text (Law 8) and is sent only as the user turn's
     content -- never merged into SYSTEM_PROMPT, which is static and marked
     cacheable since it's identical on every call this project makes.
+
+    `extraction_log` is optional and additive, same shape as `spend_ledger`:
+    when given, a successfully validated result is recorded (reply_text +
+    result, never a failed/rejected one) for agent.auditor.extractor_drift
+    to later sample and re-check (§11.7). Omitting it changes nothing —
+    every existing caller/test keeps working unchanged.
 
     Budget-gated (agent.spend): a real token count for this exact call is
     fetched first, and BudgetExceeded is raised *before* the generating
@@ -203,5 +211,8 @@ def extract_from_reply(
     if parsed is None:
         raw_text = "".join(b.text for b in response.content if getattr(b, "type", None) == "text")
         raise ExtractionFailed("model did not return a parseable ExtractionResult", raw=raw_text or None)
+
+    if extraction_log is not None:
+        extraction_log.record(reply_text=truncated, result=parsed, model=model, purpose=purpose)
 
     return parsed
