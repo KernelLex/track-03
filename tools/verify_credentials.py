@@ -98,6 +98,11 @@ def check_anthropic() -> None:
         return
 
     from agent.diagnose.llm_extract import ExtractionFailed, extract_from_reply
+    from agent.spend import BudgetExceeded, SpendLedger
+
+    ledger = SpendLedger()
+    print(f"[anthropic] spend so far: ${ledger.total_spent_usd():.4f} "
+          f"(${ledger.remaining_budget_usd():.4f} remaining of the ${20:.2f} ceiling)")
 
     samples = [
         "We will pay the full amount by October 1st, funds are just clearing on our end.",
@@ -105,11 +110,14 @@ def check_anthropic() -> None:
     ]
     for sample in samples:
         try:
-            result = extract_from_reply(sample)
+            result = extract_from_reply(sample, spend_ledger=ledger)
             print(
                 f"[anthropic] OK -- family={result.family.value} class={result.class_.value} "
                 f"confidence={result.confidence:.2f}  <- {sample[:50]!r}..."
             )
+        except BudgetExceeded as exc:
+            print(f"[anthropic] REFUSED -- {exc}")
+            break
         except ExtractionFailed as exc:
             print(f"[anthropic] FAILED -- {exc}")
             if "anthropic-workspace-id" in str(exc):
@@ -120,6 +128,9 @@ def check_anthropic() -> None:
                     "instead, which doesn't need this at all."
                 )
             break  # the second sample would fail identically -- no need to spend it
+
+    print(f"[anthropic] spend after this run: ${ledger.total_spent_usd():.4f} "
+          f"(${ledger.remaining_budget_usd():.4f} remaining)")
 
 
 def main() -> int:

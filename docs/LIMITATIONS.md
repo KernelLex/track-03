@@ -9,7 +9,7 @@ A tested, working implementation of TrueCommit's **pure-logic safety and
 compliance core** (DEVDOC_v6 §5.2's "the judgment"), **now also wired to a
 real, live Razorpay test-mode account** (as of 2026-08-30) for the
 capabilities that account actually has, plus a real (if minimal) HTTP
-webhook receiver. **587 tests passing / 11 skipped as of 2026-08-31**,
+webhook receiver. **606 tests passing / 11 skipped as of 2026-08-31**,
 measured without live credentials in the shell (the 11 skipped are the
 Razorpay-live-only suite, which skips cleanly rather than failing —
 no credentials are required to run the main suite). It is still **not**:
@@ -26,15 +26,12 @@ no credentials are required to run the main suite). It is still **not**:
   committed pre-registration yet, and won't be until `eval/PREREGISTRATION.md`
   locks in population size, window length, and the primary comparison first
 - Wired end to end from the live webhook to a real LLM call — the call
-  itself now exists and is tested (`agent/diagnose/llm_extract.py`, see
+  itself now exists, is tested, and **is live-verified as of 2026-08-31**
+  (`agent/diagnose/llm_extract.py`, two real successful extractions, see
   `docs/LLM_EXTRACTION.md`), but nothing yet invokes it from the DIAGNOSE
   stage automatically when a webhook carries free text instead of a
-  structured code. **A real, specific blocker as of 2026-08-31**: the
-  supplied API key is identity-linked and every live call fails with a 400
-  asking for an `anthropic-workspace-id` header — support for that header
-  is now built (`ANTHROPIC_WORKSPACE_ID` env var), but no value exists yet
-  to put there. See `docs/LLM_EXTRACTION.md` for the exact error and the
-  two ways to unblock it
+  structured code — that orchestration gap is what's left, not the call
+  itself anymore
 - A live message *sent* (as opposed to credentials confirmed) — Telegram
   and Twilio-voice both have real, live-verified credentials as of
   2026-08-31 (`docs/CHANNELS.md`), but `send()` itself (an actual message,

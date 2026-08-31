@@ -21,11 +21,13 @@ corpus) and holds even if this prompt-level defense were removed entirely.
 from __future__ import annotations
 
 import os
+from datetime import date
 
 import anthropic
 from pydantic import ValidationError
 
 from agent.diagnose.extract import ExtractionResult
+from agent.spend import SpendLedger, estimate_cost_usd
 
 DEFAULT_MODEL = "claude-sonnet-5"
 """Sonnet 5, not Opus 5: this is a bounded classification call -- pick one of
@@ -33,6 +35,8 @@ DEFAULT_MODEL = "claude-sonnet-5"
 reply -- not open-ended reasoning, and this project runs it at
 persona-simulation volume under a real budget. See docs/LLM_EXTRACTION.md
 for the cost math this decision is based on."""
+
+MAX_TOKENS = 1024
 
 MAX_REPLY_CHARS = 8_000
 """A debtor reply this long is already anomalous for what's meant to be a
@@ -68,7 +72,9 @@ Guidance:
 - confidence is your genuine calibrated belief (0 to 1), not a fixed high number. Use a low \
 value for a message that's ambiguous, off-topic, or where you're guessing between two classes.
 - promise: fill in only if the debtor stated a concrete amount and/or date they will pay. Leave \
-fields null if none was stated. Never infer a date or amount that wasn't actually written.
+fields null if none was stated. Never infer a date or amount that wasn't actually written. \
+date MUST be ISO8601 (YYYY-MM-DD) -- convert whatever form the debtor used ("October 1st", \
+"next Friday", "15/09") into that format yourself; never pass through the original wording.
 - dispute: fill in only if the debtor is contesting something specific about the debt.
 - entities: pull out a UTR, PO number, GSTIN, contact person, or stated pay date only if \
 literally present in the text. Do not fabricate a plausible-looking value.
@@ -112,29 +118,86 @@ def extract_from_reply(
     *,
     client: anthropic.Anthropic | None = None,
     model: str = DEFAULT_MODEL,
+    spend_ledger: SpendLedger | None = None,
+    purpose: str = "path_b_extraction",
+    today: date | None = None,
 ) -> ExtractionResult:
     """The one place a live model call happens for Path B. `reply_text` is
     untrusted counterparty text (Law 8) and is sent only as the user turn's
     content -- never merged into SYSTEM_PROMPT, which is static and marked
-    cacheable since it's identical on every call this project makes."""
+    cacheable since it's identical on every call this project makes.
+
+    Budget-gated (agent.spend): a real token count for this exact call is
+    fetched first, and BudgetExceeded is raised *before* the generating
+    call if a worst-case estimate would push cumulative spend over the
+    ceiling. On success, the call's real usage (including cache read/write
+    tokens, priced at their own rates) is recorded -- whether or not the
+    output goes on to validate as an ExtractionResult, since the money was
+    already spent either way.
+
+    One real gap this can't close: if the model's JSON is schema-valid but
+    fails ExtractionResult's own validators (e.g. a non-ISO8601 promise
+    date), the SDK's `messages.parse()` raises pydantic.ValidationError
+    from *inside* its response-parsing step -- after the billed call
+    already happened, but without ever handing back the response object,
+    so real usage is unrecoverable (confirmed live, not theoretical).
+    That path records a conservative estimate instead (real input tokens
+    from the pre-call count, output_tokens=MAX_TOKENS as a worst-case
+    upper bound, SpendRecord.is_estimated=True) -- overestimating is the
+    safe direction for a budget ceiling, silently under-counting is not."""
     if not reply_text or not reply_text.strip():
         raise ExtractionFailed("reply_text is empty")
 
     truncated = reply_text[:MAX_REPLY_CHARS]
     client = client or _default_client()
+    ledger = spend_ledger or SpendLedger()
+    today = today or date.today()
+
+    # The static instructions stay first and cacheable; today's date is a
+    # second, small, volatile block appended *after* it -- Anthropic's
+    # prompt caching matches by prefix, so this doesn't invalidate the
+    # cached first block. Needed for real: the model can't resolve "October
+    # 1st" into an unambiguous year without being told today's date at all
+    # (found live -- the first real call returned promise.date="October
+    # 1st" verbatim, which fails ExtractionResult's ISO8601 validator).
+    system_blocks = [
+        {"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": f"Today's date is {today.isoformat()}. Resolve any relative or "
+                                  "partial date the debtor gives (\"next Friday\", \"the 15th\", "
+                                  "\"October 1st\") against this, into a full ISO8601 date."},
+    ]
+    messages = [{"role": "user", "content": truncated}]
+
+    try:
+        token_count = client.messages.count_tokens(model=model, system=system_blocks, messages=messages)
+    except (anthropic.APIStatusError, anthropic.APIConnectionError) as exc:
+        raise ExtractionFailed(f"token counting failed: {exc}") from exc
+
+    estimated_cost = estimate_cost_usd(model=model, input_tokens=token_count.input_tokens, output_tokens=MAX_TOKENS)
+    ledger.check_budget(estimated_cost)  # raises BudgetExceeded -- deliberately not caught here
 
     try:
         response = client.messages.parse(
-            model=model,
-            max_tokens=1024,
-            system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
-            messages=[{"role": "user", "content": truncated}],
+            model=model, max_tokens=MAX_TOKENS, system=system_blocks, messages=messages,
             output_format=ExtractionResult,
         )
     except (anthropic.APIStatusError, anthropic.APIConnectionError) as exc:
         raise ExtractionFailed(f"API call failed: {exc}") from exc
     except ValidationError as exc:
+        ledger.record(
+            model=model, purpose=purpose,
+            input_tokens=token_count.input_tokens, output_tokens=MAX_TOKENS,
+            is_estimated=True,
+        )
         raise ExtractionFailed(f"model output failed schema validation: {exc}") from exc
+
+    usage = response.usage
+    ledger.record(
+        model=model, purpose=purpose,
+        input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
+        cache_creation_input_tokens=usage.cache_creation_input_tokens or 0,
+        cache_read_input_tokens=usage.cache_read_input_tokens or 0,
+    )
 
     parsed = getattr(response, "parsed_output", None)
     if parsed is None:

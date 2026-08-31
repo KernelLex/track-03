@@ -68,8 +68,9 @@ roughly $1.50–2. This has not been run yet — see `PROGRESS.md`.
 | Piece | State |
 |---|---|
 | `ExtractionResult` schema + validation | ✅ pre-existing, 40-case injection corpus |
-| `extract_from_reply()` (the real call) | ✅ built, `tests/agent/test_llm_extract.py` (13 tests, all against a mocked client) |
-| Live call against the real API | ⬜ **blocked, 2026-08-31 — see below** |
+| `extract_from_reply()` (the real call) | ✅ built, `tests/agent/test_llm_extract.py` (20 tests, all against a mocked client) |
+| Live call against the real API | ✅ **confirmed 2026-08-31 — see below** |
+| Budget tracking (`agent/spend.py`) | ✅ built, live-verified, see `docs/BUDGET.md` |
 | Wired into the live webhook → DIAGNOSE path | ⬜ not yet connected end to end |
 
 Every test in `test_llm_extract.py` uses a `MagicMock` standing in for
@@ -77,29 +78,36 @@ Every test in `test_llm_extract.py` uses a `MagicMock` standing in for
 at all, matching this project's policy for `RazorpayRail`
 (`tests/agent/test_razorpay_rail_live.py` is opt-in-only).
 
-## Live verification, 2026-08-31 — a real, specific blocker
+## Live verification, 2026-08-31 — two real findings, both fixed
 
-Two real calls were attempted via `tools/verify_credentials.py`. Both
-failed with the same error, not a timeout or a malformed request:
+**First attempt failed** with a specific, real account fact, not a bug:
+the originally-supplied API key was **identity-linked** (created against a
+personal Console login) and every call 400'd asking for an explicit
+`anthropic-workspace-id` header. Support for that header was built
+(`ANTHROPIC_WORKSPACE_ID` env var) in case it's needed again, but the
+actual fix was simpler — the user generated a plain workspace-scoped key
+instead, which needs neither the header nor the env var.
 
-```
-400 invalid_request_error: anthropic-workspace-id is required when
-authenticating with an identity-linked API key; send the id of the
-workspace this request acts in.
-```
+**Second attempt reached the model and got a real, specific validation
+failure**: `promise.date` came back as `"October 1st"` instead of
+ISO8601 — the model correctly read the debtor's words but had no way to
+know which year "October 1st" means without being told today's date, and
+`ExtractionResult`'s own validator correctly rejected it rather than
+passing an ambiguous date downstream. Fixed by adding a second, small,
+uncached system block carrying today's date (placed after the large
+cacheable instruction block, so caching is unaffected) — see
+`docs/BUDGET.md` for the spend-tracking bug this same failure also
+surfaced and how it was fixed.
 
-The key supplied is **identity-linked** — created against a personal
-Console login rather than issued as a plain workspace-scoped key — so
-Anthropic needs to be told explicitly which workspace the request should
-act in. This is a real account fact, not a code bug: `_default_client()`
-in `agent/diagnose/llm_extract.py` now reads an `ANTHROPIC_WORKSPACE_ID`
-env var and sends it as the `anthropic-workspace-id` header when set
-(`tests/agent/test_llm_extract.py::TestDefaultClient`, 2 tests), but no
-value was available to put there — finding a workspace id needs Console
-access this session doesn't have. Two ways to unblock, either works:
-generate a plain workspace-scoped API key instead (skips the header
-entirely), or set `ANTHROPIC_WORKSPACE_ID` from Console → Workspaces.
+**Third attempt succeeded, twice**, confirming the whole path end to end:
 
-The first real, successful call should still be a single hand-picked
-reply, checked by eye against what it extracted, before it's trusted
-inside a larger run — that check hasn't happened yet either.
+| Reply | Extracted |
+|---|---|
+| "We will pay the full amount by October 1st, funds are just clearing on our end." | `family=C, class=PROMISE_STATED, confidence=0.88` |
+| "This invoice bills 200 units but we only received 150 -- we're disputing the difference." | `family=D, class=QUANTITY_QUALITY, confidence=0.94` |
+
+Both classifications are correct on inspection. Total cost: **$0.013** —
+see `docs/BUDGET.md` for the full spend record and a live confirmation
+that prompt caching is actually working (the second call's cache-read
+tokens exactly matched the first call's cache-write tokens, at roughly a
+fifth of the cost).
