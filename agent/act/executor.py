@@ -170,13 +170,13 @@ def _dispatch(
         link = rail.create_payment_link(LinkSpec(
             amount_paise=payload["amount_paise"], description=payload.get("description", "")
         ))
-        return link.id, {"amount_paise": link.amount_paise, "status": link.status}
+        return link.id, {"amount_paise": link.amount_paise, "status": link.status, "short_url": link.short_url}
 
     if action_type == ActionType.REISSUE_ARTIFACT:
         invoice = rail.create_invoice(InvoiceSpec(
             amount_paise=payload["amount_paise"], description=payload.get("description", "")
         ))
-        return invoice.id, {"amount_paise": invoice.amount_paise, "status": invoice.status}
+        return invoice.id, {"amount_paise": invoice.amount_paise, "status": invoice.status, "short_url": invoice.short_url}
 
     if action_type == ActionType.CREATE_MANDATE:
         mandate = rail.create_mandate(MandateSpec(

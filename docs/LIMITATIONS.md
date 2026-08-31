@@ -9,17 +9,20 @@ A tested, working implementation of TrueCommit's **pure-logic safety and
 compliance core** (DEVDOC_v6 §5.2's "the judgment"), **now also wired to a
 real, live Razorpay test-mode account** (as of 2026-08-30) for the
 capabilities that account actually has, plus a real (if minimal) HTTP
-webhook receiver. **606 tests passing / 11 skipped as of 2026-08-31**,
+webhook receiver. **659 tests passing / 11 skipped as of 2026-09-01**,
 measured without live credentials in the shell (the 11 skipped are the
 Razorpay-live-only suite, which skips cleanly rather than failing —
 no credentials are required to run the main suite). It is still **not**:
 
-- A running multi-stage pipeline with a dashboard UI — no Jinja templates,
-  no human-queue view, and no scheduler running `DIAGNOSE -> DECIDE ->
-  BOUNDS -> ACT` end to end. There *is* now a real webhook receiver
-  (`agent/api/app.py`, `uv run trucommit serve`) and a real scheduled
-  Auditor (`agent/auditor/scheduler.py`, APScheduler in-process) running
-  alongside it — see below for exactly what each does and doesn't close.
+- A Jinja-templated human-queue dashboard UI (the demo dashboard is a
+  published Artifact, not a server-rendered page). **Update, 2026-09-01**:
+  `DIAGNOSE -> DECIDE -> BOUNDS -> ACT` now *does* run end to end,
+  automatically, triggered by a real webhook -- `agent/orchestrate.py` +
+  wiring in `agent/api/app.py`, live-verified (see `docs/ORCHESTRATION.md`).
+  Path A only (a structured failure code, no model); Path B is designed to
+  plug into the identical `run_pipeline()` call but isn't wired to a live
+  Telegram reply yet. A real scheduled Auditor
+  (`agent/auditor/scheduler.py`, APScheduler in-process) runs alongside it.
 - The four-arm evaluation (§17), run for real — the harness itself now
   exists (`eval/simulate.py`, `eval/personas/generator.py`, see the "Golden
   set, extractor, Auditor" section below), but no arm has been run under a
