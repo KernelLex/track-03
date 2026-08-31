@@ -9,7 +9,7 @@ A tested, working implementation of TrueCommit's **pure-logic safety and
 compliance core** (DEVDOC_v6 §5.2's "the judgment"), **now also wired to a
 real, live Razorpay test-mode account** (as of 2026-08-30) for the
 capabilities that account actually has, plus a real (if minimal) HTTP
-webhook receiver. **696 tests passing / 11 skipped as of 2026-09-01**,
+webhook receiver. **771 tests passing / 11 skipped as of 2026-09-01**,
 measured without live credentials in the shell (the 11 skipped are the
 Razorpay-live-only suite, which skips cleanly rather than failing —
 no credentials are required to run the main suite). It is still **not**:
@@ -23,11 +23,22 @@ no credentials are required to run the main suite). It is still **not**:
   plug into the identical `run_pipeline()` call but isn't wired to a live
   Telegram reply yet. A real scheduled Auditor
   (`agent/auditor/scheduler.py`, APScheduler in-process) runs alongside it.
-- The four-arm evaluation (§17), run for real — the harness itself now
-  exists (`eval/simulate.py`, `eval/personas/generator.py`, see the "Golden
-  set, extractor, Auditor" section below), but no arm has been run under a
-  committed pre-registration yet, and won't be until `eval/PREREGISTRATION.md`
-  locks in population size, window length, and the primary comparison first
+- The four-arm evaluation (§17) against **real debtors** — still not done,
+  and correctly so (it needs a live deployment this build doesn't have).
+  **Update, 2026-09-01**: the *synthetic* three-arm (A/B2/C) comparison
+  **has** now been run for real, under a committed pre-registration —
+  `eval/PREREGISTRATION.md` locked n=500/seed=42/window=30d/primary
+  comparison before `eval/report.py` generated `docs/RESULTS.md` from that
+  exact configuration. Real findings: Arm C recovers more than both other
+  arms at a *neutral* `lift_prior=1.0` (no assumed behavioural uplift) with
+  zero real `check_bounds()` violations against hundreds for the two
+  ungated arms; at the realistic Rs 5 touch cost, `lift_prior` turns out not
+  to be load-bearing at all (`EV_FLOOR` never binds against this
+  population); a stress-tested elevated touch cost does produce a genuine
+  break-even τ≈0.49, near the low end of the declared sweep range. This is
+  a synthetic-population, known-ground-truth result — it measures the
+  pipeline's logic, not real extraction accuracy or real debtor behaviour;
+  see `docs/RESULTS.md`'s own "what this is not" section
 - Wired end to end from the live webhook to a real LLM call — the call
   itself now exists, is tested, and **is live-verified as of 2026-08-31**
   (`agent/diagnose/llm_extract.py`, two real successful extractions, see
@@ -209,18 +220,29 @@ recorded verdict and confirms it's caught). This only works because
 into every `LedgerEntry` it appends — a real structural gap found while
 building the Auditor: ACT never wrote to the ledger at all before this,
 which meant Law 4 ("agents coordinate only through the ledger") was simply
-not upheld for the one stage that moves money. **Extractor drift is not
-built** — it needs a live model producing real extractions to sample and
-re-run.
+not upheld for the one stage that moves money. **Update, 2026-09-01 —
+extractor drift is now built**: `agent/auditor/extractor_drift.py`
+samples logged past extractions (`agent/auditor/extraction_log.py`, a new
+opt-in local record `extract_from_reply()` writes to when given one) and
+re-checks each against a second model, quarantining below an agreement
+threshold. Real, tested (`tests/agent/test_extractor_drift.py`), but
+**deliberately not auto-scheduled** the way the two free jobs are — every
+real run spends real money against the $20 ceiling `agent/spend.py`
+enforces, so putting it on an automatic timer is left as an explicit
+opt-in (`agent.auditor.scheduler.add_extractor_drift_job`), not decided
+silently on the operator's behalf.
 
-Both model-free jobs **do now run on a schedule** — `agent/auditor
+The two free jobs **do run on a schedule** — `agent/auditor
 /scheduler.py`, APScheduler in-process, wired into `agent/api/app.py`'s
 lifespan behind the `TRUECOMMIT_LEDGER_DB` env var (`uv run trucommit
 serve` starts both alongside the webhook receiver; it warns loudly, rather
 than silently, if that variable isn't set). A trip currently logs at
 `CRITICAL` rather than DEVDOC_v6 §11.7's own "halt the arm, write
-WHAT_BROKE.md" — "arm" is a concept from the eval harness (§17), which
-doesn't exist yet, so there's nothing to halt in the sense the spec means.
+WHAT_BROKE.md" — "arm" is a concept from the eval harness (§17), which now
+exists and has run once (`docs/RESULTS.md`) but only as an offline
+Monte Carlo comparison, not a live, running A/B assignment serving real
+traffic — there is still nothing *live* to halt in the sense the spec's
+phrase means, even though the harness itself is no longer hypothetical.
 
 ## EV gate
 
@@ -305,17 +327,34 @@ there's no real text to extract from a synthetic persona). 18 tests
 cover reproducibility and the structural invariants (Arm C escalates to a
 human in cases the other two structurally cannot; Arm C loses fewer
 debtors to contact exhaustion; `EV_FLOOR` genuinely refuses when a
-touch's cost dominates the recoverable amount). **What this is not**: a
-pre-registered result. `eval/PREREGISTRATION.md` still correctly marks
-population size, window length, and the primary comparison metric
-`PENDING` — those get committed in their own step, immediately before a
-run that counts as evidence, not folded into the commit that built the
-code (DEVDOC_v6 §17.6). No arm has been run for that purpose yet. §24.3's
-four adversarial personas run against that population, §25's
-autonomy/economics reporting (which needs a pre-registered run to have
-happened), and §27's vignette study (built and ready to send — needs 25
-human respondents, unambiguously a human-input item, not a code gap) all
-still follow behind that run.
+touch's cost dominates the recoverable amount).
+
+**Update, 2026-09-01 — a pre-registered result now exists.**
+`eval/PREREGISTRATION.md` locks n=500/seed=42/window=30d/lift=1.0 and the
+primary comparison, committed before `eval/report.py` generated
+`docs/RESULTS.md` from exactly that configuration (commit hash cited in
+the doc itself). Also added while building this: a real `check_bounds()`
+"violations column" for Arms A/B2 (a shadow check, never gating them —
+`eval/simulate.py::_shadow_bounds_violation`, narrowly scoped to a real,
+triggerable `DISPUTE_FREEZE` case, not every rule this simplified touch
+model can't actually exercise) and a Family-B-only breakout, which turned
+out to have a real, honestly-reported limitation of its own: only 2 of
+500 locked personas land in the administrative-blocker subpopulation
+(a direct consequence of the fitted `p_base` model's own high base rate),
+too few for that specific cut to be a reliable estimate of anything —
+reported for completeness per §17.7, not presented as a finding.
+
+**Still not built**: §24.3's four adversarial personas run through this
+harness specifically (the underlying bounds-rule fixes they'd exercise —
+promise-cooldown credibility, dispute-freeze scoping, channel exhaustion —
+are tested directly at the bounds-engine level, `tests/agent/
+test_bounds_engine.py`, just not run as personas through `eval/simulate.py`
+to produce a "cases permanently stalled" count); §25's fuller
+autonomy/economics reporting beyond what `docs/RESULTS.md` already
+reports (human escalation rate, mean touches, as an autonomy-rate proxy);
+§27's vignette study (built and ready to send — needs 25 human
+respondents, and was explicitly, deliberately dropped from this build's
+scope, not merely deferred — "low judge value, high time cost").
 
 ## Scalability — a plan exists, nothing has been migrated
 
