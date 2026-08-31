@@ -142,6 +142,7 @@ class SimulatedRail:
             status="pending_afa",
             afa_required=spec.afa_required,
             debit_schedule=list(spec.debit_schedule),
+            short_url=f"https://rzp.io/i/{secrets.token_hex(4)}",
         )
         self._mandates[mandate.id] = _MandateRecord(mandate=mandate)
         return mandate

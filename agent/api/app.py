@@ -14,6 +14,7 @@ what this build can do unattended. See docs/LIMITATIONS.md.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -21,16 +22,20 @@ from typing import AsyncIterator
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 
 from agent.act.actions import ActionType
 from agent.act.executor import OutboundActionStore
 from agent.api.demo import router as demo_router
 from agent.auditor.scheduler import start_auditor_scheduler
+from agent.diagnose.extract import DiagnosisClass, Family
+from agent.diagnose.llm_extract import ExtractionFailed, extract_from_reply
 from agent.diagnose.taxonomy import UnknownFailureCode
 from agent.ingest.listen import UnrecognizedWebhookEvent, facts_from_webhook
 from agent.ingest.webhooks import EventStore, MalformedWebhook, SignatureInvalid, verify_and_ingest
 from agent.ledger.store import Ledger
 from agent.notify.telegram import TelegramChannel
+from agent.notify.whatsapp import WhatsAppChannel, parse_incoming_messages, verify_webhook_challenge, verify_webhook_signature
 from agent.orchestrate import UnmappedFailureCode, diagnose_from_failure_code, run_pipeline
 from agent.rails.razorpay_rail import RazorpayRail
 from agent.rails.simulated import SimulatedRail
@@ -72,9 +77,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     else:
         app.state.orchestrator_rail = SimulatedRail(webhook_secret=os.environ.get("TRUECOMMIT_WEBHOOK_SECRET_SIMULATED", "orchestrator"))
 
+    # Channel selection: WhatsApp is the intended production channel once its
+    # credentials exist (docs/WHATSAPP.md) -- preferred over Telegram when
+    # both are configured, since Telegram was always a free stand-in for a
+    # channel a debtor can't be cold-messaged on. Falls back to Telegram
+    # (still real, still live) when WhatsApp isn't configured yet.
+    whatsapp_phone_id = os.environ.get("WHATSAPP_PHONE_NUMBER_ID")
+    whatsapp_token = os.environ.get("WHATSAPP_ACCESS_TOKEN")
     telegram_token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    app.state.orchestrator_channel = TelegramChannel(telegram_token) if telegram_token else None
-    app.state.orchestrator_contact_chat_id = os.environ.get("DEMO_CONTACT_TELEGRAM_CHAT_ID")
+    if whatsapp_phone_id and whatsapp_token:
+        app.state.orchestrator_channel = WhatsAppChannel(whatsapp_phone_id, whatsapp_token)
+        contact_phone = os.environ.get("DEMO_CONTACT_PHONE_NUMBER")
+        app.state.orchestrator_contact_chat_id = contact_phone.lstrip("+") if contact_phone else None
+    elif telegram_token:
+        app.state.orchestrator_channel = TelegramChannel(telegram_token)
+        app.state.orchestrator_contact_chat_id = os.environ.get("DEMO_CONTACT_TELEGRAM_CHAT_ID")
+    else:
+        app.state.orchestrator_channel = None
+        app.state.orchestrator_contact_chat_id = None
 
     try:
         yield
@@ -117,6 +137,108 @@ def _webhook_secret_for(source: str) -> str:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+WHATSAPP_BUTTON_DIAGNOSIS: dict[str, tuple[Family, DiagnosisClass]] = {
+    # A fixed, small mapping from a tapped reply-button id to a Path A
+    # diagnosis -- no model involved, same reasoning as
+    # agent.orchestrate.diagnose_from_failure_code: the debtor chose from a
+    # known, finite set of options, so there's nothing to extract. These
+    # three ids are the ones agent.notify.whatsapp.WhatsAppChannel
+    # .send_interactive_buttons is meant to be called with; a real deployment
+    # would keep the ids in sync with whatever buttons a live template
+    # actually ships (Meta requires template approval for buttons that open
+    # a conversation from cold -- these are for the in-window follow-up
+    # case only).
+    "btn_already_paid": (Family.B, DiagnosisClass.ALREADY_PAID_UNRECONCILED),
+    "btn_dispute": (Family.D, DiagnosisClass.AMOUNT),
+    "btn_need_time": (Family.C, DiagnosisClass.STALLING),
+}
+
+
+# Registered before the generic /webhooks/{source} route below -- Starlette
+# matches path routes in registration order for a given method, and these
+# two static paths must win over that route's {source} wildcard, or a
+# POST to /webhooks/whatsapp would be swallowed by receive_webhook(source=
+# "whatsapp", ...) instead of ever reaching Meta's own signature scheme.
+@app.get("/webhooks/whatsapp")
+def verify_whatsapp_webhook(request: Request) -> PlainTextResponse:
+    """Meta's one-time GET handshake when this URL is registered in the App
+    Dashboard (agent/notify/whatsapp.py's verify_webhook_challenge)."""
+    expected = os.environ.get("WHATSAPP_WEBHOOK_VERIFY_TOKEN")
+    if not expected:
+        raise HTTPException(status_code=500, detail="WHATSAPP_WEBHOOK_VERIFY_TOKEN not configured")
+    params = request.query_params
+    challenge = verify_webhook_challenge(
+        mode=params.get("hub.mode"), token=params.get("hub.verify_token"),
+        challenge=params.get("hub.challenge"), expected_token=expected,
+    )
+    if challenge is None:
+        raise HTTPException(status_code=403, detail="webhook verification failed")
+    return PlainTextResponse(challenge)
+
+
+@app.post("/webhooks/whatsapp")
+async def receive_whatsapp_webhook(request: Request) -> dict[str, object]:
+    """Real inbound WhatsApp messages, signature-verified with Meta's own
+    X-Hub-Signature-256 scheme (a different credential -- the Meta App's
+    secret -- from the WHATSAPP_ACCESS_TOKEN used to send).
+
+    Diagnoses each message immediately (Path A for a button tap via
+    WHATSAPP_BUTTON_DIAGNOSIS, Path B via the real extract_from_reply() for
+    free text) and returns the diagnosis -- but deliberately does NOT call
+    run_pipeline() the way the Razorpay payment.failed path does. That path
+    can derive a debtor_id/invoice_id from the payment itself; a WhatsApp
+    message only carries a wa_id (a phone number), which this build has no
+    merchant AR system to resolve to a real invoice. Wiring an inbound reply
+    into DECIDE/BOUNDS/ACT needs that lookup first -- a real next step, not
+    done here (see docs/WHATSAPP.md).
+
+    Deduplicated against redelivery using the same EventStore every
+    Razorpay webhook dedupes through, keyed by each message's own wamid --
+    without this, a Meta retry would double-bill a real Claude call for the
+    same free-text reply (agent/spend.py's $20 ceiling is per real reply,
+    not per delivery attempt).
+    """
+    body = await request.body()
+    signature = request.headers.get("x-hub-signature-256")
+    app_secret = os.environ.get("WHATSAPP_APP_SECRET")
+    if not app_secret:
+        raise HTTPException(status_code=500, detail="WHATSAPP_APP_SECRET not configured")
+    if not verify_webhook_signature(body, signature, app_secret):
+        raise HTTPException(status_code=400, detail="invalid webhook signature")
+
+    try:
+        payload = json.loads(body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"malformed JSON: {exc}") from exc
+
+    messages = parse_incoming_messages(payload)
+    results: list[dict[str, object]] = []
+    for msg in messages:
+        if not request.app.state.event_store.record("whatsapp", msg.message_id, msg.type):
+            results.append({"from": msg.from_wa_id, "duplicate": True})
+            continue
+
+        if msg.is_structured_reply:
+            mapping = WHATSAPP_BUTTON_DIAGNOSIS.get(msg.button_id or "")
+            diagnosis = (
+                {"family": mapping[0].value, "class": mapping[1].value, "confidence": 1.0}
+                if mapping is not None else None
+            )
+            results.append({"from": msg.from_wa_id, "type": "interactive", "button_id": msg.button_id, "diagnosis": diagnosis})
+        else:
+            try:
+                extraction = extract_from_reply(msg.text or "", purpose="whatsapp_inbound_reply")
+                diagnosis = {
+                    "family": extraction.family.value, "class": extraction.class_.value,
+                    "confidence": extraction.confidence,
+                }
+            except ExtractionFailed as exc:
+                diagnosis = {"error": str(exc)}
+            results.append({"from": msg.from_wa_id, "type": "text", "text": msg.text, "diagnosis": diagnosis})
+
+    return {"status": "processed", "messages": results}
 
 
 @app.post("/webhooks/{source}")

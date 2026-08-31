@@ -183,7 +183,7 @@ def _dispatch(
             max_amount_paise=payload["max_amount_paise"], start_at=payload["start_at"],
             end_at=payload["end_at"], debit_schedule=payload.get("debit_schedule", []),
         ))
-        return mandate.id, {"status": mandate.status, "max_amount_paise": mandate.max_amount_paise}
+        return mandate.id, {"status": mandate.status, "max_amount_paise": mandate.max_amount_paise, "short_url": mandate.short_url}
 
     if action_type == ActionType.RETRY_CHARGE:
         result = rail.present_debit(payload["mandate_id"], payload["amount_paise"])

@@ -99,6 +99,12 @@ class Mandate(BaseModel):
     afa_required: bool
     debit_schedule: list[str] = Field(default_factory=list)
     last_notification_at: str | None = None
+    short_url: str | None = None
+    """The real customer-facing authentication link for this mandate (a
+    Razorpay Subscription's own `short_url` -- where the customer actually
+    sets up the recurring auto-debit). Optional: SimulatedRail fabricates
+    one for realism, but a Rail that models a mandate as never needing
+    separate customer authentication is free to leave it unset."""
 
 
 class DebitResult(BaseModel):

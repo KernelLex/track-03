@@ -137,6 +137,7 @@ class RazorpayRail:
             start_at=spec.start_at, end_at=spec.end_at,
             status=_mandate_status_from_subscription(sub["status"]),
             afa_required=spec.afa_required, debit_schedule=list(spec.debit_schedule),
+            short_url=sub.get("short_url"),
         )
 
     def revoke_mandate(self, mandate_id: str) -> Mandate:

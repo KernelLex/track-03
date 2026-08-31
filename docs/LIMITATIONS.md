@@ -9,7 +9,7 @@ A tested, working implementation of TrueCommit's **pure-logic safety and
 compliance core** (DEVDOC_v6 §5.2's "the judgment"), **now also wired to a
 real, live Razorpay test-mode account** (as of 2026-08-30) for the
 capabilities that account actually has, plus a real (if minimal) HTTP
-webhook receiver. **659 tests passing / 11 skipped as of 2026-09-01**,
+webhook receiver. **696 tests passing / 11 skipped as of 2026-09-01**,
 measured without live credentials in the shell (the 11 skipped are the
 Razorpay-live-only suite, which skips cleanly rather than failing —
 no credentials are required to run the main suite). It is still **not**:
@@ -35,12 +35,16 @@ no credentials are required to run the main suite). It is still **not**:
   stage automatically when a webhook carries free text instead of a
   structured code — that orchestration gap is what's left, not the call
   itself anymore
-- A live message *sent* (as opposed to credentials confirmed) — Telegram
-  and Twilio-voice both have real, live-verified credentials as of
-  2026-08-31 (`docs/CHANNELS.md`), but `send()` itself (an actual message,
-  an actual call) hasn't been exercised live: Telegram has no `chat_id` yet
-  (nobody has messaged the bot), and Twilio needs a real destination number
-  that wasn't provided
+- A live message *sent* via Twilio (an actual call) — Telegram messages
+  **have** been sent live, repeatedly, since 2026-08-31 (`docs/CHANNELS.md`);
+  Twilio voice is still blocked on the connected account owning a phone
+  number, an external/billing blocker, not a code gap
+- A live WhatsApp send. `agent/notify/whatsapp.py` is code-complete and
+  tested against Meta's documented Cloud API request/response shapes via
+  `httpx.MockTransport` (37 tests) — the same standard `TwilioVoiceChannel`
+  was held to before its own live credentials existed — but no real Meta
+  Business account exists yet, so nothing here has touched Meta's actual
+  API. See `docs/WHATSAPP.md`.
 
 ## Webhook receiver (§19) — built and registered live once; current uptime unknown
 
@@ -104,6 +108,17 @@ reasonable future enhancement, deliberately not added reactively at the
 end of a session already consuming the very quota it would need to test
 against. If `tests/agent/test_razorpay_rail_live.py` fails with this exact
 error, wait before re-running rather than assuming the code regressed.
+
+**Update, 2026-09-01 — the payment-link cap was actually reached.**
+`tools/run_real_scenarios.py`'s live batch run hit `ServerError: test mode
+limit of 30 reached for payment_link` — a hard, apparently permanent
+per-account cap for an unactivated test-mode account (not a transient rate
+limit like the one above; retrying did not help). `create_mandate` and
+`create_invoice` are unaffected — confirmed live, same run, same account.
+Caught cleanly (the batch run records the failure and continues rather
+than crashing), but this is a real constraint on further live
+payment-link testing against this specific account until it's
+activated/KYC'd. See `docs/evidence/REAL_SCENARIOS.md`.
 
 **Still not live-verified**: `create_refund` (implemented against the
 documented SDK method, but refunding needs an actually-captured payment,
@@ -301,6 +316,18 @@ autonomy/economics reporting (which needs a pre-registered run to have
 happened), and §27's vignette study (built and ready to send — needs 25
 human respondents, unambiguously a human-input item, not a code gap) all
 still follow behind that run.
+
+## Scalability — a plan exists, nothing has been migrated
+
+The whole build runs as one process against per-file SQLite databases and
+orchestrates synchronously inside the webhook request. That's a deliberate,
+correct choice for a demo/pilot scale (SQLite in WAL mode genuinely
+handles real concurrent load, not a toy), not an oversight — but it has a
+real ceiling (one file, one machine; one merchant's data, since nothing in
+the schema is scoped by `merchant_id` yet). `docs/SCALABILITY.md` lays out
+the concrete path (Postgres, multi-tenant schema, queued orchestration,
+horizontally-scaled API) without any of it being built — see that doc for
+what would actually need to change and in what order.
 
 ## No static lint rule against float arithmetic on `Money`
 
