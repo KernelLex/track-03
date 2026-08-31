@@ -20,7 +20,9 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 
+from agent.api.demo import router as demo_router
 from agent.auditor.scheduler import start_auditor_scheduler
 from agent.ingest.listen import UnrecognizedWebhookEvent, facts_from_webhook
 from agent.ingest.webhooks import EventStore, MalformedWebhook, SignatureInvalid, verify_and_ingest
@@ -48,6 +50,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="TrueCommit", lifespan=lifespan)
+
+# Scoped to /demo/* only in effect (agent/api/demo.py refuses without the
+# right secret regardless of origin) -- broad origins are acceptable here
+# because the real protection is that endpoint's own secret + hardcoded
+# recipient, not CORS. Every other route on this app has no browser-facing
+# use case and isn't affected by this middleware being permissive.
+app.add_middleware(
+    CORSMiddleware, allow_origins=["*"], allow_methods=["POST"], allow_headers=["*"],
+)
+
+app.include_router(demo_router)
 
 
 def _webhook_secret_for(source: str) -> str:
