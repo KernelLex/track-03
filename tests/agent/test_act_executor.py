@@ -336,3 +336,91 @@ def test_idempotency_key_is_stable_for_identical_inputs_and_differs_for_any_chan
     key_c = compute_idempotency_key(debtor_id="d1", invoice_id="inv1", action_type=ActionType.CREATE_PAYMENT_LINK, decision_seq=2)
     assert key_a == key_b
     assert key_a != key_c
+
+
+class TestDryRun:
+    """A shadow mode on ACT: bounds runs for real, nothing else does."""
+
+    def test_dry_run_never_touches_the_rail(self, store, rail, ledger):
+        ctx = passing_bounds_context()
+        outcome = execute_action(
+            action_type=ActionType.CREATE_PAYMENT_LINK, debtor_id="debtor_1", invoice_id="inv_1",
+            decision_seq=1, bounds_context=ctx, rail=rail, outbound_store=store, ledger=ledger,
+            payload={"amount_paise": 25_000, "description": "test"}, dry_run=True,
+        )
+        assert len(rail._links) == 0  # nothing was created on the rail
+        assert outcome.external_ref is None
+        assert outcome.dry_run is True
+        assert outcome.detail["would_dispatch"] == "create_payment_link"
+
+    def test_dry_run_still_enforces_bounds(self, store, rail, ledger):
+        """A dry run proves the pipeline's judgment, not a weaker version of
+        it -- an action bounds would refuse for real is still refused."""
+        ctx = passing_bounds_context(decision=DecisionCtx(ev_paise=0))  # EV_FLOOR refuses
+        with pytest.raises(ActionRefused):
+            execute_action(
+                action_type=ActionType.CREATE_PAYMENT_LINK, debtor_id="debtor_1", invoice_id="inv_1",
+                decision_seq=1, bounds_context=ctx, rail=rail, outbound_store=store, ledger=ledger,
+                payload={"amount_paise": 10_000, "description": "test"}, dry_run=True,
+            )
+        assert len(rail._links) == 0
+
+    def test_dry_run_writes_a_ledger_entry_tagged_dry_run(self, store, rail, ledger):
+        ctx = passing_bounds_context()
+        execute_action(
+            action_type=ActionType.CREATE_PAYMENT_LINK, debtor_id="debtor_1", invoice_id="inv_1",
+            decision_seq=1, bounds_context=ctx, rail=rail, outbound_store=store, ledger=ledger,
+            payload={"amount_paise": 25_000, "description": "test"}, dry_run=True,
+        )
+        [entry] = list(ledger.all_entries())
+        assert entry.outcome["dry_run"] is True
+        assert entry.outcome["external_ref"] is None
+        assert entry.rail_tag is None  # no rail was actually consulted
+
+    def test_dry_run_never_claims_the_idempotency_key(self, store, rail, ledger):
+        """The whole point: a dry run must never block, or be confused with,
+        a later real dispatch of the identical action."""
+        ctx = passing_bounds_context()
+        key = compute_idempotency_key(debtor_id="debtor_1", invoice_id="inv_1", action_type=ActionType.CREATE_PAYMENT_LINK, decision_seq=1)
+
+        execute_action(
+            action_type=ActionType.CREATE_PAYMENT_LINK, debtor_id="debtor_1", invoice_id="inv_1",
+            decision_seq=1, bounds_context=ctx, rail=rail, outbound_store=store, ledger=ledger,
+            payload={"amount_paise": 25_000, "description": "test"}, dry_run=True,
+        )
+        assert store.get(key) is None  # nothing claimed
+
+        real_outcome = execute_action(
+            action_type=ActionType.CREATE_PAYMENT_LINK, debtor_id="debtor_1", invoice_id="inv_1",
+            decision_seq=1, bounds_context=ctx, rail=rail, outbound_store=store, ledger=ledger,
+            payload={"amount_paise": 25_000, "description": "test"},
+        )
+        assert real_outcome.dry_run is False
+        assert real_outcome.was_duplicate is False  # the dry run didn't count as a prior real dispatch
+        assert len(rail._links) == 1  # exactly one real link, from the real call only
+
+    def test_repeated_dry_runs_of_the_same_action_never_collide(self, store, rail, ledger):
+        ctx = passing_bounds_context()
+        for _ in range(3):
+            outcome = execute_action(
+                action_type=ActionType.CREATE_PAYMENT_LINK, debtor_id="debtor_1", invoice_id="inv_1",
+                decision_seq=1, bounds_context=ctx, rail=rail, outbound_store=store, ledger=ledger,
+                payload={"amount_paise": 25_000, "description": "test"}, dry_run=True,
+            )
+            assert outcome.dry_run is True
+            assert outcome.was_duplicate is False
+        assert len(rail._links) == 0
+        assert len(list(ledger.all_entries())) == 3  # each dry run still gets its own real ledger entry
+
+    def test_dry_run_message_only_action_does_not_send(self, store, rail, ledger):
+        from agent.notify.simulated import SimulatedChannel
+
+        channel = SimulatedChannel()
+        ctx = passing_bounds_context(action=ActionCtx(type="send_reminder", channel="telegram", rail_tag="simulated"))
+        outcome = execute_action(
+            action_type=ActionType.SEND_REMINDER, debtor_id="debtor_1", invoice_id="inv_1",
+            decision_seq=1, bounds_context=ctx, rail=rail, outbound_store=store, ledger=ledger,
+            payload={"to": "999", "text": "hello"}, channel=channel, dry_run=True,
+        )
+        assert channel.sent == []  # nothing actually sent
+        assert outcome.dry_run is True

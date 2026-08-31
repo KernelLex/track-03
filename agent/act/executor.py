@@ -85,6 +85,7 @@ class ActionOutcome:
     rail_tag: Literal["razorpay", "simulated"] | None
     was_duplicate: bool
     detail: dict
+    dry_run: bool = False
 
 
 class OutboundActionStore:
@@ -228,6 +229,7 @@ def execute_action(
     payload: dict,
     actor: str = "ACT",
     channel: MessageChannel | None = None,
+    dry_run: bool = False,
 ) -> ActionOutcome:
     """Law 4: agents coordinate only through the ledger -- every call here
     writes exactly one LedgerEntry, whether the action was accepted,
@@ -242,7 +244,19 @@ def execute_action(
     Passing a MessageChannel (agent.notify.*) makes a message-only action
     result in a real send, gated by the exact same check_bounds() call and
     idempotency claim as every other action -- there is no separate,
-    lighter-touch path for messages."""
+    lighter-touch path for messages.
+
+    `dry_run=True` runs check_bounds() for real (so a refusal is still a
+    refusal) but never claims the idempotency key, never calls the rail,
+    and never sends through a channel -- ACT logs what it *would* have
+    dispatched instead of dispatching it. This is Law 9's reversibility
+    principle applied before the fact rather than after: a shadow mode on
+    ACT is the architecturally clean way to prove the pipeline's judgment
+    against a batch of real or synthetic invoices with zero rupees able to
+    move, and because the idempotency key is never claimed, a dry run never
+    collides with (or blocks) a later real dispatch of the identical
+    action -- rerunning it, or following it with a real run, is always
+    safe."""
     bounds_result = check_bounds(bounds_context)
     verdict_dicts = [v.to_dict() for v in bounds_result.verdicts]
 
@@ -254,23 +268,26 @@ def execute_action(
         debtor_id=debtor_id, invoice_id=invoice_id, action_type=action_type, decision_seq=decision_seq
     )
 
-    claimed = outbound_store.claim(key, action_type.value)
-    if not claimed:
-        existing = outbound_store.get(key)
-        assert existing is not None  # claim() just told us someone else holds this key
-        external_ref, detail = existing
-        if external_ref is None:
-            raise InFlightOrStaleDuplicate(
-                f"idempotency_key={key} was claimed but never finalized -- a prior "
-                "dispatch is in flight or crashed before completing"
-            )
-        was_duplicate = True
+    if dry_run:
+        external_ref, detail, was_duplicate = None, {"would_dispatch": action_type.value, "payload_preview": _json_safe(payload)}, False
     else:
-        external_ref, detail = _dispatch(action_type, rail, payload, channel)
-        outbound_store.finalize(key, external_ref, detail)
-        was_duplicate = False
+        claimed = outbound_store.claim(key, action_type.value)
+        if not claimed:
+            existing = outbound_store.get(key)
+            assert existing is not None  # claim() just told us someone else holds this key
+            external_ref, detail = existing
+            if external_ref is None:
+                raise InFlightOrStaleDuplicate(
+                    f"idempotency_key={key} was claimed but never finalized -- a prior "
+                    "dispatch is in flight or crashed before completing"
+                )
+            was_duplicate = True
+        else:
+            external_ref, detail = _dispatch(action_type, rail, payload, channel)
+            outbound_store.finalize(key, external_ref, detail)
+            was_duplicate = False
 
-    rail_tag = getattr(rail, "rail_tag", None)
+    rail_tag = None if dry_run else getattr(rail, "rail_tag", None)
     ledger.append(LedgerEntry(
         actor=actor, debtor_id=debtor_id, bounds_checks=verdict_dicts,
         action={
@@ -280,10 +297,10 @@ def execute_action(
         },
         idempotency_key=key,
         rail_tag=rail_tag,
-        outcome={"external_ref": external_ref, "was_duplicate": was_duplicate, "detail": _json_safe(detail)},
+        outcome={"external_ref": external_ref, "was_duplicate": was_duplicate, "detail": _json_safe(detail), "dry_run": dry_run},
     ))
 
     return ActionOutcome(
         action_type=action_type, idempotency_key=key, external_ref=external_ref,
-        rail_tag=rail_tag, was_duplicate=was_duplicate, detail=detail,
+        rail_tag=rail_tag, was_duplicate=was_duplicate, detail=detail, dry_run=dry_run,
     )

@@ -219,12 +219,23 @@ def run_pipeline(
     lift_prior: "Prior[float]" = DEFAULT_LIFT,
     touch_cost_paise: int = DEFAULT_TOUCH_COST_PAISE,
     decision_seq: int | None = None,
+    dry_run: bool = False,
 ) -> OrchestrationResult:
     """DECIDE -> BOUNDS -> ACT, given a diagnosis already produced by either
     Path A (diagnose_from_failure_code, above) or Path B
     (agent.diagnose.llm_extract.extract_from_reply) -- this function doesn't
     care which. That's Law II in code: a diagnosis is a diagnosis regardless
     of whether it came from a rail's own error code or a live model call.
+
+    `dry_run=True` passes straight through to execute_action(): DECIDE and
+    BOUNDS still run for real (the EV number and the bounds verdict are
+    genuine), ACT logs what it would have dispatched instead of dispatching
+    it. This is how a batch of invoices gets pushed through the full
+    pipeline -- proving the judgment, not the plumbing -- with zero rupees
+    able to move, and it's a real answer to "test mode success doesn't
+    predict a real debit clearing": a dry run never claims to predict an
+    outcome, only to show every decision the system would have made and
+    every bounds check it would have run.
     """
     p_base = load_fitted_p_base().predict(amount_paise)
     action_type = select_action_for_diagnosis(diagnosis, disposition=disposition)
@@ -253,7 +264,7 @@ def run_pipeline(
         outcome = execute_action(
             action_type=action_type, debtor_id=debtor_id, invoice_id=invoice_id, decision_seq=seq,
             bounds_context=ctx, rail=rail, outbound_store=outbound_store, ledger=ledger,
-            payload=payload, actor="ORCHESTRATOR", channel=channel,
+            payload=payload, actor="ORCHESTRATOR", channel=channel, dry_run=dry_run,
         )
         return OrchestrationResult(
             debtor_id=debtor_id, invoice_id=invoice_id, diagnosis=diagnosis, action_type=action_type,

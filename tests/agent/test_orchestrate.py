@@ -183,3 +183,71 @@ class TestRunPipeline:
         assert any(not r.bounds_passed for r in results), "expected a real touch-budget/frequency rule to eventually refuse"
         refused = next(r for r in results if not r.bounds_passed)
         assert len(refused.refusal_reasons) > 0
+
+
+class TestRunPipelineDryRun:
+    """dry_run passed through to execute_action() -- real DECIDE, real
+    BOUNDS, no real rail call. This is the shadow-mode batch path: proving
+    the pipeline's judgment against many invoices with zero rupees moved."""
+
+    def test_dry_run_never_touches_the_rail_but_still_decides_and_gates(self, store, ledger, rail):
+        diagnosis = ExtractionResult(family=Family.A, class_=DiagnosisClass.INSUFFICIENT_FUNDS, confidence=1.0)
+        result = run_pipeline(
+            debtor_id="dry1", invoice_id="inv_dry1", amount_paise=40_000_00, diagnosis=diagnosis,
+            channel_tag="telegram", ledger=ledger, outbound_store=store, rail=rail, dry_run=True,
+        )
+        assert result.action_type == ActionType.CREATE_PAYMENT_LINK
+        assert result.bounds_passed is True
+        assert result.ev_paise != 0  # a real EV was computed, not skipped
+        assert result.action_outcome is not None
+        assert result.action_outcome.dry_run is True
+        assert result.action_outcome.external_ref is None
+        assert len(rail._links) == 0  # nothing created on the rail
+
+    def test_dry_run_channel_never_sends(self, store, ledger, rail):
+        channel = SimulatedChannel()
+        diagnosis = ExtractionResult(family=Family.C, class_=DiagnosisClass.PROMISE_STATED, confidence=0.8)
+        run_pipeline(
+            debtor_id="dry2", invoice_id="inv_dry2", amount_paise=10_000_00, diagnosis=diagnosis,
+            channel_tag="telegram", ledger=ledger, outbound_store=store, rail=rail,
+            channel=channel, to="12345", message_text="would be sent", dry_run=True,
+        )
+        assert channel.sent == []
+
+    def test_a_bounds_refusal_still_refuses_under_dry_run(self, store, ledger, rail):
+        """Proves the pipeline's real judgment -- a dry run that never
+        refuses anything would be worthless as a demo of the gate."""
+        diagnosis = ExtractionResult(family=Family.D, class_=DiagnosisClass.AMOUNT, confidence=1.0)
+        result = run_pipeline(
+            debtor_id="dry3", invoice_id="inv_dry3", amount_paise=88_000_00, diagnosis=diagnosis,
+            channel_tag="telegram", ledger=ledger, outbound_store=store, rail=rail,
+            dry_run=True,
+        )
+        # Family D always selects escalate_human, which passes -- confirm a
+        # genuinely refusable family/action combination is still refused
+        # under dry_run by exercising the same pattern the live 12-touch
+        # test above uses, just with dry_run=True throughout.
+        results = [result]
+        for i in range(1, 12):
+            results.append(run_pipeline(
+                debtor_id="dry3", invoice_id="inv_dry3", amount_paise=88_000_00, diagnosis=diagnosis,
+                channel_tag="telegram", ledger=ledger, outbound_store=store, rail=rail,
+                decision_seq=i, dry_run=True,
+            ))
+        assert any(not r.bounds_passed for r in results), "a real bounds rule should still refuse under dry_run eventually"
+
+    def test_dry_run_and_a_later_real_run_of_the_same_action_dont_collide(self, store, ledger, rail):
+        diagnosis = ExtractionResult(family=Family.A, class_=DiagnosisClass.INSUFFICIENT_FUNDS, confidence=1.0)
+        run_pipeline(
+            debtor_id="dry4", invoice_id="inv_dry4", amount_paise=40_000_00, diagnosis=diagnosis,
+            channel_tag="telegram", ledger=ledger, outbound_store=store, rail=rail,
+            decision_seq=1, dry_run=True,
+        )
+        real_result = run_pipeline(
+            debtor_id="dry4", invoice_id="inv_dry4", amount_paise=40_000_00, diagnosis=diagnosis,
+            channel_tag="telegram", ledger=ledger, outbound_store=store, rail=rail,
+            decision_seq=1,
+        )
+        assert real_result.action_outcome.dry_run is False
+        assert real_result.action_outcome.was_duplicate is False
+        assert len(rail._links) == 1

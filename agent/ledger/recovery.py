@@ -76,10 +76,17 @@ class RecoveryLedger:
         amount_paise: int,
         rail_tag: RailTag,
         arm: str | None = None,
+        recorded_at: str | None = None,
     ) -> RecoveryEntry | None:
         """Attribute a captured payment to an invoice. Returns the new RecoveryEntry,
         or None if payment_id was already attributed — a duplicate webhook delivery
         that reached SETTLE despite INGEST's own dedup (defense in depth), not an error.
+
+        `recorded_at` defaults to now (the schema's own default) -- overriding
+        it is for backfilling historical attributions with their real
+        capture time (or for tests exercising agent.decide.payday_signal's
+        day-of-month grouping, which needs specific dates), not a normal
+        production path.
         """
         if payment_status != "captured":
             raise NotCaptured(
@@ -90,12 +97,20 @@ class RecoveryLedger:
             raise ValueError(f"amount_paise must be positive, got {amount_paise}")
 
         try:
-            self._conn.execute(
-                """INSERT INTO recovery_ledger
-                   (payment_id, invoice_id, debtor_id, amount_paise, rail_tag, arm)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (payment_id, invoice_id, debtor_id, amount_paise, rail_tag, arm),
-            )
+            if recorded_at is not None:
+                self._conn.execute(
+                    """INSERT INTO recovery_ledger
+                       (payment_id, invoice_id, debtor_id, amount_paise, rail_tag, arm, recorded_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (payment_id, invoice_id, debtor_id, amount_paise, rail_tag, arm, recorded_at),
+                )
+            else:
+                self._conn.execute(
+                    """INSERT INTO recovery_ledger
+                       (payment_id, invoice_id, debtor_id, amount_paise, rail_tag, arm)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (payment_id, invoice_id, debtor_id, amount_paise, rail_tag, arm),
+                )
             self._conn.commit()
         except sqlite3.IntegrityError:
             self._conn.rollback()
@@ -128,6 +143,14 @@ class RecoveryLedger:
         rows = self._conn.execute(
             "SELECT payment_id, invoice_id, debtor_id, amount_paise, rail_tag, arm, recorded_at "
             "FROM recovery_ledger ORDER BY recorded_at ASC"
+        ).fetchall()
+        return [RecoveryEntry(*row) for row in rows]
+
+    def entries_for_debtor(self, debtor_id: str) -> list[RecoveryEntry]:
+        rows = self._conn.execute(
+            "SELECT payment_id, invoice_id, debtor_id, amount_paise, rail_tag, arm, recorded_at "
+            "FROM recovery_ledger WHERE debtor_id = ? ORDER BY recorded_at ASC",
+            (debtor_id,),
         ).fetchall()
         return [RecoveryEntry(*row) for row in rows]
 
