@@ -112,6 +112,18 @@ even the read-only `verify_credentials()` check. If a working replacement
 key is wanted, it needs to come from Twilio Console's **API keys & tokens**
 page specifically, type **Standard**.
 
+**A third Twilio credential change, 2026-08-31: switched accounts entirely.**
+A different Twilio account's classic Account SID + Auth Token were supplied
+(not an API Key this time). Authenticates cleanly (`GET .../Accounts/{sid}.json`
+→ `200`, `status: active`) — but a check of
+`GET .../Accounts/{sid}/IncomingPhoneNumbers.json` came back empty: this
+account owns zero phone numbers, so there's nothing yet to set
+`TWILIO_FROM_NUMBER` to. Not something to fix in code — needs a real number
+claimed in the Twilio Console (Phone Numbers -> Buy a Number; trial
+accounts usually get one free). Deliberately not purchased programmatically
+here even though the API supports it, since claiming a number is a real
+account/billing action, not a read-only check.
+
 A Twilio WhatsApp sandbox number (`TWILIO_WHATSAPP_FROM`) was included with
 the credentials but is intentionally unused — the agreed channel split is
 Telegram for messaging, Twilio for voice only. Noted here rather than
