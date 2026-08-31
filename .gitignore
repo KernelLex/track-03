@@ -28,6 +28,8 @@ desktop.ini
 
 # runtime logs from local `trucommit serve` / tunnel sessions
 server.log
+server.err.log
 tunnel.log
+tunnel.err.log
 events.db
 ledger.db
