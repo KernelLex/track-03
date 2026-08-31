@@ -51,8 +51,8 @@ what's actually exercised."
 
 | Channel | Module | Tested | Live-verified |
 |---|---|---|---|
-| Telegram | `agent/notify/telegram.py` | ✅ mocked (`tests/agent/test_notify_channels.py`) | ✅ 2026-08-31 — see below |
-| Twilio voice (`ivr`) | `agent/notify/twilio_voice.py` | ✅ mocked | ✅ 2026-08-31 — see below |
+| Telegram | `agent/notify/telegram.py` | ✅ mocked (`tests/agent/test_notify_channels.py`) | ✅ 2026-08-31 — real send confirmed, see below |
+| Twilio voice (`ivr`) | `agent/notify/twilio_voice.py` | ✅ mocked | 🔶 2026-08-31 — credentials confirmed; real call cleanly refused by Twilio's own trial-account limits, see below |
 | Simulated | `agent/notify/simulated.py` | ✅ | n/a — never touches the network by design |
 | SMS / email / WhatsApp | not implemented | — | — (a Twilio WhatsApp sandbox number is sitting unused in `.env` — not built, see note below) |
 
@@ -67,25 +67,35 @@ the default test run, matching this project's existing policy for
 Run via `uv run python tools/verify_credentials.py` (never prints a secret
 value):
 
-- **Telegram — confirmed.** `TelegramChannel.get_me()` returned the real
-  bot's identity. No `chat_id` was available yet at verification time (the
-  account hasn't messaged the bot) — `send()` itself (an actual message,
-  not just the identity check) is still unverified live; see
-  `tools/telegram_get_chat_id.py` for the missing step.
-- **Twilio — confirmed.** `TwilioVoiceChannel.verify_credentials()`
-  authenticated successfully and returned the account's `friendly_name`
-  and `status=active`. This is deliberately the read-only account-fetch
-  endpoint, not a real call — no phone rang, no cost was incurred.
-  Authenticated via a Twilio **API Key** (`TWILIO_API_KEY_SID`/
-  `TWILIO_API_KEY_SECRET`), not the classic Account Auth Token, which
-  wasn't provided — this required a real fix, not a workaround:
-  `TwilioVoiceChannel` now takes an `auth_username` parameter (the API Key
-  SID goes in the HTTP Basic Auth *username*, its Secret in the password;
-  `account_sid` still identifies the account in the URL path regardless of
-  which auth scheme is used). `send()` (an actual call) is still
-  unverified live — it needs a real destination number, which wasn't
-  provided, and placing one wasn't done speculatively since it rings a
-  real phone and costs real money.
+- **Telegram — fully confirmed, including a real send.** `get_me()`
+  returned the bot's identity; once the demo owner messaged the bot,
+  `tools/telegram_get_chat_id.py` recovered a real `chat_id`, and a real
+  message was sent through `/demo/trigger` — `status: "sent"`, a real
+  Telegram `message_id` back as `external_ref`, checked against all 19
+  bounds rules first. This is the actual send path, not the identity-only
+  check.
+- **Twilio — credentials confirmed; the real call was cleanly refused by
+  Twilio itself.** Authenticated via a Twilio **API Key**
+  (`TWILIO_API_KEY_SID`/`TWILIO_API_KEY_SECRET`), not the classic Account
+  Auth Token, which wasn't provided — this required a real fix, not a
+  workaround: `TwilioVoiceChannel` now takes an `auth_username` parameter
+  (the API Key SID goes in the HTTP Basic Auth *username*, its Secret in
+  the password; `account_sid` still identifies the account in the URL path
+  regardless of which auth scheme is used). A real call was then attempted
+  to a real number and Twilio's API answered with a clean, specific
+  rejection rather than a network/auth error:
+  `"Invalid or disallowed parameters provided -- trial accounts have
+  limited parameter access, upgrade your account to unlock full
+  functionality."` Most likely cause: Twilio trial accounts can normally
+  only call numbers verified in the Console (Phone Numbers -> Verified
+  Caller IDs), or the inline `Twiml` parameter this project uses
+  specifically is trial-restricted. `TwilioVoiceChannel.send()` handled
+  this exactly as designed — a clean `status="failed"` result with the
+  real reason in `detail`, not an exception, not a silent false success.
+  Finding this live also caught a real gap in `/demo/trigger`'s response
+  (it dropped `detail` entirely) and in the dashboard's own JS (it checked
+  HTTP status, not the actual send status, so this exact failure would
+  have shown as a false "sent" in the UI) — both fixed, see `docs/DEMO_UI.md`.
 
 A Twilio WhatsApp sandbox number (`TWILIO_WHATSAPP_FROM`) was included with
 the credentials but is intentionally unused — the agreed channel split is

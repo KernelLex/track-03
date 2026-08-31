@@ -132,6 +132,27 @@ def test_response_reports_which_bounds_rules_passed(client):
     assert len(response.json()["bounds_checks"]) > 0
 
 
+def test_a_clean_channel_level_failure_still_returns_200_with_detail(client, monkeypatch):
+    """Regression test for a real gap found live: a channel-level failure
+    (e.g. Twilio's API answering with status=failed rather than raising)
+    used to come back as HTTP 200 with no way to tell it wasn't actually
+    sent, or why. The endpoint stays 200 (the request itself succeeded --
+    check_bounds ran, the channel was reached) but detail must be present."""
+    class _FailingChannel(_FakeChannel):
+        def send(self, *, to, text):
+            return MessageSendResult(
+                channel="fake", external_ref=None, status="failed",
+                detail={"status_code": 400, "message": "trial accounts have limited parameter access"},
+            )
+
+    monkeypatch.setattr(demo_module, "TelegramChannel", _FailingChannel)
+    response = client.post("/demo/trigger", json={"secret": SECRET, "channel": "telegram", "scenario": "b2b"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "failed"
+    assert "trial accounts" in body["detail"]["message"]
+
+
 def test_missing_contact_config_returns_a_clear_error_not_a_500(client, monkeypatch):
     monkeypatch.delenv("DEMO_CONTACT_TELEGRAM_CHAT_ID", raising=False)
     response = client.post("/demo/trigger", json={"secret": SECRET, "channel": "telegram", "scenario": "b2b"})

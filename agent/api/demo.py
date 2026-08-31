@@ -179,4 +179,5 @@ def trigger_demo_contact(payload: DemoTriggerRequest) -> dict[str, object]:
         "channel": result.channel,
         "status": result.status,
         "external_ref": result.external_ref,
+        "detail": result.detail,
     }
