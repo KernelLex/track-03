@@ -76,6 +76,22 @@ SCENARIOS: dict[str, dict[str, object]] = {
             "your payment method before then. Thank you."
         ),
     },
+    "escalation": {
+        "invoice_id": "INV-5581",
+        "amount_paise": 88_000_00,
+        "text_message": (
+            "Escalation: Invoice INV-5581 has a Rs 30,000 disputed portion (buyer says "
+            "part of the order never arrived). check_bounds() refused every automated "
+            "mandate/reminder action against it -- routing to human review now. "
+            "Automated contact on this invoice is paused until you resolve it."
+        ),
+        "text_voice": (
+            "Hello, this is an automated notification from True Commit. Invoice "
+            "I N V dash 5 5 8 1 has a disputed amount and needs human review. Automated "
+            "actions on this invoice are paused. Please check Telegram for details. "
+            "Thank you."
+        ),
+    },
 }
 
 

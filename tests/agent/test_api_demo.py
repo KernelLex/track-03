@@ -81,6 +81,18 @@ def test_valid_ivr_trigger_sends_to_the_configured_phone_number(client):
     assert _FakeChannel.sent[0]["to"] == "+919999999999"
 
 
+def test_escalation_scenario_sends_escalation_specific_text_not_the_b2b_message(client):
+    """Regression test: the escalation scenario's live trigger initially had
+    no server-side text of its own and silently fell back to the b2b
+    message, which describes a completely different invoice. Caught before
+    publishing the dashboard, not after."""
+    response = client.post("/demo/trigger", json={"secret": SECRET, "channel": "telegram", "scenario": "escalation"})
+    assert response.status_code == 200
+    sent_text = _FakeChannel.sent[0]["text"]
+    assert "INV-5581" in sent_text
+    assert "INV-2201" not in sent_text
+
+
 def test_request_cannot_choose_its_own_recipient(client):
     """The recipient is never taken from the request body -- there's no
     field for it at all, and this asserts the send still goes to the
