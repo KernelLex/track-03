@@ -230,6 +230,52 @@ code, .mono{font-family:var(--font-mono);}
 .score-bar span{display:block; height:100%; background:var(--good);}
 .waiting-row{display:flex; align-items:center; gap:0.6rem; padding:0.7rem 1.15rem; border-top:1px solid var(--line); font-size:0.8rem; color:var(--ink-soft);}
 .waiting-row .spinner{width:8px; height:8px; border-radius:50%; background:var(--accent); animation:pulse 0.9s ease-in-out infinite; flex:none;}
+
+/* ---------- case file ---------- */
+.casefile{margin-top:1.5rem; border:1px solid var(--line); border-radius:12px; background:var(--surface); overflow:hidden;}
+.casefile-head{padding:0.85rem 1.15rem; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:flex-start; gap:1rem;}
+.casefile-head h3{font-size:0.95rem; font-family:var(--font-body); font-weight:600;}
+.casefile-sub{font-size:0.76rem; color:var(--ink-faint); margin-top:0.2rem;}
+
+/* The stage track encodes a real sequence -- a case genuinely moves through
+   these in order -- so it is numbered and connected rather than decorated. */
+.stage-track{display:flex; gap:0.35rem; padding:1rem 1.15rem 0.6rem; overflow-x:auto;}
+.stage-step{flex:1 1 0; min-width:92px; display:flex; flex-direction:column; gap:0.35rem;}
+.stage-bar{height:4px; border-radius:2px; background:var(--surface-3);}
+.stage-step.done .stage-bar{background:var(--accent);}
+.stage-step.current .stage-bar{background:var(--live); box-shadow:0 0 0 3px var(--live-soft);}
+.stage-step.halted .stage-bar{background:var(--warn);}
+.stage-name{font-family:var(--font-mono); font-size:0.62rem; letter-spacing:0.04em; text-transform:uppercase; color:var(--ink-faint);}
+.stage-step.done .stage-name{color:var(--ink-soft);}
+.stage-step.current .stage-name{color:var(--live);}
+.stage-step.halted .stage-name{color:var(--warn);}
+.stage-note{padding:0 1.15rem 1rem; font-size:0.84rem; color:var(--ink-soft);}
+
+.mandate-panel{margin:0 1.15rem 1.1rem; border:1px solid color-mix(in srgb, var(--good) 35%, var(--line)); background:var(--good-bg); border-radius:10px; padding:0.85rem 1rem;}
+.mandate-title{font-size:0.82rem; font-weight:600; color:var(--good); margin-bottom:0.6rem;}
+.mandate-rows{display:flex; flex-direction:column; gap:0.5rem;}
+.mandate-row{display:flex; flex-wrap:wrap; align-items:baseline; gap:0.5rem; font-size:0.82rem;}
+.mandate-row .amt{font-family:var(--font-mono); font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums;}
+.mandate-row .when{color:var(--ink-soft); font-size:0.78rem;}
+.mandate-row a{font-family:var(--font-mono); font-size:0.75rem; color:var(--accent-ink); margin-left:auto; word-break:break-all;}
+.mandate-foot{font-size:0.74rem; color:var(--ink-faint); margin-top:0.6rem;}
+
+.case-empty{padding:1.6rem 1.15rem; text-align:center; color:var(--ink-faint); font-size:0.85rem; line-height:1.6;}
+.case-list{list-style:none; margin:0; padding:0; max-height:420px; overflow-y:auto;}
+.case-row{display:flex; gap:0.75rem; padding:0.7rem 1.15rem; border-top:1px solid var(--line);}
+.case-row:first-child{border-top:none;}
+.case-dot{flex:none; width:8px; height:8px; border-radius:50%; margin-top:0.45rem; background:var(--line-strong);}
+.case-row.sent .case-dot{background:var(--good);}
+.case-row.inbound .case-dot{background:var(--accent);}
+.case-row.agent .case-dot{background:var(--live);}
+.case-row.bad .case-dot{background:var(--bad);}
+.case-row.mandate .case-dot{background:var(--good); box-shadow:0 0 0 3px var(--good-bg);}
+.case-body{flex:1; min-width:0;}
+.case-top{display:flex; align-items:baseline; gap:0.5rem; flex-wrap:wrap;}
+.case-title{font-size:0.84rem; font-weight:600;}
+.case-time{font-family:var(--font-mono); font-size:0.68rem; color:var(--ink-faint); margin-left:auto; font-variant-numeric:tabular-nums;}
+.case-detail{font-size:0.8rem; color:var(--ink-soft); margin-top:0.2rem; word-wrap:break-word; overflow-wrap:anywhere;}
+.case-detail.quoted{font-style:italic; padding-left:0.7rem; border-left:2px solid var(--line-strong);}
 </style>
 </head>
 <body>
@@ -311,6 +357,34 @@ code, .mono{font-family:var(--font-mono);}
     </div>
     <div class="activity-list" id="activityList"></div>
     <div id="activityWaiting"></div>
+  </section>
+
+  <!-- The case file: read from the server, so it shows what actually
+       happened rather than only what this browser tab happened to witness.
+       A call placed before the page loaded, or a reply the Telegram webhook
+       answered while nothing was polling, appears here. -->
+  <section class="casefile">
+    <div class="casefile-head">
+      <div>
+        <h3>Case file — INV-2201</h3>
+        <p class="casefile-sub">Read from the server. Survives a reload, a cold start, and this tab being closed.</p>
+      </div>
+      <button class="btn btn-small" id="caseRefreshBtn">Refresh</button>
+    </div>
+
+    <div class="stage-track" id="stageTrack"></div>
+    <div class="stage-note" id="stageNote">Not started — nothing has been sent yet.</div>
+
+    <div class="mandate-panel" id="mandatePanel" hidden>
+      <div class="mandate-title">Live e-mandate — real, and theirs to authorize</div>
+      <div class="mandate-rows" id="mandateRows"></div>
+      <p class="mandate-foot">Authorizing schedules the debit for that date. It takes no money now.</p>
+    </div>
+
+    <div class="case-empty" id="caseEmpty">
+      Nothing on the record yet. Trigger a channel above, then reply from your own phone — every step lands here.
+    </div>
+    <ol class="case-list" id="caseList"></ol>
   </section>
 
   <div class="scenarios" id="scenarioTabs"></div>
@@ -465,6 +539,7 @@ var state = {
 // one free, since a poll that finds nothing new does no model work -- and
 // takes up to 1.8s off how long a reply appears to take.
 var POLL_INTERVAL_MS = 1200;
+var CASE_REFRESH_MS = 5000;
 var MAX_POLLS = 500; // ~10 minutes -- long enough to reply at a natural pace mid-demo
 
 // Per-channel polling state. Telegram and WhatsApp track separate cursors
@@ -688,6 +763,7 @@ async function triggerChannel(channel, btn){
         pills: pills,
       });
       addLedgerRow('ACT', 'sent:'+channel, 'pass');
+      refreshCaseFile();
       if (channel === 'telegram' || channel === 'whatsapp'){ startPolling(channel); }
     } else if (res.ok && body.status === 'failed'){
       // The request worked (bounds passed, the channel was reached) and the
@@ -785,6 +861,148 @@ async function pollOnce(channel){
   }
 }
 
+// ---- case file: the server's own record of what happened ----
+//
+// The activity list above only ever shows what this tab witnessed. This
+// reads /demo/timeline, so a call placed before the page loaded — or a
+// reply the Telegram webhook answered while nothing was polling — still
+// shows up. No secret: it's a read of the demo's own scripted invoice.
+
+var STAGE_ORDER = ['not_started','contacted','in_conversation','negotiating','mandate_issued'];
+var STAGE_SHORT = {
+  not_started:'not started', contacted:'contacted', in_conversation:'in conversation',
+  negotiating:'negotiating', mandate_issued:'mandate issued',
+};
+var HALTED_STAGES = {escalated_to_human:'escalated', disputed_paused:'disputed'};
+
+var CASE_EVENT = {
+  message_sent:    {title:'Message sent for real',            cls:'sent'},
+  call_placed:     {title:'Call placed for real',             cls:'sent'},
+  send_failed:     {title:'Send failed',                      cls:'bad'},
+  reply_received:  {title:'Reply received',                   cls:'inbound', quote:true},
+  diagnosed:       {title:'Scored by the real extractor',     cls:''},
+  extraction_failed:{title:'Extraction failed',               cls:'bad'},
+  bounds_refused:  {title:'check_bounds() refused the reply', cls:'bad'},
+  decided:         {title:'Next step decided',                cls:''},
+  plan_built:      {title:'Instalment plan computed',         cls:''},
+  mandate_issued:  {title:'Real e-mandate created',           cls:'mandate'},
+  agent_replied:   {title:'Agent answered',                   cls:'agent', quote:true},
+  reply_send_failed:{title:'Reply could not be delivered',    cls:'bad'},
+};
+
+function caseDetail(kind, d){
+  if (!d) return '';
+  if (kind === 'reply_received' || kind === 'agent_replied') return d.text || '';
+  if (kind === 'message_sent' || kind === 'call_placed'){
+    return [d.status, d.external_ref, d.to].filter(Boolean).join(' · ');
+  }
+  if (kind === 'diagnosed'){
+    var conf = Math.round((d.confidence || 0) * 100);
+    var line = 'family ' + d.family + ' · ' + d['class'] + ' · ' + conf + '% confident';
+    if (d.promise && (d.promise.date || d.promise.amount_paise)){
+      line += ' · promised ' + (d.promise.amount_paise ? inr(d.promise.amount_paise) : 'payment')
+            + (d.promise.date ? ' on ' + d.promise.date : '');
+    }
+    return line;
+  }
+  if (kind === 'decided'){
+    var line2 = d.action + (d.escalated_to_human ? ' (escalated — the gate refused ' + d.proposed_action + ')' : '');
+    if (d.refusals && d.refusals.length){ line2 += ' · refused by ' + d.refusals.join(', '); }
+    return line2;
+  }
+  if (kind === 'plan_built'){
+    var legs = (d.legs || []).map(function(l){
+      return inr(l.payable_paise) + ' on ' + l.due_date + (l.proposed_by === 'system' ? ' (our proposal)' : '');
+    });
+    return legs.join(' → ') + ' · ' + d.instrument
+         + (d.requires_afa_per_debit ? ' · AFA per debit' : ' · one authorization covers it');
+  }
+  if (kind === 'mandate_issued'){
+    return (d.links || []).length + ' authorization link(s) created on the real rail';
+  }
+  if (kind === 'bounds_refused') return (d.refusals || []).join(', ');
+  if (d.error) return d.error;
+  return '';
+}
+
+function renderStageTrack(stage){
+  var track = document.getElementById('stageTrack');
+  var halted = HALTED_STAGES[stage];
+  var reachedIdx = halted ? STAGE_ORDER.length : STAGE_ORDER.indexOf(stage);
+
+  track.innerHTML = STAGE_ORDER.slice(1).map(function(name, i){
+    var idx = i + 1;
+    var cls = 'stage-step';
+    if (halted){ cls += ' halted'; }
+    else if (idx < reachedIdx){ cls += ' done'; }
+    else if (idx === reachedIdx){ cls += ' current'; }
+    return '<div class="'+cls+'"><div class="stage-bar"></div>'
+         + '<div class="stage-name">'+escapeHtml(STAGE_SHORT[name])+'</div></div>';
+  }).join('');
+
+  if (halted){
+    track.innerHTML += '<div class="stage-step halted"><div class="stage-bar"></div>'
+      + '<div class="stage-name">'+escapeHtml(halted)+'</div></div>';
+  }
+}
+
+function renderMandatePanel(events){
+  var panel = document.getElementById('mandatePanel');
+  var latest = null;
+  events.forEach(function(e){ if (e.kind === 'mandate_issued') latest = e.detail; });
+
+  if (!latest || !latest.links || !latest.links.length){ panel.hidden = true; return; }
+  panel.hidden = false;
+  document.getElementById('mandateRows').innerHTML = latest.links.map(function(link){
+    return '<div class="mandate-row">'
+      + '<span class="amt">'+escapeHtml(inr(link.amount_paise))+'</span>'
+      + '<span class="when">on '+escapeHtml(link.first_debit_on)
+      +   (link.sequences.length > 1 ? ' ×'+link.sequences.length : '')
+      +   (link.afa_required ? ' · authentication per debit' : '')
+      + '</span>'
+      + '<a href="'+escapeHtml(link.short_url)+'" target="_blank" rel="noopener">'
+      +   escapeHtml(link.short_url) + '</a>'
+      + '</div>';
+  }).join('');
+}
+
+function renderCaseFile(body){
+  renderStageTrack(body.stage);
+  document.getElementById('stageNote').textContent = body.stage_label;
+  renderMandatePanel(body.events);
+
+  var list = document.getElementById('caseList');
+  var empty = document.getElementById('caseEmpty');
+  empty.style.display = body.events.length ? 'none' : 'block';
+
+  list.innerHTML = body.events.slice().reverse().map(function(e){
+    var meta = CASE_EVENT[e.kind] || {title:e.kind, cls:''};
+    var detail = caseDetail(e.kind, e.detail);
+    var when = e.at ? new Date(e.at.replace(' ', 'T')).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}) : '';
+    return '<li class="case-row '+meta.cls+'">'
+      + '<span class="case-dot"></span>'
+      + '<div class="case-body">'
+      +   '<div class="case-top"><span class="case-title">'+escapeHtml(meta.title)+'</span>'
+      +     (e.channel ? '<span class="event-chan">'+escapeHtml(CHANNEL_LABEL[e.channel] || e.channel)+'</span>' : '')
+      +     '<span class="case-time">'+escapeHtml(when)+'</span></div>'
+      +   (detail ? '<div class="case-detail'+(meta.quote?' quoted':'')+'">'+escapeHtml(detail)+'</div>' : '')
+      + '</div></li>';
+  }).join('');
+}
+
+async function refreshCaseFile(){
+  var url = document.getElementById('backendUrl').value.trim().replace(/\/$/, '');
+  if (!url) return;
+  try{
+    var res = await fetch(url + '/demo/timeline?limit=80', {method:'GET'});
+    if (!res.ok) return;
+    renderCaseFile(await res.json());
+  }catch(e){
+    // The backend may be cold-starting. The next tick tries again; leaving
+    // the last known-good record on screen beats blanking it.
+  }
+}
+
 function hashLike(seed){
   var s = (seed * 2654435761) >>> 0;
   return s.toString(16).padStart(8,'0');
@@ -853,7 +1071,10 @@ document.querySelectorAll('[data-channel]').forEach(function(btn){
 });
 
 document.getElementById('testConnBtn').addEventListener('click', testConnection);
-document.getElementById('backendUrl').addEventListener('change', saveSettings);
+document.getElementById('backendUrl').addEventListener('change', function(){
+  saveSettings(); refreshCaseFile();
+});
+document.getElementById('caseRefreshBtn').addEventListener('click', refreshCaseFile);
 
 // The conversation panel is created up front, before the first render(),
 // so render()'s own renderConvo() call always finds a real, attached
@@ -873,6 +1094,16 @@ render();
 // tier cold-starts in 30-50s, and without this the first live trigger of a
 // demo is the request that pays for it.
 testConnection();
+
+// The case file is server-side state, so it is loaded rather than built up
+// from this tab's own actions -- a viewer who opens the page after a demo
+// has run sees the whole thing.
+refreshCaseFile();
+// Slow on purpose. Replies arrive by webhook now, so this poll is only
+// catching up a *display*, not driving the conversation -- the difference
+// between the two is exactly what made the old two-minute polling window a
+// bug rather than a refresh rate.
+setInterval(refreshCaseFile, CASE_REFRESH_MS);
 })();
 </script>
 </body>

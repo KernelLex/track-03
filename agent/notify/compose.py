@@ -117,6 +117,7 @@ def _context_block(
     *, invoice_id: str, amount_paise: int, days_overdue: int,
     family: str, class_: str, payment_link: str | None, next_step: str | None,
     payment_plan: str | None = None, outstanding_proposal: str | None = None,
+    mandate_links: str | None = None,
 ) -> str:
     lines = [
         "Context for this conversation (facts you may use; anything not here, you do not know):",
@@ -161,6 +162,20 @@ def _context_block(
               "proposal -- put it to them as one and ask them to confirm. Quote a discounted figure "
               "only if it appears above; never offer a reduction that isn't there."
         )
+    if mandate_links:
+        # The one place a link is offered without being asked for. A debtor
+        # who just named a date and an amount has done their part; replying
+        # "noted, we'll be in touch" wastes the only moment they are ready
+        # to act. These are real authorization URLs, so they are safe to
+        # send unprompted in a way an unsolicited payment demand is not:
+        # opening one sets up the debit they proposed, it charges nothing.
+        lines.append(
+            "- A real e-mandate has been set up for the plan above. Include the link(s) below exactly "
+            "as written, so they can authorize it:\n" + mandate_links
+            + "\n  Say what authorizing does (sets up the debit on that date) and that it does not take "
+              "money now. Never say the payment is done, scheduled, or confirmed -- it is not, until "
+              "they authorize it themselves."
+        )
     return "\n".join(lines)
 
 
@@ -177,6 +192,7 @@ def compose_reply(
     payment_plan: str | None = None,
     conversation_context: str | None = None,
     outstanding_proposal: str | None = None,
+    mandate_links: str | None = None,
     client: anthropic.Anthropic | None = None,
     model: str = DEFAULT_MODEL,
     spend_ledger: SpendLedger | None = None,
@@ -207,6 +223,7 @@ def compose_reply(
             invoice_id=invoice_id, amount_paise=amount_paise, days_overdue=days_overdue,
             family=family, class_=class_, payment_link=payment_link, next_step=next_step,
             payment_plan=payment_plan, outstanding_proposal=outstanding_proposal,
+            mandate_links=mandate_links,
         )},
     ]
     if conversation_context:

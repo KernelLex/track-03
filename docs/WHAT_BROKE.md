@@ -353,6 +353,45 @@ been relying on Family D eventually being refused, and was rewritten to
 use a genuinely refusable action — its intent was right, its premise was
 the bug.
 
+## 13. The e-mandate would have charged away the discount it had just offered
+
+**Symptom.** Caught by a test before it ever ran against the rail, which is
+the only reason it isn't a worse entry on this list.
+
+`create_plan_mandates()` groups plan legs by amount, because one Razorpay
+subscription carries a *fixed* per-cycle amount and can therefore only
+cover legs that cost the same. The first version grouped on
+`leg.amount_paise` — the face value of the instalment.
+
+**Root cause.** Face value is not what gets debited.
+`payment_plan.build_plan()` prices each leg independently, and a leg
+falling inside the 10-day early-payment window is discounted while a later
+one is not. So a plan of two Rs 21,250 legs — visibly, arithmetically
+"equal" — is actually Rs 20,825 and Rs 21,250 once priced. Grouping on the
+face value would have merged them into one subscription at Rs 21,250 and
+debited the discounted leg at the undiscounted price.
+
+The system would have offered a 2% discount in the message and then taken
+it back in the mandate, silently. Worse than not offering one: the debtor
+agrees to a number and is charged a different, higher one, with a real
+authorization behind it.
+
+**Fix.** Group on `leg.payable_paise`, the priced amount. Unequal legs get
+one mandate each rather than being merged.
+
+The general shape is worth naming because it recurs: a *displayed* amount
+and a *charged* amount that are equal in the common case and diverge in a
+specific one. The common case was two undiscounted legs, which is what
+made the wrong key look right.
+
+**Verification.**
+`test_a_discount_on_only_one_leg_correctly_splits_them` constructs exactly
+the divergence — two identical face amounts, one inside the discount
+window and one outside — and asserts the mandates differ. It fails against
+the face-value grouping. `test_no_leg_is_ever_authorized_for_more_than_it_is_worth`
+holds the broader line: no leg is ever authorized above its own face
+value, so the "just use the larger amount" shortcut stays closed too.
+
 ## What this list is for
 
 I found every one of these by actually building against DEVDOC_v6, not by

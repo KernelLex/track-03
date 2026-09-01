@@ -824,14 +824,39 @@ class TestInstalmentNegotiation:
         assert captured["payment_plan"] is not None
         assert "instalment" in captured["payment_plan"]
 
-    def test_paying_the_full_amount_on_a_date_is_a_promise_not_a_split(self, client, monkeypatch):
+    def test_the_split_leg_the_debtor_never_named_is_marked_as_ours(self, client, monkeypatch):
         """Inventing a schedule the debtor never proposed would be putting
-        words in their mouth."""
+        words in their mouth -- so the invented leg says so, and the reply
+        can put it as a proposal rather than imply they agreed to it."""
+        body, _ = self._reply(client, monkeypatch, "I can pay 21,000 on the 5th",
+                              amount_paise=21_000_00, promise_date="2026-09-05")
+        proposers = [leg["proposed_by"] for leg in body["payment_plan"]["legs"]]
+        assert proposers == ["debtor", "system"]
+
+    def test_paying_the_full_amount_on_a_date_is_a_one_instalment_plan(self, client, monkeypatch):
+        """Not a split, but still a dated plan -- which is what earns it a
+        real e-mandate link. Nothing is invented: one leg, their amount,
+        their date."""
         body, _ = self._reply(client, monkeypatch, "I'll pay the whole thing on the 5th",
                               amount_paise=42_500_00, promise_date="2026-09-05")
-        assert "payment_plan" not in body
+        plan = body["payment_plan"]
 
-    def test_a_promise_with_no_amount_builds_no_plan(self, client, monkeypatch):
-        body, _ = self._reply(client, monkeypatch, "I'll pay soon",
+        assert plan["shape"] == "full"
+        assert len(plan["legs"]) == 1
+        assert plan["legs"][0]["amount_paise"] == 42_500_00
+        assert plan["legs"][0]["due_date"] == "2026-09-05"
+        assert plan["legs"][0]["proposed_by"] == "debtor"
+
+    def test_a_date_with_no_amount_is_read_as_the_full_balance(self, client, monkeypatch):
+        """Assuming the whole balance is the conservative reading -- it
+        never quietly reduces what is owed."""
+        body, _ = self._reply(client, monkeypatch, "I'll pay on the 5th",
                               amount_paise=None, promise_date="2026-09-05")
+        assert body["payment_plan"]["shape"] == "full"
+        assert body["payment_plan"]["legs"][0]["amount_paise"] == 42_500_00
+
+    def test_a_promise_with_no_date_builds_no_plan(self, client, monkeypatch):
+        """There is nothing to schedule a debit against."""
+        body, _ = self._reply(client, monkeypatch, "I'll pay soon",
+                              amount_paise=None, promise_date=None)
         assert "payment_plan" not in body

@@ -27,6 +27,8 @@ headless script.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import razorpay
 from razorpay.errors import BadRequestError
 
@@ -45,6 +47,27 @@ from agent.rails.types import (
     RailUnavailable,
     RefundResult,
 )
+
+
+def _subscription_start_timestamp(start_at: str) -> int | None:
+    """`MandateSpec.start_at` as a Unix timestamp Razorpay will accept, or
+    None if it can't be used.
+
+    Returns None for anything in the past: Razorpay rejects a backdated
+    start_at outright, and the caller's alternative -- no start_at, so the
+    first debit lands on authorization -- still produces a usable mandate.
+    Accepts a bare date ("2026-09-05", which is what an extracted promise
+    looks like) as well as a full timestamp."""
+    if not start_at:
+        return None
+    try:
+        parsed = datetime.fromisoformat(start_at)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    stamp = int(parsed.timestamp())
+    return stamp if stamp > int(datetime.now(timezone.utc).timestamp()) else None
 
 
 def _mandate_status_from_subscription(raw_status: str) -> str:
@@ -123,15 +146,28 @@ class RazorpayRail:
         """Plan + Subscription -- the only recurring-payment primitive this
         account can create (docs/RAIL_CAPABILITIES.md). A fixed per-cycle
         amount, not a variable "up to max_amount" mandate -- see module
-        docstring. `spec.max_amount_paise` becomes the plan's fixed amount."""
+        docstring. `spec.max_amount_paise` becomes the plan's fixed amount.
+
+        `spec.start_at` is passed through as the subscription's first charge
+        date when it parses to a future instant. That matters for a
+        negotiated plan: a debtor who said "the 5th" means the 5th, and a
+        mandate that silently charges on creation-anniversary instead would
+        debit them on a date they never agreed to. A past or unparseable
+        date is dropped rather than rejected -- Razorpay refuses a start_at
+        in the past, and a mandate the debtor can still authorize is worth
+        more than a hard failure over a stale date."""
         plan = self._client.plan.create({
             "period": "monthly", "interval": 1,
             "item": {"name": "TrueCommit mandate", "amount": assert_money(spec.max_amount_paise, field="spec.max_amount_paise"), "currency": "INR"},
         })
         total_count = len(spec.debit_schedule) if spec.debit_schedule else 12
-        sub = self._client.subscription.create({
+        payload: dict[str, object] = {
             "plan_id": plan["id"], "customer_notify": 0, "total_count": total_count,
-        })
+        }
+        start_at = _subscription_start_timestamp(spec.start_at)
+        if start_at is not None:
+            payload["start_at"] = start_at
+        sub = self._client.subscription.create(payload)
         return Mandate(
             id=sub["id"], rail="razorpay", max_amount_paise=assert_money(spec.max_amount_paise, field="spec.max_amount_paise"),
             start_at=spec.start_at, end_at=spec.end_at,

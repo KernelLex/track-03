@@ -105,13 +105,20 @@ regime, not sending another message.
 3. **`no_action` is a logged, first-class decision**, not silence — the
    bounds gate's `EV_FLOOR` rule exists specifically so "doing nothing" is
    an auditable choice, not an omission.
+4. **It negotiates, and the negotiation ends in a real instrument.** "I can
+   do 21,000 on the 5th and the rest later" becomes a dated, priced plan
+   (`agent/mandate/payment_plan.py`) and then **real, authorizable Razorpay
+   e-mandate links** (`agent/mandate/emandate.py`) — scheduled for the date
+   they named, priced at what they were quoted, and charging nothing until
+   they authorize it themselves. A bot that answers a payment offer with a
+   polite sentence has done the hard part and dropped it.
 
 ## Run it yourself
 
 ```
 uv sync
 uv run trucommit demo     # a small, real, end-to-end walk of one debtor
-uv run pytest             # 892 tests, no credentials needed (11 more run live with Razorpay test keys set)
+uv run pytest             # 923 tests, no credentials needed (11 more run live with Razorpay test keys set)
 ```
 
 CI runs that same suite on every push (`.github/workflows/ci.yml`), on

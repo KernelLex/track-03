@@ -1,0 +1,182 @@
+"""The timeline endpoint, and the stage it reports.
+
+Why this exists: the dashboard rendered only events its own browser tab had
+witnessed. A call placed before the page loaded, or a reply the Telegram
+webhook answered while nothing was polling, was invisible -- the system did
+the work and the UI showed an empty list. That is a demo that lies about
+itself, in the direction of underselling.
+
+No real network and no real model anywhere here.
+"""
+
+from __future__ import annotations
+
+import agent.api.demo as demo_module
+import pytest
+from fastapi.testclient import TestClient
+
+from agent.diagnose.extract import DiagnosisClass, ExtractionResult, Family, PromiseFields
+from agent.notify.protocol import MessageSendResult
+
+SECRET = "tg-hook-secret"
+CHAT_ID = "999888777"
+
+
+class _FakeTelegram:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def send(self, *, to, text):
+        return MessageSendResult(channel="telegram", external_ref="1", status="sent", detail={})
+
+    def close(self):
+        pass
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    monkeypatch.setenv("TRUECOMMIT_EVENTS_DB", str(tmp_path / "events.db"))
+    monkeypatch.setenv("TRUECOMMIT_EXTRACTION_LOG", str(tmp_path / "extraction_log.db"))
+    monkeypatch.setenv("TRUECOMMIT_CONVERSATION_DB", str(tmp_path / "conversation.db"))
+    monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", SECRET)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "fake-token")
+    monkeypatch.setenv("DEMO_CONTACT_TELEGRAM_CHAT_ID", CHAT_ID)
+    # No Razorpay credentials -> no real mandate calls from this suite.
+    monkeypatch.delenv("RAZORPAY_KEY_ID", raising=False)
+    monkeypatch.delenv("RAZORPAY_KEY_SECRET", raising=False)
+    monkeypatch.setattr(demo_module, "TelegramChannel", _FakeTelegram)
+    monkeypatch.setattr(demo_module, "compose_reply", lambda reply_text, **kw: "composed reply")
+
+    from agent.api.app import app
+
+    with TestClient(app) as c:
+        yield c
+
+
+def _extracts(monkeypatch, **fields):
+    monkeypatch.setattr(
+        demo_module, "extract_from_reply",
+        lambda text, **kw: ExtractionResult(**fields),
+    )
+
+
+def _inbound(client, text, update_id=1):
+    return client.post(
+        "/demo/telegram-webhook",
+        json={"update_id": update_id, "message": {"chat": {"id": CHAT_ID}, "text": text}},
+        headers={"X-Telegram-Bot-Api-Secret-Token": SECRET},
+    )
+
+
+def _kinds(client, **params):
+    body = client.get("/demo/timeline", params=params).json()
+    return [e["kind"] for e in body["events"]], body
+
+
+class TestTheExchangeIsRecorded:
+    def test_a_reply_records_every_step_it_went_through(self, client, monkeypatch):
+        _extracts(monkeypatch, family=Family.C, class_=DiagnosisClass.STALLING, confidence=0.5)
+        _inbound(client, "next week maybe")
+
+        kinds, _ = _kinds(client)
+        assert kinds == ["reply_received", "diagnosed", "decided", "agent_replied"]
+
+    def test_the_events_survive_the_request_that_made_them(self, client, monkeypatch):
+        """The point of the whole endpoint: a viewer who arrives afterwards
+        still sees what happened."""
+        _extracts(monkeypatch, family=Family.C, class_=DiagnosisClass.STALLING, confidence=0.5)
+        _inbound(client, "ok")
+
+        body = client.get("/demo/timeline").json()
+        assert any(e["kind"] == "reply_received" and e["detail"]["text"] == "ok" for e in body["events"])
+
+    def test_the_timeline_reads_oldest_first(self, client, monkeypatch):
+        _extracts(monkeypatch, family=Family.C, class_=DiagnosisClass.STALLING, confidence=0.5)
+        _inbound(client, "one", update_id=1)
+        _inbound(client, "two", update_id=2)
+
+        texts = [e["detail"]["text"] for e in client.get("/demo/timeline").json()["events"]
+                 if e["kind"] == "reply_received"]
+        assert texts == ["one", "two"]
+
+    def test_turns_come_back_for_a_named_conversation(self, client, monkeypatch):
+        _extracts(monkeypatch, family=Family.C, class_=DiagnosisClass.STALLING, confidence=0.5)
+        _inbound(client, "hello there")
+
+        body = client.get("/demo/timeline", params={"conversation_id": CHAT_ID}).json()
+        assert [t["direction"] for t in body["turns"]] == ["inbound", "outbound"]
+        assert body["turns"][0]["text"] == "hello there"
+
+    def test_a_failed_extraction_is_on_the_record_too(self, client, monkeypatch):
+        from agent.diagnose.llm_extract import ExtractionFailed
+
+        def _boom(text, **kw):
+            raise ExtractionFailed("model unavailable")
+
+        monkeypatch.setattr(demo_module, "extract_from_reply", _boom)
+        _inbound(client, "anything")
+
+        kinds, _ = _kinds(client)
+        assert "extraction_failed" in kinds
+
+
+class TestTheStage:
+    def test_nothing_sent_yet_reads_as_not_started(self, client):
+        body = client.get("/demo/timeline").json()
+        assert body["stage"] == "not_started"
+        assert "Nothing has been sent" in body["stage_label"] or "nothing has been sent" in body["stage_label"]
+
+    def test_a_reply_moves_it_into_conversation(self, client, monkeypatch):
+        _extracts(monkeypatch, family=Family.C, class_=DiagnosisClass.STALLING, confidence=0.5)
+        _inbound(client, "got it")
+        assert client.get("/demo/timeline").json()["stage"] == "in_conversation"
+
+    def test_a_stated_plan_moves_it_to_negotiating(self, client, monkeypatch):
+        _extracts(monkeypatch, family=Family.C, class_=DiagnosisClass.PROMISE_STATED, confidence=0.9,
+                  promise=PromiseFields(amount_paise=21_000_00, date="2026-12-05"))
+        _inbound(client, "21,000 on the 5th")
+        assert client.get("/demo/timeline").json()["stage"] == "negotiating"
+
+    def test_a_dispute_overrides_progress_because_chasing_has_stopped(self, client, monkeypatch):
+        """Reporting "negotiating" over a frozen account would misstate what
+        the system is actually doing."""
+        _extracts(monkeypatch, family=Family.C, class_=DiagnosisClass.PROMISE_STATED, confidence=0.9,
+                  promise=PromiseFields(amount_paise=21_000_00, date="2026-12-05"))
+        _inbound(client, "21,000 on the 5th", update_id=1)
+
+        _extracts(monkeypatch, family=Family.D, class_=DiagnosisClass.QUANTITY_QUALITY, confidence=0.9)
+        _inbound(client, "actually the goods never arrived", update_id=2)
+
+        body = client.get("/demo/timeline").json()
+        assert body["stage"] in ("disputed_paused", "escalated_to_human")
+        assert "paused" in body["stage_label"] or "person" in body["stage_label"]
+
+    def test_progress_is_not_lost_to_a_later_unremarkable_message(self, client, monkeypatch):
+        """A mandate that has been issued stays issued -- small talk
+        afterwards must not walk the stage backwards."""
+        _extracts(monkeypatch, family=Family.C, class_=DiagnosisClass.PROMISE_STATED, confidence=0.9,
+                  promise=PromiseFields(amount_paise=21_000_00, date="2026-12-05"))
+        _inbound(client, "21,000 on the 5th", update_id=1)
+
+        _extracts(monkeypatch, family=Family.C, class_=DiagnosisClass.STALLING, confidence=0.3)
+        _inbound(client, "thanks", update_id=2)
+
+        assert client.get("/demo/timeline").json()["stage"] == "negotiating"
+
+
+class TestTheEndpointItself:
+    def test_it_is_readable_without_the_trigger_secret(self, client):
+        """Watching is not triggering. Requiring the send secret to read
+        the timeline would mean baking it into a page that only wants to
+        watch."""
+        assert client.get("/demo/timeline").status_code == 200
+
+    def test_an_absurd_limit_is_clamped_rather_than_honoured(self, client):
+        assert client.get("/demo/timeline", params={"limit": 100000}).status_code == 200
+        assert client.get("/demo/timeline", params={"limit": 0}).status_code == 200
+
+    def test_an_unknown_conversation_is_empty_not_an_error(self, client):
+        body = client.get("/demo/timeline", params={"conversation_id": "nobody"}).json()
+        assert body["events"] == []
+        assert body["turns"] == []
+        assert body["stage"] == "not_started"

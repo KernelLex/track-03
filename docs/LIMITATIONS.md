@@ -9,7 +9,7 @@ I've built a tested, working implementation of TrueCommit's **pure-logic
 safety and compliance core** (DEVDOC_v6 §5.2's "the judgment"), **now also
 wired to a real, live Razorpay test-mode account** (as of 2026-08-30) for
 the capabilities that account actually has, plus a real (if minimal) HTTP
-webhook receiver. **892 tests passing / 11 skipped as of 2026-09-01**,
+webhook receiver. **923 tests passing / 11 skipped as of 2026-09-01**,
 measured without live credentials in the shell (the 11 skipped are the
 Razorpay-live-only suite, which skips cleanly rather than failing — no
 credentials are required to run the main suite). It's still **not**:
@@ -415,3 +415,22 @@ what order.
 DEVDOC_v6 §9.1 asks for one; I have a runtime guard
 (`agent/money.py::assert_money()`) but not a static analysis rule (would
 need a custom mypy or ruff plugin). Noted rather than silently dropped.
+
+## The e-mandate does not always match the instrument that was chosen
+
+`select_instrument()` picks the instrument a plan *should* use. For a
+single Rs 42,500 leg that is `upi_block_reserve_pay`, not an e-mandate.
+`agent/mandate/emandate.py` issues a mandate regardless, because a mandate
+is the only primitive this Razorpay account has that can debit on a future
+date the debtor named — a UPI block is created at pay time, and no rail
+call here schedules one.
+
+So for single-leg plans the instrument recommendation and the artifact
+actually created diverge. Two things bound how much that matters: the plan
+still reports `instrument` truthfully rather than rewriting it to match
+what was built, and the mandate's amount and date are exactly what the
+debtor was quoted. But it is a real gap, not a presentation choice.
+
+Closing it needs UPI Autopay, which `docs/RAIL_CAPABILITIES.md` records as
+blocked — it requires explicit account approval and a specific
+subscription `auth_type`, neither of which this account has.

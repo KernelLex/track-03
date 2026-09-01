@@ -64,6 +64,21 @@ class Proposal:
         return json.loads(self.detail_json)
 
 
+@dataclass(frozen=True, slots=True)
+class Event:
+    """One thing that happened, on any channel."""
+
+    conversation_id: str
+    channel: str | None
+    kind: str
+    detail_json: str | None
+    at: str
+
+    @property
+    def detail(self) -> dict:
+        return json.loads(self.detail_json) if self.detail_json else {}
+
+
 class ConversationStore:
     def __init__(self, db_path: str = "conversation.db"):
         self.db_path = db_path
@@ -114,6 +129,24 @@ class ConversationStore:
             )
             """
         )
+        # Everything that happened, in order, across every channel. The
+        # dashboard used to render only what its own tab had witnessed, so a
+        # call placed before the page loaded, or a reply the webhook handled
+        # while nothing was polling, simply did not exist as far as a viewer
+        # was concerned. This is the record; the UI is a view of it.
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS conversation_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                conversation_id TEXT NOT NULL,
+                channel TEXT,
+                kind TEXT NOT NULL,
+                detail_json TEXT,
+                at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            )
+            """
+        )
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_events_at ON conversation_events(id)")
         self._conn.commit()
 
     def close(self) -> None:
@@ -179,6 +212,47 @@ class ConversationStore:
     def clear_proposal(self, conversation_id: str) -> None:
         self._conn.execute("DELETE FROM conversation_proposals WHERE conversation_id = ?", (conversation_id,))
         self._conn.commit()
+
+    # ---- the timeline ------------------------------------------------
+
+    def record_event(
+        self, conversation_id: str, *, kind: str, channel: str | None = None,
+        detail: dict | None = None,
+    ) -> None:
+        """Append one thing that happened. Never raises on a bad detail
+        payload -- an event that can't be recorded must not take down the
+        exchange it was describing."""
+        try:
+            detail_json = json.dumps(detail) if detail is not None else None
+        except (TypeError, ValueError):
+            detail_json = json.dumps({"unserializable": repr(detail)[:500]})
+        self._conn.execute(
+            "INSERT INTO conversation_events (conversation_id, channel, kind, detail_json) VALUES (?, ?, ?, ?)",
+            (conversation_id, channel, kind, detail_json),
+        )
+        self._conn.commit()
+
+    def recent_events(self, *, conversation_id: str | None = None, limit: int = 50) -> list[Event]:
+        """Oldest-first, so it reads as a timeline. Omitting
+        `conversation_id` returns every channel's events interleaved --
+        which is the point: a call, a WhatsApp message and a Telegram reply
+        about the same invoice belong on one timeline."""
+        if conversation_id is None:
+            rows = self._conn.execute(
+                "SELECT conversation_id, channel, kind, detail_json, at FROM conversation_events "
+                "ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT conversation_id, channel, kind, detail_json, at FROM conversation_events "
+                "WHERE conversation_id = ? ORDER BY id DESC LIMIT ?",
+                (conversation_id, limit),
+            ).fetchall()
+        return [
+            Event(conversation_id=r[0], channel=r[1], kind=r[2], detail_json=r[3], at=r[4])
+            for r in reversed(rows)
+        ]
 
     # ---- idempotency -------------------------------------------------
 

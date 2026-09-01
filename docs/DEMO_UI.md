@@ -141,11 +141,25 @@ a single authorization covers the whole plan -- a real argument for
 offering a longer split, produced by the existing rules rather than
 decided here.
 
+Two shapes come out of a dated promise, and both earn a real mandate:
+
+- **split** -- they named a part-payment ("21,000 on the 5th"). Leg 1 is
+  theirs; the balance is proposed a fortnight on and marked
+  `proposed_by: "system"`.
+- **full** -- they named a date and either the whole balance or no amount
+  at all ("I'll pay on the 5th"). That is a one-instalment plan on *their*
+  date, and it gets a single e-mandate link. Reading an unstated amount as
+  the full balance is the conservative direction: it never quietly reduces
+  what is owed.
+
+A promise with no date at all is not a plan. There is nothing to schedule
+a debit against, so it takes the ordinary path.
+
 Three things it deliberately will not do:
 
-- **Invent a schedule.** A promise with no amount, or one covering the
-  full balance, is an ordinary promise and takes the normal path. Only a
-  genuine part-payment offer builds a plan.
+- **Invent a schedule.** Only the balance leg of a split is ever this
+  system's, and it is labelled as such so the reply puts it as a proposal
+  rather than reporting it back as agreed.
 - **Round their numbers.** Legs that don't sum to the invoice raise
   `PlanRejected` rather than being quietly adjusted -- a shortfall is a
   real disagreement about what is owed, not a rounding problem, and
@@ -331,3 +345,112 @@ it says and how it's guarded against sending twice.
 **What's still scripted with no live equivalent**: Twilio calls are
 one-way TTS in my build — there's no inbound response capture for a voice
 reply, only for Telegram text.
+
+## The e-mandate is real, and it is the point
+
+A plan that ends in a polite sentence is the failure this project exists to
+argue against. When `_plan_from_promise()` builds a plan,
+`agent/mandate/emandate.py` turns it into **real, authorizable Razorpay
+mandates** and the composer is told to include the links verbatim.
+
+Live-verified before anything was built on it (2026-09-01): a real
+subscription came back `status=created` with
+`short_url=https://rzp.io/rzp/F1Ied9y`, and `start_at` was accepted — so a
+mandate really can be scheduled for the date the debtor named rather than
+whenever they happen to authorize it.
+
+**One subscription per distinct instalment amount, not one per plan.**
+Razorpay's only recurring primitive on this account is Plan + Subscription,
+carrying a *fixed* per-cycle amount. A real negotiated split is rarely even
+— "21,000 on the 5th and the rest on the 20th" is Rs 21,000 then Rs 21,500
+— and one fixed-amount subscription cannot express two amounts. The three
+options were:
+
+| Option | What it costs |
+|---|---|
+| Round the legs into an even division | Misrepresents what the debtor agreed to |
+| Authorize at the larger amount | Takes money on the smaller leg they never agreed to |
+| One mandate per distinct amount | Two authorizations instead of one |
+
+Only the third is honest, so that is what it does. When the legs *are*
+equal — including the common single-leg case, "I'll pay the whole thing on
+the 5th" — they collapse into one subscription and the debtor authorizes
+once.
+
+The grouping key is `payable_paise`, not `amount_paise`, and that
+distinction is a bug this nearly shipped: see WHAT_BROKE #13.
+
+**Nothing here charges anyone.** A `created` subscription is an
+authorization *request*. The debtor opens the link and completes
+authentication before a rupee moves, and this module never calls a charge
+API at all. That is what makes it safe to send the link on a *proposal*:
+it hands them the means to say yes, not a debit. The composer is
+explicitly told to say authorizing schedules the debit and takes no money
+now, and never to imply the payment is done — a false confirmation is the
+thing its prompt forbids hardest.
+
+**Scheduled at midday UTC, not midnight.** Midnight UTC on the 5th is the
+evening of the 4th in IST — debiting a debtor a day before the date they
+named. A leg due sooner than 30 minutes from now is created without a
+`start_at` rather than failing: Razorpay refuses a start date that isn't
+comfortably ahead, and a mandate they can still authorize beats none.
+
+**Failures are never papered over.** `MandateCreationFailed` is raised, not
+a placeholder URL — including when a mandate comes back healthy but with no
+`short_url`, which is useless to a debtor who has no way to authorize it. A
+partial success across multiple legs raises too: someone handed one of two
+links would reasonably believe the whole plan was set up. At the demo
+boundary the failure degrades the message (the composer is simply told
+there is no link) rather than breaking the exchange. This project shipped
+`https://rzp.io/i/pending` to a real person once; the rule since is that an
+unavailable link means saying so.
+
+Mandates are cached per plan signature, the same reasoning as
+`_last_payment_link_url`: minting a fresh Plan + Subscription on every
+message would litter the account with dozens of unauthorized mandates for
+one negotiation, and a second different link for the same instalment is
+confusing to the person receiving it.
+
+## The case file: what happened, not what your tab saw
+
+The Activity list is a log of what *this browser tab* witnessed. That was
+the whole problem. A call placed before the page loaded, or a reply the
+Telegram webhook answered while nothing was polling, was invisible — the
+system did the work and the UI showed an empty list. A demo that undersells
+itself is still a demo that lies about itself.
+
+`GET /demo/timeline` is the server's own record, and the **Case file**
+section renders it: a stage track, any live e-mandate links, and every step
+in order — sends, calls, replies, diagnoses, decisions, plans, mandates,
+refusals. It survives a reload, a cold start, and closing the tab, because
+it lives in the same Turso store as everything else.
+
+**The stage** is furthest-reached rather than most-recent — a mandate that
+has been issued stays issued even if the next message is small talk. Two
+things override that, because both mean automated contact has *stopped*:
+
+| Stage | Meaning |
+|---|---|
+| `not_started` | Nothing sent yet |
+| `contacted` | Sent, waiting on a reply |
+| `in_conversation` | Replies being read and answered |
+| `negotiating` | A dated instalment plan is on the table |
+| `mandate_issued` | A real e-mandate link is theirs to authorize |
+| `escalated_to_human` | Overrides progress — a person has it |
+| `disputed_paused` | Overrides progress — frozen, chasing stopped |
+
+Reporting "negotiating" over a frozen account would misstate what the
+system is doing, which is the one thing this section exists to prevent.
+
+**Unauthenticated, deliberately.** It is a read of the demo's own scripted
+invoice and the demo owner's own replies to their own bot. Requiring the
+trigger secret would mean baking a send credential into a page that only
+wants to watch — a worse trade than publishing a demo transcript. It is
+read directly from the backend rather than through the site's serverless
+proxy, since there is no secret for a proxy to hold and a public read
+doesn't need the extra hop.
+
+The page refreshes it every 5 seconds. That is slow on purpose: replies
+arrive by webhook now, so this poll is only catching up a *display*, never
+driving the conversation. The difference between those two is exactly what
+made the old two-minute polling window a bug rather than a refresh rate.

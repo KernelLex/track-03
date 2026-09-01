@@ -128,8 +128,14 @@ app = FastAPI(title="TrueCommit", lifespan=lifespan)
 # because the real protection is that endpoint's own secret + hardcoded
 # recipient, not CORS. Every other route on this app has no browser-facing
 # use case and isn't affected by this middleware being permissive.
+#
+# GET is allowed for /demo/timeline, which the dashboard reads directly
+# rather than through the site's serverless proxy. It carries no secret --
+# it is a read of the demo's own scripted invoice and the demo owner's own
+# replies to their own bot -- so there is nothing for a proxy to hide, and
+# routing a public read through one would only add a hop and a cold start.
 app.add_middleware(
-    CORSMiddleware, allow_origins=["*"], allow_methods=["POST"], allow_headers=["*"],
+    CORSMiddleware, allow_origins=["*"], allow_methods=["GET", "POST"], allow_headers=["*"],
 )
 
 app.include_router(demo_router)

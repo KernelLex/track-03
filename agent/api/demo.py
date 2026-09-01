@@ -59,6 +59,7 @@ from agent.bounds.engine import check_bounds
 from agent.diagnose.extract import Family
 from agent.diagnose.llm_extract import ExtractionFailed, extract_from_reply
 from agent.orchestrate import select_action_for_diagnosis
+from agent.mandate.emandate import create_plan_mandates, describe_mandate_links
 from agent.mandate.payment_plan import PlanRejected, build_plan, describe_plan
 from agent.notify.conversation import ConversationStore
 from agent.notify.compose import ComposeFailed, compose_reply
@@ -412,9 +413,28 @@ def trigger_demo_contact(payload: DemoTriggerRequest) -> dict[str, object]:
     try:
         result = send()
     except ChannelUnavailable as exc:
+        _record_event(
+            _conversation_id_for(payload.channel, payload.to), kind="send_failed",
+            channel=payload.channel, detail={"error": str(exc)},
+        )
         raise HTTPException(status_code=502, detail=f"channel unavailable: {exc}") from exc
     finally:
         channel_obj.close()
+
+    _record_event(
+        _conversation_id_for(payload.channel, payload.to),
+        kind="call_placed" if payload.channel == "ivr" else "message_sent",
+        channel=payload.channel,
+        detail={
+            "status": result.status,
+            "external_ref": result.external_ref,
+            "invoice_id": str(scenario["invoice_id"]),
+            "amount_paise": int(scenario["amount_paise"]),
+            "bounds_passed": len([v for v in bounds_result.verdicts if v.verdict == "PASS"]),
+            "text": text if payload.channel != "whatsapp" else str(scenario["text_message"]),
+            "to": "the demo's own configured contact" if not payload.to else payload.to,
+        },
+    )
 
     return {
         "bounds_checks": [v.rule_id for v in bounds_result.verdicts if v.verdict == "PASS"],
@@ -483,32 +503,40 @@ def _plan_from_promise(extraction, scenario: dict[str, object]) -> dict[str, obj
     `Promise.installments`, which the extractor has always populated); this
     reads what they proposed and asks those.
 
-    Deliberately conservative about what counts as a proposal: a promise
-    with no date, or with an amount at or above the full balance, is an
-    ordinary promise rather than a split, and gets the normal path. Only a
-    genuine part-payment offer builds a plan -- inventing a schedule the
-    debtor didn't ask for would be putting words in their mouth.
+    A date is what makes it a plan. Two shapes come out of that:
+
+      - **split** -- they named a part-payment ("21,000 on the 5th"), so
+        leg 1 is theirs and the balance is proposed a fortnight on, marked
+        `proposed_by: system` so the reply can put it as a proposal rather
+        than imply they agreed to it.
+      - **full** -- they named a date and either the whole balance or no
+        amount at all ("I'll pay on the 5th"). That is a one-instalment
+        plan on *their own* date, and it earns a real e-mandate link the
+        same way a split does. Nothing is invented here: assuming the full
+        balance when they didn't name one is the conservative reading, and
+        the date is quoted straight back from what they said.
+
+    A promise with no date at all is not a plan -- there is nothing to
+    schedule a debit against -- and gets the ordinary path.
     """
     promise = getattr(extraction, "promise", None)
-    if promise is None or not promise.date or not promise.amount_paise:
+    if promise is None or not promise.date:
         return None
 
     total = int(scenario["amount_paise"])
-    first_amount = int(promise.amount_paise)
-    if first_amount >= total:
-        return None  # paying in full on a date is a promise, not a split
-
     try:
         first_date = date.fromisoformat(promise.date)
     except ValueError:  # pragma: no cover -- ExtractionResult validates ISO8601 upstream
         return None
 
-    # The debtor named one leg and a date. The remainder is theirs to place;
-    # absent a second stated date, this proposes the balance a fortnight on
-    # -- flagged below as proposed rather than agreed, so the reply can say
-    # so instead of implying they committed to it.
-    remainder = total - first_amount
-    legs = [(first_amount, first_date), (remainder, first_date + timedelta(days=14))]
+    stated = int(promise.amount_paise) if promise.amount_paise else total
+    if stated >= total:
+        shape, legs = "full", [(total, first_date)]
+    else:
+        # The debtor named one leg and a date. The remainder is theirs to
+        # place; absent a second stated date, this proposes the balance a
+        # fortnight on.
+        shape, legs = "split", [(stated, first_date), (total - stated, first_date + timedelta(days=14))]
 
     try:
         plan = build_plan(invoice_id=str(scenario["invoice_id"]), total_amount_paise=total, legs=legs)
@@ -516,7 +544,8 @@ def _plan_from_promise(extraction, scenario: dict[str, object]) -> dict[str, obj
         _log.warning("demo: could not build a plan from the stated promise: %s", exc)
         return None
 
-    return {
+    result: dict[str, object] = {
+        "shape": shape,
         "legs": [
             {
                 "sequence": leg.sequence,
@@ -524,7 +553,7 @@ def _plan_from_promise(extraction, scenario: dict[str, object]) -> dict[str, obj
                 "due_date": leg.due_date.isoformat(),
                 "payable_paise": leg.payable_paise,
                 "savings_paise": leg.savings_paise,
-                "proposed_by": "debtor" if leg.sequence == 1 else "system",
+                "proposed_by": "debtor" if shape == "full" or leg.sequence == 1 else "system",
             }
             for leg in plan.legs
         ],
@@ -534,6 +563,66 @@ def _plan_from_promise(extraction, scenario: dict[str, object]) -> dict[str, obj
         "total_savings_paise": plan.total_savings_paise,
         "summary": describe_plan(plan),
     }
+
+    links = _mandate_links_for(plan)
+    if links:
+        result["mandate_links"] = [
+            {
+                "mandate_id": link.mandate_id,
+                "short_url": link.short_url,
+                "amount_paise": link.amount_paise,
+                "sequences": list(link.sequences),
+                "first_debit_on": link.first_debit_on.isoformat(),
+                "afa_required": link.afa_required,
+            }
+            for link in links
+        ]
+        result["mandate_summary"] = describe_mandate_links(links)
+    return result
+
+
+# Real mandates already created this run, keyed by the plan's shape. Same
+# reasoning as `_last_payment_link_url`: these are real rail objects, and
+# minting a fresh Plan + Subscription pair on every message a debtor sends
+# would litter the account with dozens of unauthorized mandates for one
+# negotiation. An identical plan re-derived from a repeated message reuses
+# the links the debtor was already sent -- which is also what they expect,
+# since a second different link for the same instalment is confusing.
+_mandate_link_cache: dict[str, list] = {}
+
+
+def _plan_signature(plan) -> str:
+    return "|".join(f"{leg.sequence}:{leg.payable_paise}:{leg.due_date.isoformat()}" for leg in plan.legs)
+
+
+def _mandate_links_for(plan) -> list:
+    """Real, authorizable e-mandate links for a plan -- or [] if the rail
+    can't produce them.
+
+    Best-effort by design: a missing mandate link degrades the reply (the
+    composer is simply told there isn't one) rather than failing the whole
+    exchange and leaving the debtor with silence. What it must never do is
+    substitute a plausible-looking URL -- `MandateCreationFailed` is caught
+    and logged, never papered over.
+    """
+    signature = _plan_signature(plan)
+    cached = _mandate_link_cache.get(signature)
+    if cached is not None:
+        return cached
+
+    key_id = os.environ.get("RAZORPAY_KEY_ID")
+    key_secret = os.environ.get("RAZORPAY_KEY_SECRET")
+    if not key_id or not key_secret:
+        return []
+
+    try:
+        links = create_plan_mandates(plan, rail=RazorpayRail(key_id=key_id, key_secret=key_secret))
+    except Exception:
+        _log.warning("demo: could not create e-mandate links for this plan", exc_info=True)
+        return []
+
+    _mandate_link_cache[signature] = links
+    return links
 
 
 def _decide_next_step(extraction, scenario: dict[str, object], *, channel: str, debtor_key: str) -> dict[str, object]:
@@ -640,6 +729,7 @@ def _compose_or_fallback(
             ),
             next_step=None if decision is None else str(decision.get("action")),
             payment_plan=None if plan is None else str(plan.get("summary")),
+            mandate_links=None if plan is None else (plan.get("mandate_summary") or None),
             conversation_context=conversation_context,
             outstanding_proposal=outstanding_proposal,
             purpose="demo_dashboard_conversational_reply",
@@ -839,6 +929,35 @@ def _conversation_store() -> ConversationStore:
     return ConversationStore(os.environ.get("TRUECOMMIT_CONVERSATION_DB", "conversation.db"))
 
 
+def _conversation_id_for(channel: str, to: str | None = None) -> str:
+    """The key a channel's exchanges are filed under.
+
+    Telegram's is the chat id, because that is what its webhook reports and
+    the two must agree or an inbound reply lands on a different timeline
+    from the message it answers. The phone channels key on the number
+    actually dialled."""
+    if channel == "telegram":
+        return os.environ.get("DEMO_CONTACT_TELEGRAM_CHAT_ID", "telegram")
+    return to or os.environ.get("DEMO_CONTACT_PHONE_NUMBER", channel)
+
+
+def _record_event(conversation_id: str, *, kind: str, channel: str | None = None,
+                  detail: dict | None = None) -> None:
+    """Append to the timeline, swallowing storage failures.
+
+    Deliberately best-effort: this is the observability record, and losing
+    a row from it is a bad outcome, but taking down a real send or a real
+    reply because the timeline couldn't be written is a far worse one."""
+    try:
+        store = _conversation_store()
+        try:
+            store.record_event(conversation_id, kind=kind, channel=channel, detail=detail)
+        finally:
+            store.close()
+    except Exception:
+        _log.warning("demo: could not record a %r timeline event", kind, exc_info=True)
+
+
 def _describe_proposal(proposal) -> str:
     """One line naming what is currently on the table, for the composer."""
     if proposal.kind == "payment_plan":
@@ -881,6 +1000,7 @@ def handle_inbound_message(
         proposal = store.outstanding_proposal(conversation_id)
         transcript = store.transcript(conversation_id)
         store.record_turn(conversation_id, direction="inbound", text=text)
+        store.record_event(conversation_id, kind="reply_received", channel=channel, detail={"text": text})
 
         result: dict[str, object] = {"handled": True, "text": text, "external_id": external_id}
 
@@ -888,23 +1008,33 @@ def handle_inbound_message(
             extraction = _diagnose_and_note(text, conversation_context=transcript or None)
         except ExtractionFailed as exc:
             result["diagnosis"] = {"error": str(exc)}
+            store.record_event(conversation_id, kind="extraction_failed", channel=channel,
+                               detail={"error": str(exc)})
             return result
 
         result["diagnosis"] = _diagnosis_dict(extraction)
+        store.record_event(conversation_id, kind="diagnosed", channel=channel, detail=result["diagnosis"])
 
         refusals = _bounds_gate_followup(scenario, channel)
         result["followup_bounds_refusals"] = refusals
         if refusals is not None:
+            store.record_event(conversation_id, kind="bounds_refused", channel=channel,
+                               detail={"refusals": refusals})
             return result
 
         decision = _decide_next_step(
             extraction, scenario, channel=channel, debtor_key=f"{channel}_{conversation_id}",
         )
         result["decision"] = decision
+        store.record_event(conversation_id, kind="decided", channel=channel, detail=decision)
 
         plan = _plan_from_promise(extraction, scenario)
         if plan is not None:
             result["payment_plan"] = plan
+            store.record_event(conversation_id, kind="plan_built", channel=channel, detail=plan)
+            if plan.get("mandate_links"):
+                store.record_event(conversation_id, kind="mandate_issued", channel=channel,
+                                   detail={"links": plan["mandate_links"]})
 
         reply_text = _compose_or_fallback(
             text, result["diagnosis"], scenario, decision, plan,
@@ -916,10 +1046,12 @@ def handle_inbound_message(
             send(reply_text)
         except ChannelUnavailable:
             _log.warning("inbound: reply send failed on %s", channel, exc_info=True)
+            store.record_event(conversation_id, kind="reply_send_failed", channel=channel)
             return result
 
         result["agent_reply"] = reply_text
         store.record_turn(conversation_id, direction="outbound", text=reply_text)
+        store.record_event(conversation_id, kind="agent_replied", channel=channel, detail={"text": reply_text})
 
         # A plan just put to them becomes the thing on the table, so the next
         # "yes" has something to attach to. Nothing is treated as agreed
@@ -1003,3 +1135,110 @@ async def telegram_webhook(request: Request) -> dict[str, object]:
         channel_obj.close()
 
     return {"ok": True, **result}
+
+
+# --------------------------------------------------------------------------
+# The timeline: what actually happened, not what one browser tab witnessed.
+# --------------------------------------------------------------------------
+
+_STAGE_RANK = {
+    "not_started": 0,
+    "contacted": 1,
+    "in_conversation": 2,
+    "negotiating": 3,
+    "mandate_issued": 4,
+}
+
+_STAGE_FOR_EVENT = {
+    "message_sent": "contacted",
+    "call_placed": "contacted",
+    "reply_received": "in_conversation",
+    "diagnosed": "in_conversation",
+    "agent_replied": "in_conversation",
+    "plan_built": "negotiating",
+    "mandate_issued": "mandate_issued",
+}
+
+STAGE_LABEL = {
+    "not_started": "Not started -- nothing has been sent yet",
+    "contacted": "Contacted -- waiting on a reply",
+    "in_conversation": "In conversation -- replies are being read and answered",
+    "negotiating": "Negotiating -- a dated instalment plan is on the table",
+    "mandate_issued": "Mandate issued -- a real e-mandate link is theirs to authorize",
+    "escalated_to_human": "Escalated -- automated contact is paused, a person has it",
+    "disputed_paused": "Disputed -- frozen, automated chasing has stopped",
+}
+
+
+def _stage_from_events(events) -> str:
+    """How far this conversation has actually got.
+
+    Furthest-reached rather than most-recent, because progress here isn't
+    reversible by a later event: a mandate that has been issued stays
+    issued even if the debtor's next message is small talk.
+
+    The two exceptions are the ones that *should* override progress. A
+    dispute freezes the account and an escalation hands it to a person --
+    both mean automated contact has stopped, and reporting "negotiating"
+    over the top of either would misstate what the system is doing. They
+    are read from the latest events only, so an escalation that a later
+    exchange moved past doesn't pin the stage forever.
+    """
+    stage = "not_started"
+    for event in events:
+        candidate = _STAGE_FOR_EVENT.get(event.kind)
+        if candidate and _STAGE_RANK[candidate] > _STAGE_RANK[stage]:
+            stage = candidate
+
+    for event in reversed(events):
+        if event.kind == "decided":
+            detail = event.detail
+            if detail.get("escalated_to_human") or detail.get("action") == "escalate_human":
+                return "escalated_to_human"
+            break
+        if event.kind == "diagnosed" and event.detail.get("family") == "D":
+            return "disputed_paused"
+    return stage
+
+
+@router.get("/timeline")
+def demo_timeline(conversation_id: str | None = None, limit: int = 60) -> dict[str, object]:
+    """Everything that happened, in order, with the conversation's stage.
+
+    Unauthenticated on purpose, and read-only: it exposes the demo's own
+    scripted invoice and the demo owner's own replies to their own bot,
+    nothing belonging to a third party. Requiring the trigger secret here
+    would mean baking it into a page that only wants to *watch*, which is a
+    worse trade than publishing a demo transcript.
+
+    This is what makes the dashboard honest. Its live console only ever
+    showed events its own tab had seen happen, so a call placed before the
+    page loaded, or a reply the Telegram webhook answered while nothing was
+    polling, was invisible -- the system did the work and the UI showed an
+    empty list.
+    """
+    limit = max(1, min(int(limit), 200))
+    store = _conversation_store()
+    try:
+        events = store.recent_events(conversation_id=conversation_id, limit=limit)
+        stage = _stage_from_events(events)
+        proposal = store.outstanding_proposal(conversation_id) if conversation_id else None
+        turns = store.recent_turns(conversation_id, limit=20) if conversation_id else []
+    finally:
+        store.close()
+
+    return {
+        "stage": stage,
+        "stage_label": STAGE_LABEL[stage],
+        "events": [
+            {
+                "at": e.at, "kind": e.kind, "channel": e.channel,
+                "conversation_id": e.conversation_id, "detail": e.detail,
+            }
+            for e in events
+        ],
+        "turns": [{"direction": t.direction, "text": t.text, "at": t.at} for t in turns],
+        "outstanding_proposal": None if proposal is None else {
+            "kind": proposal.kind, "detail": proposal.detail, "proposed_at": proposal.proposed_at,
+        },
+    }
