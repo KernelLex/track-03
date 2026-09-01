@@ -766,6 +766,16 @@ def _decide_next_step(extraction, scenario: dict[str, object], *, channel: str, 
     }
 
 
+# Why the most recent composition fell back, if it did. Read once by
+# `handle_inbound_message` immediately after the call and then cleared, so
+# a stale reason can never be attributed to a later, successful reply.
+_last_compose_failure: dict[str, str] = {}
+
+
+def _take_compose_failure() -> str | None:
+    return _last_compose_failure.pop("reason", None)
+
+
 def _compose_or_fallback(
     reply_text: str, diagnosis: dict[str, object], scenario: dict[str, object],
     decision: dict[str, object] | None = None, plan: dict[str, object] | None = None,
@@ -806,7 +816,15 @@ def _compose_or_fallback(
         # Broad on purpose: ComposeFailed (API/empty output) and
         # BudgetExceeded (agent.spend's ceiling) both mean "no vetted reply
         # available right now", and neither should break a read-only poll.
+        #
+        # The reason is stashed rather than only logged. A live run fell back
+        # to the fixed line and the only record was a Render log line nobody
+        # reads -- so a debtor got a generic "here's the link again" instead
+        # of the plan and mandate links just built for them, and diagnosing
+        # it afterwards was guesswork. A degradation that leaves no trace is
+        # the same invisible-absence problem a refused action has.
         _log.warning("demo: contextual reply composition failed, falling back to the fixed line: %s", exc)
+        _last_compose_failure["reason"] = f"{type(exc).__name__}: {exc}"[:500]
         return _agent_reply_for(family)
 
 
@@ -1172,11 +1190,22 @@ def handle_inbound_message(
                 store.record_event(conversation_id, kind="mandate_issued", channel=channel,
                                    detail={"links": plan["mandate_links"]})
 
+        _take_compose_failure()  # discard anything stale before this call
         reply_text = _compose_or_fallback(
             text, result["diagnosis"], scenario, decision, plan,
             conversation_context=transcript or None,
             outstanding_proposal=None if proposal is None else _describe_proposal(proposal),
         )
+        compose_failure = _take_compose_failure()
+        if compose_failure is not None:
+            # The debtor still gets a known-safe sentence; what changes is
+            # that the degradation is now visible instead of silent.
+            result["composed"] = False
+            result["compose_failure"] = compose_failure
+            store.record_event(conversation_id, kind="compose_failed", channel=channel,
+                               detail={"reason": compose_failure, "sent_instead": reply_text})
+        else:
+            result["composed"] = True
 
         try:
             send(reply_text)

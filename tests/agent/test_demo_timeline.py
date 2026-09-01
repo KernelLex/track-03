@@ -245,3 +245,80 @@ class TestARefusedActionIsNeverReportedAsAllowed:
         assert demo_module.REFUSALS_THAT_MEAN_WAIT == frozenset(
             {"PROMISE_COOLDOWN", "RBI_FPC_HOURS", "EV_FLOOR"}
         )
+
+
+class TestASilentFallbackIsRecorded:
+    """A live run fell back to the fixed line and the only trace was a
+    Render log line nobody reads.
+
+    The debtor got "here's the link again whenever you're ready" -- carrying
+    a different URL than either mandate just built for them -- and working
+    out why afterwards was guesswork. A degradation that leaves no record is
+    the same invisible-absence problem a refused action has, and it matters
+    more, because the reply still looks plausible.
+    """
+
+    def _fails_to_compose(self, monkeypatch, exc):
+        def _boom(reply_text, **kw):
+            raise exc
+        monkeypatch.setattr(demo_module, "compose_reply", _boom)
+
+    def test_the_reason_lands_on_the_timeline(self, client, monkeypatch):
+        from agent.notify.compose import ComposeFailed
+
+        _extracts(monkeypatch, family=Family.C, class_=DiagnosisClass.STALLING, confidence=0.5)
+        self._fails_to_compose(monkeypatch, ComposeFailed("API call failed: 529 overloaded"))
+        _inbound(client, "anything")
+
+        events = client.get("/demo/timeline").json()["events"]
+        failed = [e for e in events if e["kind"] == "compose_failed"]
+        assert failed, "a fallback must leave a record"
+        assert "529 overloaded" in failed[0]["detail"]["reason"]
+
+    def test_it_records_what_was_sent_instead(self, client, monkeypatch):
+        """Knowing a fallback happened is half of it; the other half is what
+        the debtor actually received."""
+        from agent.notify.compose import ComposeFailed
+
+        _extracts(monkeypatch, family=Family.C, class_=DiagnosisClass.STALLING, confidence=0.5)
+        self._fails_to_compose(monkeypatch, ComposeFailed("empty response"))
+        _inbound(client, "anything")
+
+        failed = [e for e in client.get("/demo/timeline").json()["events"]
+                  if e["kind"] == "compose_failed"][0]
+        assert failed["detail"]["sent_instead"]
+
+    def test_a_budget_stop_is_recorded_the_same_way(self, client, monkeypatch):
+        """BudgetExceeded and an API failure both mean "no vetted reply", and
+        both must be distinguishable afterwards -- they need different fixes."""
+        from agent.spend import BudgetExceeded
+
+        _extracts(monkeypatch, family=Family.C, class_=DiagnosisClass.STALLING, confidence=0.5)
+        self._fails_to_compose(monkeypatch, BudgetExceeded("would exceed the $20.00 ceiling"))
+        _inbound(client, "anything")
+
+        failed = [e for e in client.get("/demo/timeline").json()["events"]
+                  if e["kind"] == "compose_failed"][0]
+        assert "BudgetExceeded" in failed["detail"]["reason"]
+
+    def test_a_successful_reply_records_no_failure(self, client, monkeypatch):
+        _extracts(monkeypatch, family=Family.C, class_=DiagnosisClass.STALLING, confidence=0.5)
+        _inbound(client, "anything")
+        kinds = [e["kind"] for e in client.get("/demo/timeline").json()["events"]]
+        assert "compose_failed" not in kinds
+
+    def test_a_stale_reason_is_not_attributed_to_a_later_reply(self, client, monkeypatch):
+        """The reason is module-level state. Without clearing it before each
+        call, one failure would mark every subsequent success as degraded."""
+        from agent.notify.compose import ComposeFailed
+
+        _extracts(monkeypatch, family=Family.C, class_=DiagnosisClass.STALLING, confidence=0.5)
+        self._fails_to_compose(monkeypatch, ComposeFailed("transient"))
+        _inbound(client, "first", update_id=1)
+
+        monkeypatch.setattr(demo_module, "compose_reply", lambda reply_text, **kw: "composed reply")
+        _inbound(client, "second", update_id=2)
+
+        failed = [e for e in client.get("/demo/timeline").json()["events"]
+                  if e["kind"] == "compose_failed"]
+        assert len(failed) == 1, "the second reply succeeded and must not be marked degraded"
