@@ -71,6 +71,14 @@ _last_triggered_at: dict[str, float] = {}
 # Razorpay creation fails, rather than blocking the whole message on it.
 _last_payment_link_url: str | None = None
 
+# Diagnosing the same reply twice is harmless (cheap to repeat, same result
+# either way) -- sending a real follow-up message twice for it is not.
+# check-reply has no client-side guarantee against being asked about the
+# same update_id again (a page reload resets the dashboard's own tracked
+# position, and this endpoint has no other session concept) -- this is the
+# actual guard against a duplicate real send, not the caller's good behavior.
+_last_followed_up_update_id: int = 0
+
 SCENARIOS: dict[str, dict[str, object]] = {
     "b2b": {
         "invoice_id": "INV-2201",
@@ -328,15 +336,21 @@ def check_reply(payload: CheckReplyRequest) -> dict[str, object]:
             # channel, not just a diagnosis shown on a dashboard. Best-effort
             # -- a failed follow-up send still leaves the diagnosis itself
             # intact in the response rather than failing the whole poll.
-            reply_text = _agent_reply_for(extraction.family)
-            reply_channel = TelegramChannel(token)
-            try:
-                reply_channel.send(to=chat_id, text=reply_text)
-                result["agent_reply"] = reply_text
-            except ChannelUnavailable:
-                _log.warning("demo: follow-up reply send failed", exc_info=True)
-            finally:
-                reply_channel.close()
+            # Guarded against re-sending for an update_id already followed
+            # up on (see _last_followed_up_update_id's comment) -- diagnosis
+            # itself still re-runs every time, only the real send is skipped.
+            global _last_followed_up_update_id
+            if latest["update_id"] > _last_followed_up_update_id:
+                reply_text = _agent_reply_for(extraction.family)
+                reply_channel = TelegramChannel(token)
+                try:
+                    reply_channel.send(to=chat_id, text=reply_text)
+                    result["agent_reply"] = reply_text
+                    _last_followed_up_update_id = latest["update_id"]
+                except ChannelUnavailable:
+                    _log.warning("demo: follow-up reply send failed", exc_info=True)
+                finally:
+                    reply_channel.close()
         except ExtractionFailed as exc:
             result["diagnosis"] = {"error": str(exc)}
 

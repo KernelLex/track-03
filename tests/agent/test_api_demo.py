@@ -38,11 +38,13 @@ class _FakeChannel:
 @pytest.fixture(autouse=True)
 def _reset_rate_limit():
     demo_module._last_triggered_at.clear()
+    demo_module._last_followed_up_update_id = 0
     _FakeChannel.sent = []
     _FakeChannel.updates = []
     _FakeChannel.last_offset = None
     yield
     demo_module._last_triggered_at.clear()
+    demo_module._last_followed_up_update_id = 0
 
 
 @pytest.fixture
@@ -303,6 +305,26 @@ class TestCheckReply:
         followup_sends = [s for s in _FakeChannel.sent if s["text"] == body["agent_reply"]]
         assert len(followup_sends) == 1
         assert followup_sends[0]["to"] == "999888777"
+
+    def test_querying_the_same_reply_twice_only_sends_the_followup_once(self, client, monkeypatch):
+        """Live-caught: diagnosis is harmless to repeat, but a real send
+        isn't -- a page reload or a repeated poll asking about the same
+        update_id must not trigger a second real Telegram message."""
+        from agent.diagnose.extract import DiagnosisClass, ExtractionResult, Family
+
+        fake_result = ExtractionResult(family=Family.C, class_=DiagnosisClass.PROMISE_STATED, confidence=0.8)
+        monkeypatch.setattr(demo_module, "extract_from_reply", lambda text, **kw: fake_result)
+        _FakeChannel.updates = [self._update(101, "999888777", "will pay soon")]
+
+        first = client.post("/demo/check-reply", json={"secret": SECRET, "diagnose": True})
+        assert first.json()["agent_reply"] is not None
+
+        second = client.post("/demo/check-reply", json={"secret": SECRET, "diagnose": True})
+        assert second.json()["agent_reply"] is None  # diagnosis still runs, the send is skipped
+        assert second.json()["diagnosis"] is not None
+
+        followup_sends = [s for s in _FakeChannel.sent if s["to"] == "999888777"]
+        assert len(followup_sends) == 1
 
     def test_family_c_followup_resends_the_real_link_when_one_exists(self, client, monkeypatch):
         from agent.diagnose.extract import DiagnosisClass, ExtractionResult, Family
