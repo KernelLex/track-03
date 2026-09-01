@@ -49,7 +49,15 @@ exports.handler = async (event) => {
       }),
     });
     const body = await res.text();
-    return { statusCode: res.status, headers: { 'Content-Type': 'application/json' }, body };
+    // Live-caught: Netlify's edge was caching this Function's response
+    // (observed Age: 11 on an identical-looking POST) -- disastrous for a
+    // trigger endpoint, since a cached "sent" could be replayed without a
+    // real second send. Explicit no-store headers on every response.
+    return {
+      statusCode: res.status,
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store, no-cache, must-revalidate', 'Netlify-CDN-Cache-Control': 'no-store' },
+      body,
+    };
   } catch (e) {
     return { statusCode: 502, body: JSON.stringify({ detail: 'could not reach backend: ' + String(e) }) };
   }

@@ -55,7 +55,8 @@ SCENARIOS: dict[str, dict[str, object]] = {
         "text_message": (
             "Hi, this is TrueCommit on behalf of Acme Textiles. Invoice INV-2201 for "
             "Rs 42,500 is now 22 days overdue. Reply here if anything about this invoice "
-            "looks wrong -- otherwise we'll send a one-tap payment link shortly."
+            "looks wrong -- this demo message doesn't include a live payment link (the "
+            "dashboard's scripted Act stage shows what a real one looks like)."
         ),
         "text_voice": (
             "Hello, this is an automated call from True Commit, regarding invoice "

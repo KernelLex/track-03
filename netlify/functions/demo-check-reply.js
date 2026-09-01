@@ -38,7 +38,16 @@ exports.handler = async (event) => {
       }),
     });
     const body = await res.text();
-    return { statusCode: res.status, headers: { 'Content-Type': 'application/json' }, body };
+    // Live-caught: this endpoint is polled every 3s with an often-identical
+    // body (after_update_id stays null until a reply lands) -- exactly the
+    // shape a caching layer serves stale, and Netlify's edge was observed
+    // doing exactly that (Age: 11 on what should be a live, per-call check).
+    // Explicit no-store so every poll actually reaches Render.
+    return {
+      statusCode: res.status,
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store, no-cache, must-revalidate', 'Netlify-CDN-Cache-Control': 'no-store' },
+      body,
+    };
   } catch (e) {
     return { statusCode: 502, body: JSON.stringify({ detail: 'could not reach backend: ' + String(e) }) };
   }
