@@ -307,3 +307,45 @@ as though they were live.
 
 Under Turso all three share one database and the paths are ignored
 (`agent/db.py`); the distinction is local-file only.
+
+## Keeping the free Render instance warm
+
+Render's free tier spins a service down after ~15 minutes idle, and the next
+request pays a 30-50s cold start. Nothing breaks -- Telegram and Razorpay
+both retry a failed webhook delivery -- but the first message of a demo is
+exactly the one that hits a cold server, which is the worst possible moment
+for it.
+
+**Primary answer: an external pinger.** [cron-job.org](https://cron-job.org)
+or [UptimeRobot](https://uptimerobot.com), free, hitting
+`https://<your-host>/health` every 10 minutes. `/health` touches no rail,
+sends no message and costs nothing.
+
+**Backstop: `.github/workflows/keepalive.yml`.** Worth reading the history
+here, because the obvious version of this does not work. The first attempt
+used `cron: "*/10 * * * *"` and ran **zero times** in the two and a half
+hours after it was added, while CI on the same repository ran normally.
+Nothing was misconfigured -- public repo, not a fork, Actions enabled,
+workflow on the default branch. GitHub's scheduler is explicitly
+best-effort ("can be delayed during periods of high load"), and
+high-frequency crons are throttled hardest.
+
+The current version asks the scheduler for as little as it can: two
+triggers an hour (at :23 and :53, avoiding the top of the hour that
+GitHub's own docs call out as the worst time to ask), with each run
+pinging in a loop for ~25 minutes. One trigger landing covers the half
+hour it belongs to, and a dropped trigger costs a gap rather than the whole
+scheme.
+
+**Verify it actually runs**, rather than assuming: Actions tab → "Keep the
+demo backend warm" → **Run workflow**. A manual run does a single ping and
+finishes immediately, so a green check confirms the workflow is valid. Then
+check the scheduled runs appear over the next hour -- a workflow that has
+never run is indistinguishable from one that does not exist, and this one
+looked finished for a day while doing nothing.
+
+**Before recording a demo**, just open `/health` in a browser a minute
+beforehand. One request wakes it, and normal demo traffic keeps it up.
+
+If none of this is worth the bother, Render's Starter tier ($7/month) does
+not spin down.

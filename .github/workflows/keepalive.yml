@@ -3,29 +3,98 @@ name: Keep the demo backend warm
 # Render's free tier spins a service down after ~15 minutes idle, and the
 # next request pays a 30-50s cold start before any work begins. Measured
 # against the live conversational path, that dwarfs everything else: the
-# two real model calls total ~6.8s and the poll adds ~1.5s, so a cold start
-# is roughly five times the entire rest of the request.
+# two real model calls total ~6.8s, so a cold start is roughly five times
+# the entire rest of the request.
 #
-# That is fine for a webhook (Razorpay retries) and unacceptable for a live
-# demo, where the first message someone sends is exactly the one that hits
-# a cold server. A cheap ping on a schedule keeps it awake for the window
-# that matters.
+# That is survivable for a webhook (Telegram and Razorpay both retry) and
+# unacceptable for a live demo, where the first message someone sends is
+# exactly the one that hits a cold server.
 #
-# Deliberately /health and nothing else: it touches no rail, sends no
-# message, and costs nothing. This is not a uptime monitor and shouldn't
-# grow into one.
+# ---------------------------------------------------------------------
+# Why this is shaped the way it is, having watched the obvious version
+# fail: the first attempt used `cron: "*/10 * * * *"` and ran ZERO times
+# in the two and a half hours after it was added, while CI on the same
+# repo ran fine. Nothing was misconfigured -- not a fork, public repo,
+# Actions enabled, workflow on the default branch. GitHub's scheduler is
+# explicitly best-effort ("can be delayed during periods of high load"),
+# and high-frequency crons are throttled hardest. A keepalive that
+# depends on six punctual triggers an hour is depending on the least
+# reliable thing available.
+#
+# So this asks the scheduler for as little as possible: two triggers an
+# hour, and each run does its own pinging in a loop for ~25 minutes. One
+# trigger landing is enough to cover the half hour it belongs to, and a
+# dropped trigger costs a gap rather than the whole scheme.
+#
+# Minutes 23 and 53 rather than :00 -- GitHub's own docs single out the
+# start of the hour as the worst time to ask, because everyone asks then.
+#
+# Honest limit: this still cannot guarantee the server is warm, because
+# nothing that depends on GitHub's scheduler can. An external pinger
+# (cron-job.org, UptimeRobot) hitting /health every 10 minutes is more
+# reliable, and docs/SETUP.md recommends it as the primary answer with
+# this as the free backstop.
+# ---------------------------------------------------------------------
+
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "23 * * * *"
+    - cron: "53 * * * *"
   workflow_dispatch:
+
+# One at a time. A schedule that fires while the previous loop is still
+# running queues instead of stacking, which chains coverage rather than
+# running two pingers at once. cancel-in-progress stays false on purpose:
+# cancelling the running loop to start a fresh one would create exactly
+# the gap this exists to avoid.
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   ping:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Ping the backend
+        env:
+          # Overridable without editing this file: set a repository
+          # variable named KEEPALIVE_URL to point at a different deploy.
+          URL: ${{ vars.KEEPALIVE_URL || 'https://track-03.onrender.com/health' }}
+          EVENT: ${{ github.event_name }}
         # Never fail the workflow on a bad ping -- a red X here would be
         # noise about Render's free tier, not a signal about this repo.
+        # The step still prints every status code, so a run that pinged
+        # and got nothing back is visible in the log.
         run: |
-          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 https://track-03.onrender.com/health || echo "000")
-          echo "health returned $code"
+          set -u
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            # Manual runs are for verifying the workflow itself works.
+            # One ping, immediate green check, no 25-minute job.
+            ROUNDS=1
+            GAP=0
+          else
+            ROUNDS=6
+            GAP=300
+          fi
+
+          echo "pinging $URL -- $ROUNDS round(s), ${GAP}s apart (event: $EVENT)"
+          ok=0
+          for i in $(seq 1 "$ROUNDS"); do
+            start=$(date +%s)
+            code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 90 "$URL" || echo "000")
+            elapsed=$(( $(date +%s) - start ))
+            echo "  ping $i/$ROUNDS -> HTTP $code in ${elapsed}s"
+            # A ping that took more than ~20s woke a sleeping instance,
+            # which is worth seeing in the log: it means the previous
+            # trigger was dropped and the server had gone down.
+            if [ "$elapsed" -gt 20 ]; then
+              echo "    ^ slow: this looks like a cold start, so coverage had a gap"
+            fi
+            [ "$code" = "200" ] && ok=$((ok + 1))
+            [ "$i" -lt "$ROUNDS" ] && sleep "$GAP"
+          done
+          echo "$ok/$ROUNDS pings returned 200"
