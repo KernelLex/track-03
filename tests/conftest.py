@@ -39,6 +39,7 @@ def _reset_demo_module_state():
         demo._last_followed_up_update_id = 0
         demo._last_followed_up_whatsapp_sid = None
         demo._last_payment_link_url = None
+        demo._conversation_touches.clear()
 
     _clear()
     yield

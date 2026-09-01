@@ -101,9 +101,21 @@ def _default_client() -> anthropic.Anthropic:
     return anthropic.Anthropic()
 
 
+_NEXT_STEP_BRIEF = {
+    "send_reminder": "The system is following up, nothing more. Do not offer a payment link "
+                     "unless one appears below and they asked how to pay.",
+    "create_payment_link": "A payment link is being offered. Include it if one appears below.",
+    "reissue_artifact": "The invoice or document is being corrected and reissued. Say that is "
+                        "in hand; do not ask them to pay until it is.",
+    "escalate_human": "This is going to a person, and automated chasing on this invoice is "
+                      "paused. Say so plainly. Do not ask for payment.",
+    "no_action": "Nothing further is being sent. Acknowledge and leave it there; do not chase.",
+}
+
+
 def _context_block(
     *, invoice_id: str, amount_paise: int, days_overdue: int,
-    family: str, class_: str, payment_link: str | None,
+    family: str, class_: str, payment_link: str | None, next_step: str | None,
 ) -> str:
     lines = [
         "Context for this conversation (facts you may use; anything not here, you do not know):",
@@ -116,6 +128,15 @@ def _context_block(
         lines.append(f"- Payment link, to include verbatim only if they ask for a way to pay: {payment_link}")
     else:
         lines.append("- No payment link is available to share right now. Do not invent one or promise to send one.")
+    if next_step:
+        # The bounds gate has already decided what happens next, and the
+        # reply has to match that decision. A message offering to help them
+        # pay while the system is escalating to a human is worse than
+        # either one on its own.
+        lines.append(
+            f"- The system has already decided the next step: {next_step}. "
+            + _NEXT_STEP_BRIEF.get(next_step, "Describe it accurately and do not promise anything else.")
+        )
     return "\n".join(lines)
 
 
@@ -128,6 +149,7 @@ def compose_reply(
     family: str,
     class_: str,
     payment_link: str | None = None,
+    next_step: str | None = None,
     client: anthropic.Anthropic | None = None,
     model: str = DEFAULT_MODEL,
     spend_ledger: SpendLedger | None = None,
@@ -156,7 +178,7 @@ def compose_reply(
         {"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}},
         {"type": "text", "text": _context_block(
             invoice_id=invoice_id, amount_paise=amount_paise, days_overdue=days_overdue,
-            family=family, class_=class_, payment_link=payment_link,
+            family=family, class_=class_, payment_link=payment_link, next_step=next_step,
         )},
     ]
     messages = [{"role": "user", "content": truncated}]

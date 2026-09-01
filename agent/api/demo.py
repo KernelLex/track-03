@@ -48,6 +48,7 @@ import logging
 import os
 import re
 import time
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -57,6 +58,7 @@ from agent.bounds.context import ActionCtx, BoundsContext, ConfigCtx, DebtorCtx,
 from agent.bounds.engine import check_bounds
 from agent.diagnose.extract import Family
 from agent.diagnose.llm_extract import ExtractionFailed, extract_from_reply
+from agent.orchestrate import select_action_for_diagnosis
 from agent.notify.compose import ComposeFailed, compose_reply
 from agent.notify.protocol import ChannelUnavailable
 from agent.notify.telegram import TelegramChannel
@@ -438,16 +440,112 @@ class CheckReplyRequest(BaseModel):
 _last_followed_up_whatsapp_sid: str | None = None
 
 
-def _diagnose_and_note(text: str) -> dict[str, object]:
-    """The extraction half, shared by both channels: real extractor,
-    real budget-tracked call, one diagnosis shape either way."""
+# How many times this conversation has already been chased. Real rules
+# depend on it -- ATTEMPT_CEILING stops at six, CHANNEL_EXHAUSTION routes to
+# a human -- so without it the demo could chase forever and never escalate,
+# which is exactly the behaviour this project exists to argue against.
+_conversation_touches: dict[str, int] = {}
+
+
+def _diagnose_and_note(text: str):
+    """The extraction half, shared by both channels: real extractor, real
+    budget-tracked call. Returns the whole ExtractionResult rather than three
+    flattened fields -- the promise's date and amount are on it, and DECIDE
+    needs them (a stated promise is what PROMISE_COOLDOWN acts on)."""
     log_path = os.environ.get("TRUECOMMIT_EXTRACTION_LOG", "extraction_log.db")
     with ExtractionLog(log_path) as extraction_log:
-        extraction = extract_from_reply(text, purpose="demo_dashboard_live_reply", extraction_log=extraction_log)
-    return {"family": extraction.family.value, "class": extraction.class_.value, "confidence": extraction.confidence}
+        return extract_from_reply(text, purpose="demo_dashboard_live_reply", extraction_log=extraction_log)
 
 
-def _compose_or_fallback(reply_text: str, diagnosis: dict[str, object], scenario: dict[str, object]) -> str:
+def _diagnosis_dict(extraction) -> dict[str, object]:
+    d: dict[str, object] = {
+        "family": extraction.family.value,
+        "class": extraction.class_.value,
+        "confidence": extraction.confidence,
+    }
+    promise = getattr(extraction, "promise", None)
+    if promise is not None and (promise.date or promise.amount_paise):
+        d["promise"] = {"date": promise.date, "amount_paise": promise.amount_paise}
+    return d
+
+
+def _decide_next_step(extraction, scenario: dict[str, object], *, channel: str, debtor_key: str) -> dict[str, object]:
+    """DECIDE -> BOUNDS on a diagnosed reply, through the real machinery.
+
+    This is the half the conversational demo was missing. It used to
+    diagnose a reply, compose an answer, and stop -- so "I'll pay on the
+    14th" got a polite sentence and nothing else: no promise recorded, no
+    cooldown, no escalation, and a payment link offered to someone who had
+    just asked for time. The rules that make that right already existed and
+    simply weren't being consulted.
+
+    What actually runs here:
+      - `select_action_for_diagnosis()` -- the same mapping the webhook
+        orchestrator uses. Family C asks for a reminder, D routes to a
+        human, B reissues the artifact, A offers a fresh instrument.
+      - `check_bounds()` on that action, with a context that reflects the
+        conversation: PROMISED with the debtor's own stated date (so
+        PROMISE_COOLDOWN can buy them quiet time), DISPUTED_FROZEN on a
+        dispute, and the running touch count (so ATTEMPT_CEILING and
+        CHANNEL_EXHAUSTION eventually bite).
+      - If the gate refuses, the fallback is `escalate_human` -- not
+        silence, and not the refused action anyway.
+    """
+    action_type = select_action_for_diagnosis(extraction)
+    touches = _conversation_touches.get(debtor_key, 0)
+
+    promise = getattr(extraction, "promise", None)
+    promise_date = None
+    debtor_state = "ENGAGED"
+    if extraction.family == Family.D:
+        debtor_state = "DISPUTED_FROZEN"
+    elif promise is not None and promise.date:
+        debtor_state = "PROMISED"
+        try:
+            promise_date = datetime.fromisoformat(promise.date)
+        except ValueError:  # pragma: no cover -- ExtractionResult validates ISO8601 upstream
+            promise_date = None
+
+    def _gate(candidate: str):
+        ctx = BoundsContext(
+            debtor=DebtorCtx(id=debtor_key, state=debtor_state, touches_7d=touches),
+            mandate=MandateCtx(),
+            action=ActionCtx(type=candidate, channel=None if candidate == "escalate_human" else channel,
+                             rail_tag="simulated"),
+            decision=DecisionCtx(ev_paise=int(scenario["amount_paise"]) - 500),
+            invoice=InvoiceCtx(id=str(scenario["invoice_id"]), recovery_attempts=touches),
+            config=ConfigCtx(),
+            promise_date=promise_date,
+        )
+        return check_bounds(ctx)
+
+    result = _gate(action_type.value)
+    chosen, refusals, escalated = action_type.value, [v.rule_id for v in result.refusals], False
+
+    if not result.passed:
+        # The gate refused the diagnosis's natural action. Escalating is the
+        # designed answer -- a refusal is a routing decision, not a dead end.
+        escalated_result = _gate("escalate_human")
+        if escalated_result.passed:
+            chosen, escalated = "escalate_human", True
+
+    _conversation_touches[debtor_key] = touches + 1
+    return {
+        "action": chosen,
+        "proposed_action": action_type.value,
+        "allowed": chosen == action_type.value,
+        "escalated_to_human": escalated,
+        "refusals": refusals,
+        "touches_before": touches,
+        "debtor_state": debtor_state,
+        "promise_date": promise.date if promise is not None else None,
+    }
+
+
+def _compose_or_fallback(
+    reply_text: str, diagnosis: dict[str, object], scenario: dict[str, object],
+    decision: dict[str, object] | None = None,
+) -> str:
     """A real, specific reply to what the debtor actually said
     (agent.notify.compose) -- falling back to the fixed family-level line
     only if that call fails. The fallback is deliberately a known-safe
@@ -463,7 +561,16 @@ def _compose_or_fallback(reply_text: str, diagnosis: dict[str, object], scenario
             days_overdue=int(scenario.get("days_overdue", 0)),
             family=str(diagnosis["family"]),
             class_=str(diagnosis["class"]),
-            payment_link=_last_payment_link_url,
+            # The link is only offered when the gate actually allowed an
+            # action that involves one. Someone who just asked for time gets
+            # acknowledged, not handed a payment link -- which is the whole
+            # point of consulting DECIDE before writing the reply.
+            payment_link=(
+                _last_payment_link_url
+                if decision is None or decision.get("action") in ("create_payment_link", "send_reminder")
+                else None
+            ),
+            next_step=None if decision is None else str(decision.get("action")),
             purpose="demo_dashboard_conversational_reply",
         )
     except Exception as exc:
@@ -537,7 +644,8 @@ def _check_telegram_reply(payload: CheckReplyRequest) -> dict[str, object]:
 
     if payload.diagnose:
         try:
-            result["diagnosis"] = _diagnose_and_note(text)
+            extraction = _diagnose_and_note(text)
+            result["diagnosis"] = _diagnosis_dict(extraction)
 
             # The conversational half: a real message back over the same
             # channel, not just a diagnosis shown on a dashboard. Best-effort
@@ -552,7 +660,11 @@ def _check_telegram_reply(payload: CheckReplyRequest) -> dict[str, object]:
                 refusals = _bounds_gate_followup(scenario, "telegram")
                 result["followup_bounds_refusals"] = refusals
                 if refusals is None:
-                    reply_text = _compose_or_fallback(text, result["diagnosis"], scenario)
+                    decision = _decide_next_step(
+                        extraction, scenario, channel="telegram", debtor_key=f"demo_telegram_{payload.scenario}",
+                    )
+                    result["decision"] = decision
+                    reply_text = _compose_or_fallback(text, result["diagnosis"], scenario, decision)
                     reply_channel = TelegramChannel(token)
                     try:
                         reply_channel.send(to=chat_id, text=reply_text)
@@ -613,7 +725,8 @@ def _check_whatsapp_reply(payload: CheckReplyRequest) -> dict[str, object]:
 
     if payload.diagnose:
         try:
-            result["diagnosis"] = _diagnose_and_note(text)
+            extraction = _diagnose_and_note(text)
+            result["diagnosis"] = _diagnosis_dict(extraction)
 
             global _last_followed_up_whatsapp_sid
             if latest.get("sid") != _last_followed_up_whatsapp_sid:
@@ -621,7 +734,11 @@ def _check_whatsapp_reply(payload: CheckReplyRequest) -> dict[str, object]:
                 refusals = _bounds_gate_followup(scenario, "whatsapp")
                 result["followup_bounds_refusals"] = refusals
                 if refusals is None:
-                    reply_text = _compose_or_fallback(text, result["diagnosis"], scenario)
+                    decision = _decide_next_step(
+                        extraction, scenario, channel="whatsapp", debtor_key=f"demo_whatsapp_{payload.scenario}",
+                    )
+                    result["decision"] = decision
+                    reply_text = _compose_or_fallback(text, result["diagnosis"], scenario, decision)
                     reply_channel = TwilioWhatsAppChannel(sid, secret_value, whatsapp_from, auth_username=username)
                     try:
                         reply_channel.send(to=phone, text=reply_text)

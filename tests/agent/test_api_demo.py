@@ -691,3 +691,84 @@ class TestCheckWhatsAppReply:
         monkeypatch.delenv("DEMO_CONTACT_PHONE_NUMBER", raising=False)
         response = client.post("/demo/check-reply", json={"secret": SECRET, "channel": "whatsapp"})
         assert response.status_code == 503
+
+
+class TestConversationDrivesTheRealDecision:
+    """The conversational loop used to diagnose a reply, write a sentence,
+    and stop -- so "I'll pay on the 14th" got a polite answer and nothing
+    else: no promise recorded, no cooldown, no escalation, and a payment
+    link offered to someone who had just asked for time. These cover the
+    branch it should have been taking all along.
+    """
+
+    def _extraction(self, family, class_, *, promise_date=None):
+        from agent.diagnose.extract import ExtractionResult, PromiseFields
+        kwargs = {"family": family, "class_": class_, "confidence": 0.8}
+        if promise_date:
+            kwargs["promise"] = PromiseFields(date=promise_date)
+        return ExtractionResult(**kwargs)
+
+    def test_a_dispute_is_routed_to_a_human_not_chased(self, client):
+        from agent.diagnose.extract import DiagnosisClass, Family
+
+        decision = demo_module._decide_next_step(
+            self._extraction(Family.D, DiagnosisClass.QUANTITY_QUALITY),
+            demo_module.SCENARIOS["b2b"], channel="telegram", debtor_key="t_dispute",
+        )
+        assert decision["action"] == "escalate_human"
+        assert decision["debtor_state"] == "DISPUTED_FROZEN"
+
+    def test_a_stated_promise_puts_the_debtor_in_promised_state(self, client):
+        """A promise buys quiet time -- PROMISE_COOLDOWN's whole purpose,
+        and it can only act if the promise reaches the context."""
+        from agent.diagnose.extract import DiagnosisClass, Family
+
+        decision = demo_module._decide_next_step(
+            self._extraction(Family.C, DiagnosisClass.PROMISE_STATED, promise_date="2026-09-14"),
+            demo_module.SCENARIOS["b2b"], channel="telegram", debtor_key="t_promise",
+        )
+        assert decision["debtor_state"] == "PROMISED"
+        assert decision["promise_date"] == "2026-09-14"
+
+    def test_an_administrative_blocker_reissues_rather_than_asking_for_money(self, client):
+        from agent.diagnose.extract import DiagnosisClass, Family
+
+        decision = demo_module._decide_next_step(
+            self._extraction(Family.B, DiagnosisClass.PO_MISMATCH),
+            demo_module.SCENARIOS["b2b"], channel="telegram", debtor_key="t_blocker",
+        )
+        assert decision["proposed_action"] == "reissue_artifact"
+
+    def test_chasing_forever_is_not_possible_it_escalates(self, client):
+        """ATTEMPT_CEILING stops at six. Past it the answer is a human, not
+        silence and not a seventh chase."""
+        from agent.diagnose.extract import DiagnosisClass, Family
+
+        extraction = self._extraction(Family.C, DiagnosisClass.STALLING)
+        last = None
+        for _ in range(8):
+            last = demo_module._decide_next_step(
+                extraction, demo_module.SCENARIOS["b2b"], channel="telegram", debtor_key="t_ceiling",
+            )
+        assert last["escalated_to_human"] is True
+        assert last["action"] == "escalate_human"
+        assert "ATTEMPT_CEILING" in last["refusals"]
+
+    def test_the_composer_is_told_which_action_was_chosen(self, client, monkeypatch):
+        from agent.diagnose.extract import DiagnosisClass, ExtractionResult, Family
+
+        captured = {}
+        monkeypatch.setattr(demo_module, "compose_reply",
+                            lambda reply_text, **kw: captured.update(kw) or "ok")
+        monkeypatch.setattr(
+            demo_module, "extract_from_reply",
+            lambda text, **kw: ExtractionResult(
+                family=Family.D, class_=DiagnosisClass.QUANTITY_QUALITY, confidence=0.9),
+        )
+        _FakeChannel.updates = [{"update_id": 900, "message": {"chat": {"id": "999888777"},
+                                                              "text": "half the order never arrived"}}]
+        client.post("/demo/check-reply", json={"secret": SECRET, "diagnose": True})
+
+        assert captured["next_step"] == "escalate_human"
+        # A dispute being escalated must not be handed a payment link.
+        assert captured["payment_link"] is None

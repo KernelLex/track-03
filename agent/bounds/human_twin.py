@@ -74,6 +74,11 @@ def msmed_interest_basis(ctx: BoundsContext) -> bool:
 def touch_budget(ctx: BoundsContext) -> bool:
     if ctx.action.is_regulatory_notice:
         return True
+    # Routing to a human is not a contact with the debtor, so the contact
+    # budget has nothing to say about it. Without this, a debtor past three
+    # touches could be neither chased nor escalated, and the case went quiet.
+    if ctx.action.type in ("escalate_human", "no_action"):
+        return True
     return ctx.debtor.touches_7d < 3
 
 
@@ -84,6 +89,11 @@ def dispute_freeze(ctx: BoundsContext) -> bool:
 
 
 def attempt_ceiling(ctx: BoundsContext) -> bool:
+    # Handing the case to a human, or stopping, is not a chase -- so the
+    # chase ceiling must not refuse it, or reaching the ceiling leaves
+    # silence as the only available outcome.
+    if ctx.action.type in ("escalate_human", "no_action"):
+        return True
     return ctx.invoice.recovery_attempts < 6
 
 

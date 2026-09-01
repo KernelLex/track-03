@@ -90,9 +90,19 @@ regulatory:
 
 stopping:
   - id: TOUCH_BUDGET
-    machine: "action.is_regulatory_notice == True or debtor.touches_7d < 3"
-    human: "A regulatory notice always goes out. Otherwise, no debtor gets more than three
-            contacts in a week."
+    machine: >-
+      action.is_regulatory_notice == True or
+      action.type in ['escalate_human', 'no_action'] or
+      debtor.touches_7d < 3
+    human: "A regulatory notice always goes out, and routing a case to a human is not a
+            contact. Otherwise, no debtor gets more than three contacts in a week."
+    # escalate_human/no_action were NOT exempt here until 2026-09-01, while
+    # CHANNEL_EXHAUSTION's own comment already asserted "the same way
+    # TOUCH_BUDGET exempts it". The consequence was real: past three touches
+    # the gate refused the chase *and* refused the escalation, so the case
+    # went silent -- the exact outcome CHANNEL_EXHAUSTION exists to prevent.
+    # Escalating routes to an internal queue; it does not contact the debtor,
+    # so it was never what this budget was counting. See docs/WHAT_BROKE.md #12.
     test: "tests/regulatory/test_touch_budget.py::test_blocks_fourth_touch_in_7_days"
 
   - id: DISPUTE_FREEZE
@@ -111,8 +121,14 @@ stopping:
     test: "tests/regulatory/test_dispute_freeze.py::test_blocks_non_escalation_actions_while_frozen"
 
   - id: ATTEMPT_CEILING
-    machine: "invoice.recovery_attempts < 6"
-    human: "No invoice is chased more than six times."
+    machine: >-
+      action.type in ['escalate_human', 'no_action'] or
+      invoice.recovery_attempts < 6
+    human: "No invoice is chased more than six times. Handing it to a human, or stopping,
+            is not a chase and stays available after the ceiling is reached."
+    # Same defect and same fix as TOUCH_BUDGET above (docs/WHAT_BROKE.md #12):
+    # a ceiling that also refuses the escalation leaves silence as the only
+    # outcome, which is precisely what the ceiling is meant to avoid.
     test: "tests/regulatory/test_attempt_ceiling.py::test_blocks_seventh_attempt"
 
   - id: EV_FLOOR

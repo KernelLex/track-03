@@ -304,6 +304,55 @@ those three tests: it was that a project selling gates that refuse had no
 gate on itself. CI found this on its first run, which is the argument for
 CI in one line.
 
+## 12. The stop rules refused the escalation they exist to trigger
+
+**Symptom.** Wiring the live conversation to the real DECIDE -> BOUNDS path
+surfaced it immediately: chase a debtor three times, and the gate refused
+the fourth chase (correct) *and* refused escalating the case to a human
+(not correct). Past six attempts, same again. The case simply went quiet.
+
+**Root cause.** `TOUCH_BUDGET` exempted regulatory notices but not
+`escalate_human` / `no_action`:
+
+```yaml
+machine: "action.is_regulatory_notice == True or debtor.touches_7d < 3"
+```
+
+`ATTEMPT_CEILING` (`invoice.recovery_attempts < 6`) exempted nothing at
+all. So both counted "hand this to a person" as though it were another
+contact with the debtor — and once they fired, every available action was
+refused, leaving silence.
+
+Silence is the one outcome this project argues against most explicitly.
+`CHANNEL_EXHAUSTION` exists precisely to route a case to a human "instead
+of going silent", and its own inline comment asserted that a notice "stays
+exempt here the same way TOUCH_BUDGET exempts it" — a claim about
+`TOUCH_BUDGET` that `TOUCH_BUDGET` did not implement. The comment
+described the intended design; the rule didn't.
+
+Neither implementation was wrong relative to the other, which is why the
+5,000-case differential test never caught it: `human_twin.py` faithfully
+reproduced the same gap. A differential test proves two implementations
+agree, not that either is right — `docs/LIMITATIONS.md` already says this
+in as many words, and this is the first time that caveat has actually
+cost something.
+
+**Fix.** Both rules now exempt `escalate_human` and `no_action`, in
+`rules.yaml` and in the independently-written `human_twin.py`, matching
+`CHANNEL_EXHAUSTION`'s existing exemption. Routing a case to an internal
+queue is not a contact with the debtor and was never what a *contact*
+budget was counting; stopping is not a *chase* and was never what a chase
+ceiling was counting.
+
+**Verification.** The 5,000-case differential test still passes, so the two
+implementations still agree after both were changed separately. The
+progression is now: three chases, then escalation, and escalation stays
+available indefinitely rather than being refused into silence. One
+existing test (`test_a_bounds_refusal_still_refuses_under_dry_run`) had
+been relying on Family D eventually being refused, and was rewritten to
+use a genuinely refusable action — its intent was right, its premise was
+the bug.
+
 ## What this list is for
 
 I found every one of these by actually building against DEVDOC_v6, not by

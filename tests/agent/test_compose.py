@@ -137,3 +137,19 @@ class TestComposeReply:
         )
         with pytest.raises(ComposeFailed):
             _compose(client, ledger)
+
+
+class TestNextStepBrief:
+    def test_the_decided_next_step_is_put_in_front_of_the_model(self, ledger):
+        client = _fake_client()
+        _compose(client, ledger, next_step="escalate_human")
+        _, kwargs = client.messages.create.call_args
+        context = kwargs["system"][1]["text"]
+        assert "escalate_human" in context
+        assert "going to a person" in context
+
+    def test_without_a_next_step_no_brief_is_invented(self, ledger):
+        client = _fake_client()
+        _compose(client, ledger)
+        _, kwargs = client.messages.create.call_args
+        assert "already decided the next step" not in kwargs["system"][1]["text"]

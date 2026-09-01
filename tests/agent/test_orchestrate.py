@@ -217,16 +217,19 @@ class TestRunPipelineDryRun:
     def test_a_bounds_refusal_still_refuses_under_dry_run(self, store, ledger, rail):
         """Proves the pipeline's real judgment -- a dry run that never
         refuses anything would be worthless as a demo of the gate."""
-        diagnosis = ExtractionResult(family=Family.D, class_=DiagnosisClass.AMOUNT, confidence=1.0)
+        # Family C selects send_reminder, which TOUCH_BUDGET refuses past
+        # three contacts in a week. Family D is deliberately *not* used here
+        # any more: it selects escalate_human, and as of 2026-09-01 that is
+        # exempt from the touch and attempt ceilings on purpose -- a stop
+        # rule that also refuses the escalation leaves silence as the only
+        # outcome (docs/WHAT_BROKE.md #12). This test needs an action that
+        # is genuinely refusable, which escalation no longer is.
+        diagnosis = ExtractionResult(family=Family.C, class_=DiagnosisClass.STALLING, confidence=1.0)
         result = run_pipeline(
             debtor_id="dry3", invoice_id="inv_dry3", amount_paise=88_000_00, diagnosis=diagnosis,
             channel_tag="telegram", ledger=ledger, outbound_store=store, rail=rail,
             dry_run=True,
         )
-        # Family D always selects escalate_human, which passes -- confirm a
-        # genuinely refusable family/action combination is still refused
-        # under dry_run by exercising the same pattern the live 12-touch
-        # test above uses, just with dry_run=True throughout.
         results = [result]
         for i in range(1, 12):
             results.append(run_pipeline(
