@@ -54,7 +54,8 @@ what's actually exercised."
 | Telegram | `agent/notify/telegram.py` | ✅ mocked (`tests/agent/test_notify_channels.py`) | ✅ 2026-08-31 — real send confirmed, see below |
 | Twilio voice (`ivr`) | `agent/notify/twilio_voice.py` | ✅ mocked | 🔶 2026-08-31 — credentials confirmed; real call cleanly refused by Twilio's own trial-account limits, see below |
 | Simulated | `agent/notify/simulated.py` | ✅ | n/a — never touches the network by design |
-| SMS / email / WhatsApp | not implemented | — | — (a Twilio WhatsApp sandbox number is sitting unused in `.env` — I haven't built this, see note below) |
+| Twilio WhatsApp | `agent/notify/twilio_whatsapp.py` | ✅ mocked (`tests/agent/test_twilio_whatsapp_channel.py`, 10 tests) | 🔶 2026-09-01 — real account, real number, sender registration blocked on a Meta-side restriction, see below |
+| SMS / email | not implemented | — | — |
 
 "Tested" means I assert the request shape (URL, body, form/JSON encoding)
 and every response path (success, a clean API-level rejection, a network
@@ -124,11 +125,31 @@ accounts usually get one free). I deliberately didn't purchase one
 programmatically here even though the API supports it, since claiming a
 number is a real account/billing action, not a read-only check.
 
-I included a Twilio WhatsApp sandbox number (`TWILIO_WHATSAPP_FROM`) with
-the credentials but am intentionally leaving it unused — my channel split
-is Telegram for messaging, Twilio for voice only. Noting it here rather
-than silently ignoring it; I'll decide later before building a WhatsApp
-channel on it.
+**Update, 2026-09-01: the account was upgraded (Trial -> Full, real $20
+balance confirmed live) and I bought a real number
+(`+1 937 646-7656`, voice + SMS + MMS capable) once the account's Trust
+Hub compliance profile cleared.** This unblocked things a trial account
+structurally can't do: the Content API (needed for real WhatsApp message
+templates), number search, and unrestricted outbound calls. I built
+`TwilioWhatsAppChannel` (`agent/notify/twilio_whatsapp.py`) against
+Twilio's real Messages API — a genuinely different endpoint shape from the
+direct Meta integration (`agent/notify/whatsapp.py`), not a config flip on
+the same channel.
+
+**What's still open here, and why it's not a code gap**: sending through
+Twilio's real "Try out WhatsApp" product needs the purchased number
+registered as a WhatsApp sender first — a Twilio-guided flow, lighter than
+direct Meta business verification, but the phone-number verification step
+inside it is currently blocked by two separate things I hit live, not by
+anything in this codebase: (1) the flow initially auto-selected a WhatsApp
+Business Account already flagged "restricted" by Meta, tied to an earlier,
+abandoned direct-Meta-App attempt on the same Facebook identity; and (2)
+after getting past that, repeated verification-code requests tripped
+Meta's own rate limiter, which doesn't publish a fixed cooldown window.
+`TwilioWhatsAppChannel.send()` itself is real, tested code, ready the
+moment a sender is verified — the gap is entirely Meta/Twilio-side account
+state, the same category of external blocker `README.md`'s "What's still
+open" section already names for the direct Meta path.
 
 ## Wiring a live send
 

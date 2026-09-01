@@ -107,5 +107,6 @@ verified recipient `+91 96115 50053`. Still needed in `.env`:
 credential from the access token), and a self-chosen
 `WHATSAPP_WEBHOOK_VERIFY_TOKEN` (entered again in the webhook setup screen
 when registering this server's `/webhooks/whatsapp` URL — needs a publicly
-reachable URL, the same tunnel-URL constraint every other webhook in this
-project already has, see `docs/LIMITATIONS.md`).
+reachable URL; the Razorpay webhook receiver now runs on a permanent
+Render deployment rather than a tunnel, see `docs/LIMITATIONS.md`, and
+this route would use the same one).

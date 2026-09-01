@@ -69,15 +69,33 @@ itemized list of what's cut and why.
 | Subscription dunning emails | One-way — no view of the reply thread where the buyer says "PO mismatch" |
 | Payment link reminders | A reminder doesn't convert a stated commitment into an instrument |
 
+## Deployment
+
+The backend now runs permanently on Render
+(`https://track-03.onrender.com`), not a laptop behind a tunnel — a real
+Razorpay webhook is registered against it, and deploying it live caught
+and fixed a real bug (`agent/ingest/webhooks.py` was reading a webhook's
+event id from the wrong place for Razorpay's actual payload shape; see
+`docs/SETUP.md`). Its ledger is durable across restarts via Turso
+(`agent/db.py`). The demo dashboard is a real, repo-tracked frontend
+(`frontend/index.html`) deployed on Netlify at
+[truecommit.netlify.app](https://truecommit.netlify.app/), talking to that
+backend through a Netlify Function that keeps the demo's trigger secret
+server-side rather than shipping it to every visitor — see
+`docs/DEMO_UI.md` for the full architecture.
+
 ## What's still open
 
-I'm blocked on things outside my own code, not on more of it: a real
-Twilio phone number, real WhatsApp Business credentials (I've built and
-tested the channel already — see [`docs/WHATSAPP.md`](docs/WHATSAPP.md)),
-and my Razorpay test account's own live-rail ceiling on `present_debit`/
-`modify_mandate`. See `docs/LIMITATIONS.md` for the complete list,
-including what I deliberately scoped out (the 25-respondent vignette
-study, §27) rather than left undone by accident.
+I'm blocked on things outside my own code, not on more of it: real
+WhatsApp Business credentials — I have a real Twilio phone number now, but
+WhatsApp sender registration through it is stuck on a Meta-side "WhatsApp
+Business account restricted" error tied to an earlier, abandoned direct
+Meta App attempt (the channel itself is built and tested either way — see
+[`docs/WHATSAPP.md`](docs/WHATSAPP.md) and `docs/CHANNELS.md`'s Twilio
+section) — and my Razorpay test account's own live-rail ceiling on
+`present_debit`/`modify_mandate`. See `docs/LIMITATIONS.md` for the
+complete list, including what I deliberately scoped out (the
+25-respondent vignette study, §27) rather than left undone by accident.
 
 Full positioning, architecture, the bounds register, regulatory mapping,
 and every other Tier-1 document: see [`docs/`](docs/).

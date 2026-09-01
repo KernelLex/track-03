@@ -58,25 +58,29 @@ credentials are required to run the main suite). It's still **not**:
   don't have a real Meta Business account yet, so nothing here has touched
   Meta's actual API. See `docs/WHATSAPP.md`.
 
-## Webhook receiver (§19) — I built and registered it live once; current uptime unknown
+## Webhook receiver (§19) — permanently deployed now, not a tunnel
 
 `agent/api/app.py` is a minimal FastAPI app (`POST /webhooks/{source}`,
 `GET /health`) I wired directly into `verify_and_ingest()` and
 `facts_from_webhook()` — tested end to end through real HTTP
 request/response via FastAPI's `TestClient` (`tests/agent/test_api_webhooks.py`,
-8 tests, using real `SimulatedRail`-emitted webhooks). `uv run trucommit
-serve` runs it with uvicorn. **Update, 2026-08-31**: I did this for real,
-once — a `cloudflared` quick tunnel gave it a public URL and
-`client.webhook.create()` registered that URL with the live Razorpay
-account (see `docs/SETUP.md`). That tunnel is ephemeral by design (dies
-with the process, no uptime guarantee even while running), so whether
-it's currently reachable depends on whether that specific `trucommit
-serve` + `cloudflared` process pair is still alive — I'm not tracking
-that here because it isn't a code fact, it's live process state that
-changes outside of any commit. I still haven't observed a real
-Razorpay-triggered delivery reaching the receiver (every subscribed event
-needs a completed checkout to fire). No dashboard UI exists yet — only
-the receiver endpoint.
+8 tests, using real `SimulatedRail`-emitted webhooks). **Update,
+2026-09-01**: this now runs as a real, permanent deployment on Render
+(`https://track-03.onrender.com`) rather than behind an ephemeral
+`cloudflared` tunnel — no more "is that specific process pair still alive"
+uncertainty. Its ledger is durable across restarts too (`agent/db.py`,
+Turso-backed once `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN` are set).
+Deploying it live surfaced and fixed a real bug (`verify_and_ingest()` was
+reading a real Razorpay webhook's event id from the wrong place entirely —
+see `docs/SETUP.md`'s webhook section for the full finding), then proved
+the fix against a correctly-signed, real-Razorpay-shaped payload over the
+public internet: 200, full unattended DIAGNOSE->DECIDE->BOUNDS->ACT, a real
+payment link, a real Telegram send. I still haven't observed an *actual
+Razorpay-triggered* delivery reaching the receiver (every subscribed event
+needs a completed checkout to fire) — that's the one gap left, not
+reachability or payload-shape handling, both now confirmed. A real
+dashboard UI exists too now (`frontend/index.html`, deployed on Netlify —
+see `docs/DEMO_UI.md`), not just the bare receiver endpoint.
 
 ## Live rail status (2026-08-30) — a real upgrade from "assumed"
 

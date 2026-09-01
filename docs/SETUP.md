@@ -119,32 +119,50 @@ Pointing a real Razorpay webhook at this needs a publicly reachable URL
 (this binds to localhost by default; `--host 0.0.0.0` plus a tunnel, or an
 actual deployment) and registering that URL with Razorpay.
 
-**I did this once, live, on 2026-08-31** — registered via the API itself
-rather than the dashboard, using `cloudflared tunnel --url
-http://127.0.0.1:<port>` (a `trycloudflare.com` quick tunnel — no account
-needed, unlike ngrok, which now requires signup even for its free tier)
-for the public URL, and `client.webhook.create(...)` for the
-registration. **One real API-shape finding worth recording**: the SDK's
+**Superseded, 2026-09-01: a real deployment now exists.** I first did this
+with a `cloudflared tunnel --url http://127.0.0.1:<port>` quick tunnel
+(no account needed, unlike ngrok, which now requires signup even for its
+free tier) — that history is kept below since the API-shape finding it
+surfaced is still true, but the tunnel itself is gone. The backend now
+runs permanently on Render (`https://track-03.onrender.com`, free tier,
+`.python-version` pinned to 3.12 since Render otherwise defaults to the
+newest available and refuses to auto-download a matching interpreter),
+with `agent/db.py` giving it a durable ledger on Turso instead of a local
+SQLite file that would reset on every restart. The real Razorpay webhook
+is registered against this permanent URL, not a tunnel.
+
+**A real, live delivery bug was caught and fixed this way.** Testing the
+live endpoint surfaced that `verify_and_ingest()`
+(`agent/ingest/webhooks.py`) required a top-level `event_id` field in the
+webhook body — which is `SimulatedRail._emit()`'s own synthetic envelope
+shape, not Razorpay's real one. Checked against Razorpay's actual webhook
+documentation: the real event id only ever arrives via the
+`x-razorpay-event-id` **header**, never in the body. Every genuine
+Razorpay-delivered webhook would have hit `MalformedWebhook` and been
+rejected with a 400 — caught before a real webhook ever needed to expose
+it. Fixed by threading an optional `event_id_header` through
+`verify_and_ingest()`, preferred over the body field when present.
+Regression-tested (`tests/agent/test_ingest_webhooks.py`) and live-verified
+against the real Render deployment: a correctly HMAC-signed, real-Razorpay-shaped
+payload (`event`/`payload` at the top level, no body `event_id`, the id
+supplied only via the header) returned `200`, ran the full
+DIAGNOSE->DECIDE->BOUNDS->ACT pipeline unattended, and produced a real
+payment link plus a real Telegram send. **What this is and isn't**: this
+proves the receiver correctly handles a payload shaped exactly like
+Razorpay's real webhooks, signed with the real shared secret, over the
+real public internet — it is not yet an *actual Razorpay-triggered* event
+(every subscribed event still needs a completed checkout to fire, the same
+headless-reachability limit already noted for `create_refund` in
+`LIMITATIONS.md`). Registration, endpoint reachability, and correct
+handling of Razorpay's real payload shape are all confirmed; a
+Razorpay-triggered delivery isn't yet.
+
+**One real API-shape finding worth recording**: the SDK's
 `events` parameter is a **dict** (`{"payment.captured": True, ...}`), not
 a list — passing a list produces the unhelpful `BadRequestError: Invalid
 event name/names: 1, 2, 3, 4` (Razorpay's API read the list's indices as
 the "event names"). I confirmed the registration via `client.webhook.all()`
 afterward.
-
-**Caveat**: a `trycloudflare.com` quick tunnel is ephemeral — it dies with
-the `cloudflared` process, and Cloudflare states no uptime guarantee even
-while it's running. A webhook registered against one will start silently
-failing deliveries once the tunnel (or the local server behind it) stops.
-For anything beyond a same-session demo, I'd either need to keep both
-processes running for the duration, or register a new webhook (or edit
-the existing one via `client.webhook.edit(webhook_id, {...})`) pointing
-at a real deployment's URL instead. I did **not** observe real
-end-to-end delivery (an actual Razorpay-triggered `payment.captured`
-reaching this receiver) in this session — every subscribed event needs a
-completed checkout (3DS/OTP) to fire, the same headless-reachability
-limit I already noted for `create_refund` in `LIMITATIONS.md`.
-Registration and endpoint reachability are confirmed; a live-triggered
-delivery isn't yet.
 
 ## Running the Monte Carlo simulation harness
 
