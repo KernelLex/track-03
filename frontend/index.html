@@ -196,18 +196,14 @@ code, .mono{font-family:var(--font-mono);}
     <summary>Demo connection settings</summary>
     <div class="settings-body">
       <div class="field">
-        <label for="backendUrl">Backend URL</label>
+        <label for="backendUrl">Backend URL (for the connection status check only)</label>
         <input id="backendUrl" type="text" placeholder="https://track-03.onrender.com" autocomplete="off" spellcheck="false">
-      </div>
-      <div class="field">
-        <label for="triggerSecret">DEMO_TRIGGER_SECRET (from your .env / Render env vars)</label>
-        <input id="triggerSecret" type="password" placeholder="paste it here — kept only in this browser" autocomplete="off" spellcheck="false">
       </div>
       <div class="settings-actions">
         <button class="btn btn-small" id="testConnBtn">Test connection</button>
-        <span class="settings-note" id="settingsNote" style="padding-top:0;">Saved only in this browser's local storage — never sent anywhere but your own backend, never included in this page's own source.</span>
+        <span class="settings-note" id="settingsNote" style="padding-top:0;">No credential needed here anymore — the live-send buttons route through this site's own serverless function, which holds the real secret server-side and never ships it to a visitor's browser.</span>
       </div>
-      <p class="settings-note">This page can't hold real credentials — it calls your Render backend for the two "send this for real" buttons below. Everything else runs entirely in this page using real, precomputed output from <code>check_bounds()</code> / <code>compute_ev()</code> / <code>select_instrument()</code>. See <code>docs/DEMO_UI.md</code>.</p>
+      <p class="settings-note">Everything except the two "send this for real" buttons runs entirely in this page using real, precomputed output from <code>check_bounds()</code> / <code>compute_ev()</code> / <code>select_instrument()</code>. See <code>docs/DEMO_UI.md</code>.</p>
     </div>
   </details>
 
@@ -363,18 +359,11 @@ var MAX_POLLS = 40; // ~2 minutes
 function loadSettings(){
   try{
     document.getElementById('backendUrl').value = localStorage.getItem('tc_backend_url') || 'https://track-03.onrender.com';
-    // Auto-filled so judges can use the live buttons with zero setup -- this
-    // makes the secret effectively public for as long as this page and the
-    // matching DEMO_TRIGGER_SECRET on Render both stay live. Rotate the
-    // Render env var (and redeploy this page without a hardcoded value) once
-    // judging is over to close this back off.
-    document.getElementById('triggerSecret').value = localStorage.getItem('tc_secret') || 'S4ZQ6oXz8RXzsu0od5yxPT-qOHtd7RWi';
   }catch(e){}
 }
 function saveSettings(){
   try{
     localStorage.setItem('tc_backend_url', document.getElementById('backendUrl').value.trim());
-    localStorage.setItem('tc_secret', document.getElementById('triggerSecret').value);
   }catch(e){}
 }
 
@@ -502,38 +491,28 @@ async function testConnection(){
 }
 
 async function triggerLive(btn){
-  saveSettings();
-  var url = document.getElementById('backendUrl').value.trim().replace(/\/$/, '');
-  var secret = document.getElementById('triggerSecret').value;
   var resultEl = document.getElementById('liveResult');
   var scenario = SCENARIOS[state.scenario];
-
-  if (!url || !secret){
-    resultEl.className = 'live-result show err';
-    resultEl.textContent = 'Set your backend URL and DEMO_TRIGGER_SECRET in the settings panel above first.';
-    document.getElementById('settingsPanel').open = true;
-    return;
-  }
 
   btn.disabled = true;
   var originalText = btn.textContent;
   btn.textContent = 'Sending…';
   resultEl.className = 'live-result show';
   resultEl.style.color = 'var(--ink-soft)';
-  resultEl.textContent = 'Calling your backend at ' + url + ' …';
+  resultEl.textContent = 'Calling the live trigger…';
 
   try{
-    var res = await fetch(url + '/demo/trigger', {
+    var res = await fetch('/.netlify/functions/demo-trigger', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret: secret, channel: scenario.channel, scenario: state.scenario }),
+      body: JSON.stringify({ channel: scenario.channel, scenario: state.scenario }),
     });
     var body = await res.json();
     if (res.ok && body.status === 'sent'){
       resultEl.className = 'live-result show ok';
       resultEl.textContent = '✓ Sent for real — channel=' + body.channel + (body.external_ref ? (' ref=' + body.external_ref) : '');
       addLedgerRow('ACT', 'sent:' + scenario.channel, 'pass');
-      if (scenario.channel === 'telegram'){ startPolling(url, secret); }
+      if (scenario.channel === 'telegram'){ startPolling(); }
     } else if (res.ok && body.status === 'failed'){
       // The request itself worked (bounds passed, the channel was reached) --
       // the channel's own API said no. Distinct from a network/auth error below.
@@ -546,7 +525,7 @@ async function triggerLive(btn){
     }
   }catch(e){
     resultEl.className = 'live-result show err';
-    resultEl.textContent = '✗ Could not reach your backend. Is the Render service awake and reachable?';
+    resultEl.textContent = '✗ Could not reach the live trigger. Try again in a moment.';
   }finally{
     btn.disabled = false;
     btn.textContent = originalText;
@@ -560,7 +539,7 @@ function renderReplyPanel(html){
   if (panel) panel.innerHTML = html;
 }
 
-function startPolling(url, secret){
+function startPolling(){
   stopPolling();
   state.polling = true;
   state.pollsLeft = MAX_POLLS;
@@ -569,8 +548,8 @@ function startPolling(url, secret){
     + '<div class="reply-manual"><button class="btn btn-small" id="checkNowBtn">Check now</button>'
     + ' <button class="btn btn-small" id="stopWaitBtn">Stop waiting</button></div>'
   );
-  bindReplyPanelButtons(url, secret);
-  state.pollTimer = setInterval(function(){ pollOnce(url, secret); }, POLL_INTERVAL_MS);
+  bindReplyPanelButtons();
+  state.pollTimer = setInterval(function(){ pollOnce(); }, POLL_INTERVAL_MS);
 }
 
 function stopPolling(){
@@ -578,27 +557,27 @@ function stopPolling(){
   state.polling = false;
 }
 
-function bindReplyPanelButtons(url, secret){
+function bindReplyPanelButtons(){
   var checkBtn = document.getElementById('checkNowBtn');
   var stopBtn = document.getElementById('stopWaitBtn');
-  if (checkBtn) checkBtn.addEventListener('click', function(){ pollOnce(url, secret); });
+  if (checkBtn) checkBtn.addEventListener('click', function(){ pollOnce(); });
   if (stopBtn) stopBtn.addEventListener('click', function(){
     stopPolling();
     renderReplyPanel('<div class="reply-wait">Stopped waiting. <button class="btn btn-small" id="checkNowBtn2">Check now</button></div>');
     var btn2 = document.getElementById('checkNowBtn2');
-    if (btn2) btn2.addEventListener('click', function(){ startPolling(url, secret); });
+    if (btn2) btn2.addEventListener('click', function(){ startPolling(); });
   });
 }
 
-async function pollOnce(url, secret){
+async function pollOnce(){
   state.pollsLeft -= 1;
   if (state.pollsLeft <= 0){ stopPolling(); }
 
   try{
-    var res = await fetch(url + '/demo/check-reply', {
+    var res = await fetch('/.netlify/functions/demo-check-reply', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret: secret, after_update_id: state.lastSeenUpdateId, diagnose: true }),
+      body: JSON.stringify({ after_update_id: state.lastSeenUpdateId, diagnose: true }),
     });
     if (!res.ok){ return; } // transient/misconfig -- next poll (or "check now") tries again
     var body = await res.json();
@@ -705,7 +684,6 @@ document.getElementById('resetBtn').addEventListener('click', function(){
 });
 document.getElementById('testConnBtn').addEventListener('click', testConnection);
 document.getElementById('backendUrl').addEventListener('change', saveSettings);
-document.getElementById('triggerSecret').addEventListener('change', saveSettings);
 
 // The conversation panel is created up front, before the first render(),
 // so render()'s own renderConvo() call always finds a real, attached
