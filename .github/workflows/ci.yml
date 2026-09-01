@@ -27,13 +27,26 @@ jobs:
         run: uv sync --frozen
 
       - name: Run the suite
-        run: uv run pytest -q
+        # Failures go into the job summary, not just the log: reading a
+        # failing run shouldn't require API auth to fetch logs, which is
+        # exactly the wall I hit the first time this workflow went red.
+        run: |
+          set -o pipefail
+          uv run pytest -q -rf 2>&1 | tee pytest-output.txt
         env:
           # Deliberately empty: the default suite must pass with no
           # credentials at all (tests/agent/test_llm_extract.py's own stated
           # policy). A test that needs a real key belongs behind an opt-in
           # marker, not behind a secret this workflow quietly provides.
           ANTHROPIC_API_KEY: ""
+
+      - name: Surface the failure in the job summary
+        if: failure()
+        run: |
+          echo '### pytest failed' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -n 120 pytest-output.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
   # A separate job, not a flag on the one above: an order-dependent failure
   # should be attributable to ordering rather than blamed on whatever else
@@ -58,6 +71,16 @@ jobs:
         run: uv sync --frozen
 
       - name: Run the suite in randomised order
-        run: uv run --with pytest-randomly pytest -q -p randomly
+        run: |
+          set -o pipefail
+          uv run pytest -q -rf -p randomly 2>&1 | tee pytest-random.txt
         env:
           ANTHROPIC_API_KEY: ""
+
+      - name: Surface the failure in the job summary
+        if: failure()
+        run: |
+          echo '### pytest failed (randomised order)' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -n 120 pytest-random.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
