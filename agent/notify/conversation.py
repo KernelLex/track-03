@@ -270,6 +270,21 @@ class ConversationStore:
             for r in reversed(rows)
         ]
 
+    def clear(self, conversation_id: str) -> None:
+        """Forget this conversation entirely -- turns, timeline, the
+        outstanding proposal, and the handled-message claims.
+
+        The claims going too is the part worth naming: keeping them would
+        mean a reset conversation still refused to answer a message it had
+        already seen, which is the opposite of a clean slate. The trade is
+        that a redelivery of a pre-reset message would be answered again --
+        acceptable for a deliberate, secret-gated reset, and not for
+        anything automatic."""
+        for table in ("conversation_turns", "conversation_events",
+                      "conversation_proposals", "conversation_handled"):
+            self._conn.execute(f"DELETE FROM {table} WHERE conversation_id = ?", (conversation_id,))
+        self._conn.commit()
+
     # ---- idempotency -------------------------------------------------
 
     def claim_message(self, conversation_id: str, external_id: str) -> bool:

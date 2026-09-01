@@ -103,6 +103,33 @@ def seed_invoices(store: InvoiceStore, *, today: date | None = None) -> int:
     return written
 
 
+def reset_invoices(store: InvoiceStore, *, today: date | None = None) -> int:
+    """Put every seeded invoice back to its declared state.
+
+    The opposite of `seed_invoices`, and the difference is deliberate:
+    seeding uses `add_if_absent` so a boot can never undo a real payment,
+    while this uses `upsert` so a demo run can be repeated from a clean
+    slate. Rehearsing a demo leaves disputes raised and mandates scheduled,
+    and a recording that opens on last night's leftovers is a worse problem
+    than the reset is a risk.
+
+    Only invoices this file declares. A row created by anything else is not
+    touched, because "reset" should mean "back to the fixture", not "delete
+    what I do not recognise".
+    """
+    today = today or business_today()
+    restored = 0
+    for debtor_id, rows in _INVOICES.items():
+        for invoice_id, amount_paise, due_offset, status in rows:
+            store.upsert(Invoice(
+                debtor_id=debtor_id, invoice_id=invoice_id, amount_paise=amount_paise,
+                due_date=(today + timedelta(days=due_offset)).isoformat(),
+                status=status, note="",
+            ))
+            restored += 1
+    return restored
+
+
 def seed_registry(registry: DebtorRegistry, *, today: date | None = None) -> list[str]:
     """Idempotent: safe to call on every boot.
 

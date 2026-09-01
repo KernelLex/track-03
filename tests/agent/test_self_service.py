@@ -284,3 +284,56 @@ class TestRealTyping:
             assert store.get("debtor_live", "INV-2201").status == DISPUTED
         finally:
             store.close()
+
+
+class TestResettingTheDemo:
+    """Rehearsing leaves real marks -- disputes raised, mandates scheduled,
+    invoices out of the outstanding total. A recording that opens on last
+    night's leftovers is a worse problem than a secret-gated reset is a
+    risk."""
+
+    def test_it_puts_invoices_back_to_their_declared_state(self, wired):
+        from agent.debtor.seed import reset_invoices
+
+        _say("1", external_id="1")
+        _say("dispute", external_id="2")
+
+        store = InvoiceStore(str(wired / "debtors.db"))
+        try:
+            assert store.get("debtor_live", "INV-2201").status == DISPUTED
+            reset_invoices(store)
+            assert store.get("debtor_live", "INV-2201").status == OUTSTANDING
+        finally:
+            store.close()
+
+    def test_seeding_still_refuses_to_undo_a_real_payment(self, wired):
+        """The distinction that matters: `seed_invoices` runs on every boot
+        and must never resurrect a paid invoice, while `reset_invoices` is
+        a deliberate, gated call that may."""
+        from agent.debtor.seed import reset_invoices, seed_invoices
+
+        store = InvoiceStore(str(wired / "debtors.db"))
+        try:
+            store.mark_paid_by_capture("debtor_live", "INV-2201", payment_id="pay_real")
+            seed_invoices(store)
+            assert store.get("debtor_live", "INV-2201").status == PAID, "a boot must not undo a capture"
+            reset_invoices(store)
+            assert store.get("debtor_live", "INV-2201").status == OUTSTANDING
+        finally:
+            store.close()
+
+    def test_clearing_a_conversation_forgets_the_handled_claims_too(self, wired):
+        """Keeping them would mean a reset conversation still refused to
+        answer a message it had already seen -- the opposite of a clean
+        slate."""
+        from agent.notify.conversation import ConversationStore
+
+        _say("invoices", external_id="dup-1")
+        store = ConversationStore(str(wired / "conversation.db"))
+        try:
+            assert store.claim_message(CHAT_ID, "dup-1") is False
+            store.clear(CHAT_ID)
+            assert store.claim_message(CHAT_ID, "dup-1") is True
+            assert store.recent_turns(CHAT_ID) == []
+        finally:
+            store.close()

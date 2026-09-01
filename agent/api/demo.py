@@ -64,6 +64,7 @@ from agent.debtor.invoices import (
     DISPUTED, OUTSTANDING, PAID, SCHEDULED, STATUS_LABEL, InvoiceStore,
 )
 from agent.debtor.registry import DebtorRegistry
+from agent.debtor.seed import reset_invoices
 from agent.debtor.score import BANDS, DebtorTerms, terms_for
 from agent.mandate.emandate import create_plan_mandates, describe_mandate_links
 from agent.mandate.payment_plan import PlanRejected, build_plan, describe_plan
@@ -1765,6 +1766,77 @@ def demo_timeline(conversation_id: str | None = None, limit: int = 60) -> dict[s
         "outstanding_proposal": None if proposal is None else {
             "kind": proposal.kind, "detail": proposal.detail, "proposed_at": proposal.proposed_at,
         },
+    }
+
+
+class DemoResetRequest(BaseModel):
+    secret: str
+    clear_conversation: bool = False
+    """Wipe the transcript and timeline as well as the invoices.
+
+    Off by default, because the timeline is the record of what this system
+    actually did and deleting it is a bigger decision than putting an
+    invoice back. A demo about to be recorded wants it; a debugging session
+    almost never does.
+    """
+
+
+@router.post("/reset")
+def reset_demo(payload: DemoResetRequest) -> dict[str, object]:
+    """Put the demo back to its declared starting state.
+
+    Rehearsing leaves real marks -- disputes raised, mandates scheduled,
+    invoices out of the outstanding total -- and a recording that opens on
+    last night's leftovers is a worse problem than this endpoint is a risk.
+
+    Secret-gated like /demo/trigger, and narrow in the same way: it restores
+    the invoices `agent/debtor/seed.py` declares and nothing else. A row
+    created by something other than seeding is left alone, because "reset"
+    should mean "back to the fixture", not "delete what I do not recognise".
+
+    What it deliberately does **not** touch: the recovery ledger, the
+    hash-chained ledger, and the promise history behind a debtor's score.
+    Those record things that really happened -- a real capture, a real
+    action, a real kept or broken promise -- and a demo convenience has no
+    business rewriting them. A reset invoice with a real payment already
+    attributed to it stays honest that way: the invoice is outstanding
+    again, and the ledger still says the money moved.
+    """
+    _require_secret(payload.secret)
+
+    store = InvoiceStore(os.environ.get("TRUECOMMIT_DEBTORS_DB", "debtors.db"))
+    try:
+        restored = reset_invoices(store)
+    finally:
+        store.close()
+
+    cleared = False
+    if payload.clear_conversation:
+        conversation = _conversation_store()
+        try:
+            for channel in ("telegram", "ivr", "whatsapp"):
+                conversation.clear(_conversation_id_for(channel))
+            cleared = True
+        finally:
+            conversation.close()
+
+    # In-process state too, or the first message after a reset hits a rate
+    # limit from before it and the demo opens on a 429.
+    _conversation_touches.clear()
+    _last_triggered_at.clear()
+    _last_triggered_at_by_number.clear()
+    _mandate_link_cache.clear()
+    global _last_payment_link_url, _last_followed_up_update_id
+    _last_payment_link_url = None
+    _last_followed_up_update_id = 0
+
+    _log.info("demo: reset -- %d invoices restored, conversation cleared=%s", restored, cleared)
+    return {
+        "ok": True,
+        "invoices_restored": restored,
+        "conversation_cleared": cleared,
+        "note": ("Ledgers and promise history are untouched -- those record things that "
+                 "really happened."),
     }
 
 

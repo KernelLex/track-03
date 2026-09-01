@@ -711,3 +711,34 @@ listening. A plan built on a 0.4-confidence reading gets a real e-mandate
 issued against it, which is a strange thing to do with a guess. Below the
 threshold the debtor gets an acknowledgement and a question instead of an
 instrument.
+
+## Resetting between rehearsals
+
+Rehearsing leaves real marks. A dispute raised in a practice run stays
+raised, a scheduled invoice stays scheduled and drops out of the
+outstanding total, and the next run opens on last night's leftovers.
+
+`POST /demo/reset` with `DEMO_TRIGGER_SECRET` puts the seeded invoices back
+to their declared state. `clear_conversation: true` also wipes the
+transcript and timeline -- off by default, because the timeline is the
+record of what this system actually did and deleting it is a bigger
+decision than putting an invoice back.
+
+```bash
+curl -X POST https://<host>/demo/reset   -H 'Content-Type: application/json'   -d '{"secret": "<DEMO_TRIGGER_SECRET>", "clear_conversation": true}'
+```
+
+**What it will not touch:** the recovery ledger, the hash-chained ledger,
+and the promise history behind a debtor's score. Those record things that
+really happened -- a real capture, a real action, a real kept or broken
+promise -- and a demo convenience has no business rewriting them. A reset
+invoice with a real payment already attributed stays honest that way: the
+invoice is outstanding again, and the ledger still says the money moved.
+
+It also clears the in-process rate limiters, or the first message after a
+reset would hit a 429 left over from before it.
+
+**`reset_invoices` and `seed_invoices` differ on purpose.** Seeding runs on
+every boot and uses `add_if_absent`, so a restart can never resurrect an
+invoice a real capture has settled. Reset is a deliberate, secret-gated
+call and uses `upsert`, so it can. There is a test for each side of that.
