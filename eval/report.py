@@ -205,6 +205,20 @@ def render_markdown(
     lines: list[str] = []
     lines.append("# Results — the synthetic Monte Carlo comparison (DEVDOC_v6 §17)")
     lines.append("")
+    # Emitted from here rather than hand-added to the generated file: a note
+    # written into docs/RESULTS.md directly would be silently wiped the next
+    # time this script runs, which is the exact doc-drift failure
+    # tests/test_documented_test_counts.py exists to prevent elsewhere.
+    lines.append("> **Note.** Recovery in this report is a modelling convention — the "
+                 "harness's own ground truth, not Law 7's rail-confirmed-capture standard. "
+                 "Read these arms as a measurement of bounded execution, not of money.")
+    lines.append(">")
+    lines.append("> Separately, and not reflected in any number below: a single real capture "
+                 "has been attributed under Law 7's actual standard by the deployed service "
+                 "(`docs/evidence/REAL_RECOVERY.md`). That is n=1, and it closes the \"no "
+                 "rupee has ever crossed the rail\" gap rather than the \"these arms are "
+                 "synthetic\" one.")
+    lines.append("")
     lines.append(f"I generate this with `eval/report.py`, run against parameters I locked in "
                   f"`eval/PREREGISTRATION.md` at commit `{commit_hash}` — every number below "
                   f"comes from that exact, committed-before-running configuration, not a "

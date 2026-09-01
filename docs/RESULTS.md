@@ -1,5 +1,9 @@
 # Results — the synthetic Monte Carlo comparison (DEVDOC_v6 §17)
 
+> **Note.** Recovery in this report is a modelling convention — the harness's own ground truth, not Law 7's rail-confirmed-capture standard. Read these arms as a measurement of bounded execution, not of money.
+>
+> Separately, and not reflected in any number below: a single real capture has been attributed under Law 7's actual standard by the deployed service (`docs/evidence/REAL_RECOVERY.md`). That is n=1, and it closes the "no rupee has ever crossed the rail" gap rather than the "these arms are synthetic" one.
+
 I generate this with `eval/report.py`, run against parameters I locked in `eval/PREREGISTRATION.md` at commit `1f3b50346bc76400d7e443cc7d69c59c3a1172f4` — every number below comes from that exact, committed-before-running configuration, not a draw I picked after seeing an outcome.
 
 ## Section 0 — what this is, and what it is not (§16, §17.1)

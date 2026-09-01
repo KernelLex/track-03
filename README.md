@@ -60,13 +60,19 @@ real `check_bounds()` violations against hundreds for the two ungated
 arms**. A stress-tested elevated touch cost does produce a genuine
 break-even τ≈0.49, near the low end of the declared sweep range.
 
-**What this is not:** recovery here is scored against the simulator's own
-ground truth — a modelling convention, not Law 7's rail-confirmed-capture
-standard. `docs/RESULTS.md` says so in its own words, and the honest
-summary is that the *bounded execution* is measured and the *money* is
-not yet. Closing that is the work in progress: the SETTLE path is now
-wired to the live webhook (`docs/ORCHESTRATION.md`), tested, and waiting
-on a real paid invoice to flow through it.
+**What this is not:** recovery *in that comparison* is scored against the
+simulator's own ground truth — a modelling convention, not Law 7's
+rail-confirmed-capture standard, and `docs/RESULTS.md` says so in its own
+words. Read the arms as a measurement of bounded execution, not of money.
+
+**Against the real standard, separately: n=1.** A real invoice
+(`inv_TWot3b6dnApicP`, ₹42,500) was paid in Razorpay test mode; the
+capture arrived as a real Razorpay-triggered webhook and was attributed by
+the deployed service as `pay_TWotxaQoLsHFOt`, `rail_tag=razorpay`. One
+payment is not a recovery rate — but it is the difference between a
+pipeline that models settlement and one that has actually done it. Full
+detail, including what was *not* clean about that run:
+[`docs/evidence/REAL_RECOVERY.md`](docs/evidence/REAL_RECOVERY.md).
 
 | Real / simulated | What's true right now |
 |---|---|
