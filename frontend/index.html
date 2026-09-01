@@ -276,6 +276,55 @@ code, .mono{font-family:var(--font-mono);}
 .case-time{font-family:var(--font-mono); font-size:0.68rem; color:var(--ink-faint); margin-left:auto; font-variant-numeric:tabular-nums;}
 .case-detail{font-size:0.8rem; color:var(--ink-soft); margin-top:0.2rem; word-wrap:break-word; overflow-wrap:anywhere;}
 .case-detail.quoted{font-style:italic; padding-left:0.7rem; border-left:2px solid var(--line-strong);}
+
+/* ---------- tabs ---------- */
+.tabs{display:flex; gap:0.25rem; margin:1.25rem 0 0; border-bottom:1px solid var(--line); overflow-x:auto;}
+.tab{
+  appearance:none; background:none; border:none; border-bottom:2px solid transparent;
+  color:var(--ink-faint); font-size:0.86rem; font-weight:600; padding:0.6rem 0.9rem;
+  cursor:pointer; white-space:nowrap; transition:color 0.12s ease, border-color 0.12s ease;
+}
+.tab:hover{color:var(--ink-soft);}
+.tab.active{color:var(--accent-ink); border-bottom-color:var(--accent);}
+.tab-panel{padding-top:0.25rem;}
+
+/* ---------- debtors ---------- */
+.band-legend{display:flex; flex-wrap:wrap; gap:0.4rem; padding:0.9rem 1.15rem 0;}
+.band-chip{font-family:var(--font-mono); font-size:0.68rem; padding:0.25em 0.6em; border-radius:999px; border:1px solid var(--line-strong); color:var(--ink-soft); background:var(--surface-2);}
+.debtor-list{display:flex; flex-direction:column;}
+.debtor-row{
+  display:grid; grid-template-columns:1fr auto; gap:0.4rem 1rem; align-items:center;
+  padding:0.85rem 1.15rem; border-top:1px solid var(--line); cursor:pointer;
+  background:none; border-left:none; border-right:none; border-bottom:none;
+  text-align:left; font-family:inherit; color:inherit; width:100%;
+}
+.debtor-row:hover{background:var(--surface-2);}
+.debtor-name{font-size:0.88rem; font-weight:600; display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;}
+.debtor-sub{grid-column:1; font-size:0.76rem; color:var(--ink-faint); font-variant-numeric:tabular-nums;}
+.debtor-score{grid-row:1 / span 2; grid-column:2; text-align:right;}
+.score-value{font-family:var(--font-mono); font-size:1.15rem; font-weight:600; font-variant-numeric:tabular-nums;}
+.band-tag{display:block; font-family:var(--font-mono); font-size:0.62rem; text-transform:uppercase; letter-spacing:0.06em; margin-top:0.1rem;}
+.band-trusted .score-value, .band-trusted .band-tag{color:var(--good);}
+.band-standard .score-value, .band-standard .band-tag{color:var(--accent);}
+.band-watch .score-value, .band-watch .band-tag{color:var(--warn);}
+.band-strict .score-value, .band-strict .band-tag{color:var(--bad);}
+.tag-seeded{font-family:var(--font-mono); font-size:0.6rem; text-transform:uppercase; letter-spacing:0.05em; padding:0.15em 0.45em; border-radius:4px; background:var(--surface-3); color:var(--ink-faint); border:1px solid var(--line-strong);}
+.tag-real{background:var(--accent-soft); color:var(--accent-ink); border-color:var(--accent);}
+
+.detail-grid{display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:1.25rem; padding:1rem 1.15rem 1.25rem;}
+.detail-head{font-family:var(--font-mono); font-size:0.66rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--ink-faint); margin-bottom:0.55rem;}
+.promise-row{display:flex; align-items:baseline; gap:0.5rem; padding:0.4rem 0; border-top:1px solid var(--line); font-size:0.8rem;}
+.promise-row:first-child{border-top:none;}
+.promise-row .amt{font-family:var(--font-mono); font-variant-numeric:tabular-nums; color:var(--ink);}
+.promise-row .date{color:var(--ink-faint); font-size:0.76rem;}
+.outcome{margin-left:auto; font-family:var(--font-mono); font-size:0.66rem; text-transform:uppercase; letter-spacing:0.05em; padding:0.15em 0.5em; border-radius:999px;}
+.outcome.kept{color:var(--good); background:var(--good-bg);}
+.outcome.broken{color:var(--bad); background:var(--bad-bg);}
+.outcome.pending{color:var(--warn); background:var(--warn-bg);}
+.detail-convo{max-height:340px; overflow-y:auto; display:flex; flex-direction:column; gap:0.5rem;}
+.turn{font-size:0.8rem; line-height:1.5; padding:0.5rem 0.7rem; border-radius:8px; max-width:88%; word-wrap:break-word; overflow-wrap:anywhere;}
+.turn.inbound{background:var(--surface-3); align-self:flex-start;}
+.turn.outbound{background:var(--accent-soft); color:var(--accent-ink); align-self:flex-end;}
 </style>
 </head>
 <body>
@@ -305,6 +354,13 @@ code, .mono{font-family:var(--font-mono);}
     </div>
   </details>
 
+  <nav class="tabs" role="tablist">
+    <button class="tab active" role="tab" data-tab="live" aria-selected="true">Live console</button>
+    <button class="tab" role="tab" data-tab="history" aria-selected="false">Activity &amp; case files</button>
+    <button class="tab" role="tab" data-tab="debtors" aria-selected="false">Debtors &amp; scores</button>
+  </nav>
+
+  <div class="tab-panel" id="panel-live">
   <section class="console">
     <div class="console-head">
       <h2>Live console</h2>
@@ -347,6 +403,19 @@ code, .mono{font-family:var(--font-mono);}
     </div>
   </section>
 
+  <div class="scenarios" id="scenarioTabs"></div>
+
+  <div class="run-bar">
+    <button class="btn btn-primary" id="runBtn">▶ Run scenario</button>
+    <button class="btn btn-small" id="resetBtn">Reset</button>
+    <span class="hint" id="runHint">Click a stage to inspect it, or Run to step through automatically.</span>
+  </div>
+
+  <div class="pipeline" id="pipeline"></div>
+
+  </div><!-- /panel-live -->
+
+  <div class="tab-panel" id="panel-history" hidden>
   <section class="activity">
     <div class="activity-head">
       <h3>Activity — everything real that happened</h3>
@@ -387,21 +456,47 @@ code, .mono{font-family:var(--font-mono);}
     <ol class="case-list" id="caseList"></ol>
   </section>
 
-  <div class="scenarios" id="scenarioTabs"></div>
-
-  <div class="run-bar">
-    <button class="btn btn-primary" id="runBtn">▶ Run scenario</button>
-    <button class="btn btn-small" id="resetBtn">Reset</button>
-    <span class="hint" id="runHint">Click a stage to inspect it, or Run to step through automatically.</span>
-  </div>
-
-  <div class="pipeline" id="pipeline"></div>
-
   <div class="ledger">
     <div class="ledger-head"><h3>Ledger — this session</h3><span class="count" id="ledgerCount">0 entries</span></div>
     <div class="ledger-empty" id="ledgerEmpty">No entries yet — run a scenario.</div>
     <div class="ledger-rows" id="ledgerRows"></div>
   </div>
+  </div><!-- /panel-history -->
+
+  <div class="tab-panel" id="panel-debtors" hidden>
+    <section class="casefile">
+      <div class="casefile-head">
+        <div>
+          <h3>Debtors &amp; scores</h3>
+          <p class="casefile-sub">A score is kept-over-resolved promises, counted from rail-confirmed captures only &mdash; never from how sincere a message sounded. It decides how long someone may delay, how many instalments they are offered, and what discount applies.</p>
+        </div>
+        <button class="btn btn-small" id="debtorRefreshBtn">Refresh</button>
+      </div>
+      <div class="band-legend" id="bandLegend"></div>
+      <div class="case-empty" id="debtorEmpty">Loading the register&hellip;</div>
+      <div class="debtor-list" id="debtorList"></div>
+    </section>
+
+    <section class="casefile" id="debtorDetailCard" hidden>
+      <div class="casefile-head">
+        <div>
+          <h3 id="debtorDetailName">Debtor</h3>
+          <p class="casefile-sub" id="debtorDetailWhy"></p>
+        </div>
+        <button class="btn btn-small" id="debtorCloseBtn">Close</button>
+      </div>
+      <div class="detail-grid">
+        <div>
+          <div class="detail-head">Promises behind the score</div>
+          <div id="debtorPromises"></div>
+        </div>
+        <div>
+          <div class="detail-head">Conversation with the system</div>
+          <div class="detail-convo" id="debtorConvo"></div>
+        </div>
+      </div>
+    </section>
+  </div><!-- /panel-debtors -->
 
   <p class="foot-note">
     Every number above (p_base, expected value, which bounds rules ran, which instrument was selected) came from actually
@@ -1005,6 +1100,119 @@ async function refreshCaseFile(){
   }
 }
 
+// ---- tabs ----
+
+function showTab(name){
+  ['live','history','debtors'].forEach(function(t){
+    document.getElementById('panel-' + t).hidden = (t !== name);
+  });
+  document.querySelectorAll('.tab').forEach(function(btn){
+    var on = btn.getAttribute('data-tab') === name;
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  try{ localStorage.setItem('truecommit.tab', name); }catch(e){}
+  if (name === 'debtors'){ refreshDebtors(); }
+  if (name === 'history'){ refreshCaseFile(); }
+}
+
+// ---- debtors & scores ----
+
+function bandClass(band){ return 'band-' + band; }
+
+function renderBands(bands){
+  document.getElementById('bandLegend').innerHTML = (bands || []).map(function(b){
+    return '<span class="band-chip ' + bandClass(b.band) + '">'
+      + escapeHtml(b.band) + ' ≥ ' + Math.round(b.min_credibility * 100) + '%'
+      + ' · ' + b.max_instalments + ' leg' + (b.max_instalments === 1 ? '' : 's')
+      + ' · ' + b.grace_days + 'd grace'
+      + ' · ' + Math.round(b.early_discount_rate * 100) + '% disc'
+      + '</span>';
+  }).join('');
+}
+
+function renderDebtors(body){
+  renderBands(body.bands);
+  var list = document.getElementById('debtorList');
+  var empty = document.getElementById('debtorEmpty');
+  var rows = body.debtors || [];
+  empty.style.display = rows.length ? 'none' : 'block';
+  if (!rows.length){ empty.textContent = 'No debtors on the register yet.'; }
+
+  list.innerHTML = rows.map(function(d){
+    var s = d.score, t = d.terms;
+    var history = s.resolved
+      ? s.kept + ' of last ' + s.resolved + ' promises kept'
+      : 'no settled promises yet';
+    return '<button class="debtor-row ' + bandClass(s.band) + '" data-debtor="' + escapeHtml(d.id) + '">'
+      + '<span class="debtor-name">' + escapeHtml(d.display_name)
+      +   '<span class="tag-seeded' + (d.is_seeded ? '' : ' tag-real') + '">'
+      +     (d.is_seeded ? 'seeded fixture' : 'real') + '</span>'
+      + '</span>'
+      + '<span class="debtor-sub">' + escapeHtml(d.invoice_id) + ' · ' + inr(d.invoice_amount_paise)
+      +   ' · ' + escapeHtml(history)
+      +   ' · ' + t.grace_days + 'd grace · up to ' + t.max_instalments + ' instalment'
+      +   (t.max_instalments === 1 ? '' : 's')
+      +   ' · ' + Math.round(t.early_discount_rate * 100) + '% discount</span>'
+      + '<span class="debtor-score"><span class="score-value">' + s.credibility_pct + '%</span>'
+      +   '<span class="band-tag">' + escapeHtml(s.band) + '</span></span>'
+      + '</button>';
+  }).join('');
+
+  list.querySelectorAll('[data-debtor]').forEach(function(btn){
+    btn.addEventListener('click', function(){ openDebtor(btn.getAttribute('data-debtor')); });
+  });
+}
+
+async function refreshDebtors(){
+  var url = document.getElementById('backendUrl').value.trim().replace(/\/$/, '');
+  if (!url) return;
+  try{
+    var res = await fetch(url + '/demo/debtors', {method:'GET'});
+    if (!res.ok) return;
+    renderDebtors(await res.json());
+  }catch(e){
+    document.getElementById('debtorEmpty').textContent =
+      'Could not reach the backend. It may be cold-starting — try Refresh in a moment.';
+  }
+}
+
+function renderDebtorDetail(d){
+  document.getElementById('debtorDetailCard').hidden = false;
+  document.getElementById('debtorDetailName').textContent = d.display_name;
+  document.getElementById('debtorDetailWhy').textContent = d.score.rationale;
+
+  var promises = d.promises || [];
+  document.getElementById('debtorPromises').innerHTML = promises.length
+    ? promises.map(function(p){
+        return '<div class="promise-row">'
+          + '<span class="amt">' + escapeHtml(inr(p.amount_paise)) + '</span>'
+          + '<span class="date">due ' + escapeHtml(p.promised_date) + '</span>'
+          + '<span class="outcome ' + escapeHtml(p.outcome) + '">' + escapeHtml(p.outcome) + '</span>'
+          + '</div>';
+      }).join('')
+    : '<div class="debtor-sub">No promises recorded yet — the score is the no-history default.</div>';
+
+  var turns = d.turns || [];
+  document.getElementById('debtorConvo').innerHTML = turns.length
+    ? turns.map(function(t){
+        return '<div class="turn ' + escapeHtml(t.direction) + '">' + escapeHtml(t.text) + '</div>';
+      }).join('')
+    : '<div class="debtor-sub">No conversation on record with this debtor.</div>';
+
+  document.getElementById('debtorDetailCard').scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+async function openDebtor(id){
+  var url = document.getElementById('backendUrl').value.trim().replace(/\/$/, '');
+  if (!url) return;
+  try{
+    var res = await fetch(url + '/demo/debtors/' + encodeURIComponent(id), {method:'GET'});
+    if (!res.ok) return;
+    renderDebtorDetail(await res.json());
+  }catch(e){ /* cold start -- the Refresh button retries */ }
+}
+
 function hashLike(seed){
   var s = (seed * 2654435761) >>> 0;
   return s.toString(16).padStart(8,'0');
@@ -1077,6 +1285,13 @@ document.getElementById('backendUrl').addEventListener('change', function(){
   saveSettings(); refreshCaseFile();
 });
 document.getElementById('caseRefreshBtn').addEventListener('click', refreshCaseFile);
+document.getElementById('debtorRefreshBtn').addEventListener('click', refreshDebtors);
+document.getElementById('debtorCloseBtn').addEventListener('click', function(){
+  document.getElementById('debtorDetailCard').hidden = true;
+});
+document.querySelectorAll('.tab').forEach(function(btn){
+  btn.addEventListener('click', function(){ showTab(btn.getAttribute('data-tab')); });
+});
 
 // The conversation panel is created up front, before the first render(),
 // so render()'s own renderConvo() call always finds a real, attached
@@ -1101,6 +1316,12 @@ testConnection();
 // from this tab's own actions -- a viewer who opens the page after a demo
 // has run sees the whole thing.
 refreshCaseFile();
+try{
+  // A viewer who was last on the debtors tab comes back to it. Wrapped
+  // because localStorage throws outright in some embedded contexts.
+  var saved = localStorage.getItem('truecommit.tab');
+  if (saved) { showTab(saved); }
+}catch(e){}
 // Slow on purpose. Replies arrive by webhook now, so this poll is only
 // catching up a *display*, not driving the conversation -- the difference
 // between the two is exactly what made the old two-minute polling window a

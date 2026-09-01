@@ -467,3 +467,107 @@ The page refreshes it every 5 seconds. That is slow on purpose: replies
 arrive by webhook now, so this poll is only catching up a *display*, never
 driving the conversation. The difference between those two is exactly what
 made the old two-minute polling window a bug rather than a refresh rate.
+
+## Debtor scores, and what they decide
+
+`BoundsContext.debtor.promise_credibility` has been in this system since the
+bounds gate was written. `PROMISE_COOLDOWN` scales its grace period by it --
+`grace_days * promise_credibility`, in `rules.yaml` and in the
+independently-written `human_twin.py` -- and the rule's own comment says the
+value is "computed upstream ... from captured payments".
+
+**Nothing computed it.** Every context in the codebase used the `1.0`
+default, so a debtor who had broken four promises got exactly the same quiet
+time as one who had never broken any. `agent/debtor/` is the missing
+upstream half.
+
+**The score is arithmetic over settled facts.** Kept-over-resolved across
+the trailing five promises, where *kept* means a rail-confirmed capture
+arrived (Law 7's standard, the same one `RecoveryLedger.attribute()`
+enforces) and *broken* means the promised date passed without one. A
+model's read of how sincere a message sounded never enters it. That is what
+makes the score defensible to the person it is applied to, and it is why a
+capture settles a promise through the Razorpay webhook rather than through
+anything said in the conversation.
+
+Pending promises are excluded rather than counted as failures -- a promise
+whose date hasn't arrived is not evidence of anything, and counting it
+against someone would penalise them at the moment they made a commitment.
+
+**Four published bands, not a continuous function:**
+
+| Band | Credibility | Grace | Max instalments | Early discount | Statutory interest |
+|---|---|---|---|---|---|
+| trusted | ≥ 80% | 10 days | 4 | 2% | held |
+| standard | ≥ 50% | 7 days | 3 | 2% | held |
+| watch | ≥ 25% | 3 days | 2 | 1% | held |
+| strict | < 25% | 1 day | 1 (no split) | none | pressed |
+
+Bands rather than a formula because a continuous score would mean every
+debtor is offered subtly different terms -- impossible to explain to any of
+them, and impossible to audit. Four bands fit on a page.
+
+**A new debtor starts at `trusted`.** Starting everyone at zero would apply
+the strictest terms to exactly the people this system knows least about,
+which is both unfair and self-defeating: it would refuse the instalment plan
+most likely to get a first-time debtor to pay.
+
+**What the score is not allowed to do.** It never changes what is owed. The
+MSMED statutory interest rate is set by law and computed by
+`agent/statutory/msmed.py`; a band cannot raise it, and nothing here invents
+a late fee -- the same prohibition `compose.py`'s prompt and
+`payment_plan.py` already carry. A "late fee that gets worse if your score
+is bad" would be exactly the invented penalty this project refuses to
+produce. The only statutory lever a band has is whether to *press* the claim
+or hold it.
+
+The early-payment discount does vary by band, which is a different thing: a
+voluntary commercial offer, published per band rather than negotiated per
+debtor, so two debtors in the same band are offered identical terms. No band
+exceeds the published rate.
+
+**Seeded vs. real.** Four seeded businesses span the bands so the scoring is
+demonstrable -- one real debtor with one conversation cannot show a range.
+Their histories are *declared*: those promises were never made and never
+kept. `is_seeded` is stored per debtor and returned by every API that returns
+one, and the UI labels each row, because presenting a fixture as evidence of
+real behaviour would be the same overclaim `docs/RESULTS.md` refuses to make
+about simulated recovery. The live demo contact is seeded with **no promise
+history at all** -- their score is whatever their own replies and payments
+earn during a demo.
+
+## Telling the debtor what happened to their payment
+
+The whole conversation is about getting someone to pay, and until now the
+moment they did, the system went silent. A debtor who authorizes a mandate
+and hears nothing has no way to know it worked. Worse, a debtor whose
+payment *failed* is the person most in need of being told: they believe they
+have paid, and will not act again until told otherwise.
+
+`payment.captured` and `payment.failed` now produce a message on the channel
+the debtor has been talking on. The failure message deliberately makes no
+demand and offers no diagnosis -- DIAGNOSE → DECIDE → BOUNDS → ACT is
+already running on that same webhook and owns what happens next. It exists
+only so the debtor is not left believing a failed payment succeeded, and it
+says plainly that nothing was taken from their account.
+
+**Settling is separate from telling.** Whether a payment counts toward a
+debtor's record is a fact about the payment, and must not depend on whether
+a messaging channel happens to be configured. An earlier version had the
+settle *inside* the notifier, so a deployment with no Telegram token
+silently stopped scoring altogether -- invisible until someone asked why a
+score looked wrong. The capture now settles and records first,
+unconditionally; only the send is conditional, and the response says
+honestly when nobody was told.
+
+## Three tabs
+
+The console grew past one page. **Live console** holds the three real
+channels and the scripted pipeline; **Activity & case files** holds the
+session activity, the server-side case file, and the ledger -- the history
+view; **Debtors & scores** is the admin view: every debtor, the terms their
+record earns, and on selecting one, every promise behind the score next to
+the actual conversation that produced it.
+
+The chosen tab is remembered in `localStorage`, wrapped in try/catch because
+it throws outright in some embedded contexts.

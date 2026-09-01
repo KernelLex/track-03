@@ -59,6 +59,8 @@ from agent.bounds.engine import check_bounds
 from agent.diagnose.extract import Family
 from agent.diagnose.llm_extract import ExtractionFailed, extract_from_reply
 from agent.orchestrate import select_action_for_diagnosis
+from agent.debtor.registry import DebtorRegistry
+from agent.debtor.score import BANDS, DebtorTerms, terms_for
 from agent.mandate.emandate import create_plan_mandates, describe_mandate_links
 from agent.mandate.payment_plan import PlanRejected, build_plan, describe_plan
 from agent.notify.conversation import ConversationStore
@@ -492,7 +494,8 @@ def _diagnosis_dict(extraction) -> dict[str, object]:
     return d
 
 
-def _plan_from_promise(extraction, scenario: dict[str, object]) -> dict[str, object] | None:
+def _plan_from_promise(extraction, scenario: dict[str, object],
+                      terms: DebtorTerms | None = None) -> dict[str, object] | None:
     """A debtor who proposes a split gets a real, priced plan back.
 
     "I can do 21,000 on the 5th and the rest on the 20th" is the most
@@ -529,8 +532,15 @@ def _plan_from_promise(extraction, scenario: dict[str, object]) -> dict[str, obj
     except ValueError:  # pragma: no cover -- ExtractionResult validates ISO8601 upstream
         return None
 
+    terms = terms or terms_for([])
     stated = int(promise.amount_paise) if promise.amount_paise else total
     if stated >= total:
+        shape, legs = "full", [(total, first_date)]
+    elif not terms.offers_instalment_plan:
+        # A debtor in the strict band is not offered a split. Their own
+        # record is the reason, and the reply says so rather than going
+        # quiet: the full amount on their date is still a plan, and still
+        # earns a real mandate.
         shape, legs = "full", [(total, first_date)]
     else:
         # The debtor named one leg and a date. The remainder is theirs to
@@ -539,13 +549,17 @@ def _plan_from_promise(extraction, scenario: dict[str, object]) -> dict[str, obj
         shape, legs = "split", [(stated, first_date), (total - stated, first_date + timedelta(days=14))]
 
     try:
-        plan = build_plan(invoice_id=str(scenario["invoice_id"]), total_amount_paise=total, legs=legs)
+        plan = build_plan(invoice_id=str(scenario["invoice_id"]), total_amount_paise=total,
+                          legs=legs, discount_rate=terms.early_discount_rate)
     except PlanRejected as exc:
         _log.warning("demo: could not build a plan from the stated promise: %s", exc)
         return None
 
     result: dict[str, object] = {
         "shape": shape,
+        "debtor_band": terms.band,
+        "debtor_credibility": terms.credibility,
+        "instalment_plan_offered": terms.offers_instalment_plan,
         "legs": [
             {
                 "sequence": leg.sequence,
@@ -646,7 +660,8 @@ exhausted channel, a statutory gate, a ceiling reached.
 """
 
 
-def _decide_next_step(extraction, scenario: dict[str, object], *, channel: str, debtor_key: str) -> dict[str, object]:
+def _decide_next_step(extraction, scenario: dict[str, object], *, channel: str, debtor_key: str,
+                      terms: DebtorTerms | None = None) -> dict[str, object]:
     """DECIDE -> BOUNDS on a diagnosed reply, through the real machinery.
 
     This is the half the conversational demo was missing. It used to
@@ -669,6 +684,7 @@ def _decide_next_step(extraction, scenario: dict[str, object], *, channel: str, 
         silence, and not the refused action anyway.
     """
     action_type = select_action_for_diagnosis(extraction)
+    terms = terms or terms_for([])
     touches = _conversation_touches.get(debtor_key, 0)
 
     promise = getattr(extraction, "promise", None)
@@ -685,13 +701,14 @@ def _decide_next_step(extraction, scenario: dict[str, object], *, channel: str, 
 
     def _gate(candidate: str):
         ctx = BoundsContext(
-            debtor=DebtorCtx(id=debtor_key, state=debtor_state, touches_7d=touches),
+            debtor=DebtorCtx(id=debtor_key, state=debtor_state, touches_7d=touches,
+                             promise_credibility=terms.credibility),
             mandate=MandateCtx(),
             action=ActionCtx(type=candidate, channel=None if candidate == "escalate_human" else channel,
                              rail_tag="simulated"),
             decision=DecisionCtx(ev_paise=int(scenario["amount_paise"]) - 500),
             invoice=InvoiceCtx(id=str(scenario["invoice_id"]), recovery_attempts=touches),
-            config=ConfigCtx(),
+            config=ConfigCtx(grace_days=terms.grace_days),
             promise_date=promise_date,
         )
         return check_bounds(ctx)
@@ -741,6 +758,11 @@ def _decide_next_step(extraction, scenario: dict[str, object], *, channel: str, 
         "touches_before": touches,
         "debtor_state": debtor_state,
         "promise_date": promise.date if promise is not None else None,
+        # What the debtor's own record bought them here -- the grace period
+        # PROMISE_COOLDOWN just applied is `grace_days * credibility`.
+        "debtor_band": terms.band,
+        "debtor_credibility": terms.credibility,
+        "grace_days": terms.grace_days,
     }
 
 
@@ -975,6 +997,36 @@ def _conversation_store() -> ConversationStore:
     return ConversationStore(os.environ.get("TRUECOMMIT_CONVERSATION_DB", "conversation.db"))
 
 
+def _registry() -> DebtorRegistry:
+    return DebtorRegistry(os.environ.get("TRUECOMMIT_DEBTORS_DB", "debtors.db"))
+
+
+def _terms_for_conversation(conversation_id: str) -> tuple[str | None, DebtorTerms]:
+    """This debtor's id and the terms their own record earns.
+
+    Falls back to a no-history score for an unknown channel rather than
+    refusing to act: someone messaging the bot who isn't in the register is
+    a new debtor, and a new debtor gets the benefit of the doubt (see
+    `agent.debtor.score.NO_HISTORY_CREDIBILITY`).
+    """
+    try:
+        registry = _registry()
+        try:
+            debtor = registry.by_channel_ref(conversation_id)
+            if debtor is None:
+                return None, terms_for([])
+            # Time passing is what breaks a promise, so resolve overdue ones
+            # before reading the score rather than letting a stale 'pending'
+            # flatter the debtor indefinitely.
+            registry.expire_overdue_promises(debtor.id)
+            return debtor.id, registry.terms(debtor.id)
+        finally:
+            registry.close()
+    except Exception:
+        _log.warning("demo: could not read debtor terms -- using no-history defaults", exc_info=True)
+        return None, terms_for([])
+
+
 def _conversation_id_for(channel: str, to: str | None = None) -> str:
     """The key a channel's exchanges are filed under.
 
@@ -1011,6 +1063,32 @@ def _describe_proposal(proposal) -> str:
         parts = [f"Rs {leg['amount_paise'] / 100:,.0f} on {leg['due_date']}" for leg in legs]
         return "an instalment plan of " + " then ".join(parts)
     return proposal.kind
+
+
+def _record_stated_promise(debtor_id: str | None, plan: dict, scenario: dict[str, object]) -> None:
+    """A stated instalment becomes a pending promise on the debtor's record.
+
+    This is what makes the score move. Pending, not kept -- only a
+    rail-confirmed capture keeps a promise (Law 7's standard, applied by
+    `settle_promise`), and only the date passing without one breaks it.
+    Saying it convincingly does neither.
+    """
+    if debtor_id is None:
+        return
+    try:
+        registry = _registry()
+        try:
+            for leg in plan.get("legs", []):
+                if leg.get("proposed_by") != "debtor":
+                    continue  # a date we proposed is not a promise they made
+                registry.record_promise(
+                    debtor_id, invoice_id=str(scenario["invoice_id"]),
+                    amount_paise=int(leg["amount_paise"]), promised_date=str(leg["due_date"]),
+                )
+        finally:
+            registry.close()
+    except Exception:
+        _log.warning("demo: could not record the stated promise", exc_info=True)
 
 
 def handle_inbound_message(
@@ -1061,6 +1139,16 @@ def handle_inbound_message(
         result["diagnosis"] = _diagnosis_dict(extraction)
         store.record_event(conversation_id, kind="diagnosed", channel=channel, detail=result["diagnosis"])
 
+        # What this debtor's own track record earns them -- read once and
+        # passed down, so the cooldown, the plan's discount and the number
+        # of instalments offered all reflect the same score.
+        debtor_id, terms = _terms_for_conversation(conversation_id)
+        result["debtor"] = {
+            "id": debtor_id, "band": terms.band, "credibility": terms.credibility,
+            "grace_days": terms.grace_days, "max_instalments": terms.max_instalments,
+            "rationale": terms.rationale,
+        }
+
         refusals = _bounds_gate_followup(scenario, channel)
         result["followup_bounds_refusals"] = refusals
         if refusals is not None:
@@ -1070,12 +1158,14 @@ def handle_inbound_message(
 
         decision = _decide_next_step(
             extraction, scenario, channel=channel, debtor_key=f"{channel}_{conversation_id}",
+            terms=terms,
         )
         result["decision"] = decision
         store.record_event(conversation_id, kind="decided", channel=channel, detail=decision)
 
-        plan = _plan_from_promise(extraction, scenario)
+        plan = _plan_from_promise(extraction, scenario, terms)
         if plan is not None:
+            _record_stated_promise(debtor_id, plan, scenario)
             result["payment_plan"] = plan
             store.record_event(conversation_id, kind="plan_built", channel=channel, detail=plan)
             if plan.get("mandate_links"):
@@ -1288,3 +1378,103 @@ def demo_timeline(conversation_id: str | None = None, limit: int = 60) -> dict[s
             "kind": proposal.kind, "detail": proposal.detail, "proposed_at": proposal.proposed_at,
         },
     }
+
+
+# --------------------------------------------------------------------------
+# The admin view: who owes what, what their record earns them, and why.
+# --------------------------------------------------------------------------
+
+def _debtor_dict(debtor, terms) -> dict[str, object]:
+    return {
+        "id": debtor.id,
+        "display_name": debtor.display_name,
+        "channel": debtor.channel,
+        "channel_ref": debtor.channel_ref,
+        "invoice_id": debtor.invoice_id,
+        "invoice_amount_paise": debtor.invoice_amount_paise,
+        # Never omitted. A declared history is a fixture for showing what
+        # the scoring does across its range; letting it read as evidence of
+        # real behaviour would be the same overclaim docs/RESULTS.md
+        # already refuses to make about simulated recovery.
+        "is_seeded": debtor.is_seeded,
+        "note": debtor.note,
+        "score": {
+            "band": terms.band,
+            "credibility": terms.credibility,
+            "credibility_pct": terms.credibility_pct,
+            "kept": terms.kept_promises,
+            "resolved": terms.resolved_promises,
+            "rationale": terms.rationale,
+        },
+        "terms": {
+            "grace_days": terms.grace_days,
+            "max_instalments": terms.max_instalments,
+            "offers_instalment_plan": terms.offers_instalment_plan,
+            "early_discount_rate": terms.early_discount_rate,
+            "press_statutory_interest": terms.press_statutory_interest,
+        },
+    }
+
+
+@router.get("/debtors")
+def list_debtors() -> dict[str, object]:
+    """Every debtor on the register with the terms their record earns.
+
+    Read-only and unauthenticated, like /demo/timeline: it exposes seeded
+    fixtures plus the demo owner's own record, nothing belonging to a third
+    party.
+    """
+    registry = _registry()
+    try:
+        debtors = registry.all_debtors()
+        rows = []
+        for debtor in debtors:
+            # Time passing is what breaks a promise. Resolving before
+            # scoring stops a stale 'pending' flattering anyone.
+            registry.expire_overdue_promises(debtor.id)
+            rows.append(_debtor_dict(debtor, registry.terms(debtor.id)))
+    finally:
+        registry.close()
+    return {"debtors": rows, "bands": [
+        {"min_credibility": minimum, "band": band, "grace_days": grace,
+         "max_instalments": instalments, "early_discount_rate": discount,
+         "press_statutory_interest": press}
+        for minimum, band, grace, instalments, discount, press in BANDS
+    ]}
+
+
+@router.get("/debtors/{debtor_id}")
+def debtor_detail(debtor_id: str) -> dict[str, object]:
+    """One debtor: their score, every promise behind it, and the
+    conversation that produced them -- the whole basis for the terms they
+    are being offered, in one place."""
+    registry = _registry()
+    try:
+        debtor = registry.debtor(debtor_id)
+        if debtor is None:
+            raise HTTPException(status_code=404, detail=f"no debtor {debtor_id!r}")
+        registry.expire_overdue_promises(debtor.id)
+        terms = registry.terms(debtor.id)
+        promises = [
+            {"invoice_id": o.invoice_id, "amount_paise": o.promised_amount_paise,
+             "promised_date": o.promised_date.isoformat(), "outcome": o.outcome,
+             "payment_id": o.payment_id, "recorded_at": o.recorded_at}
+            for o in registry.outcomes_for(debtor.id)
+        ]
+        detail = _debtor_dict(debtor, terms)
+    finally:
+        registry.close()
+
+    store = _conversation_store()
+    try:
+        turns = [{"direction": t.direction, "text": t.text, "at": t.at}
+                 for t in store.recent_turns(debtor.channel_ref, limit=40)]
+        events = [{"at": e.at, "kind": e.kind, "channel": e.channel, "detail": e.detail}
+                  for e in store.recent_events(conversation_id=debtor.channel_ref, limit=60)]
+    finally:
+        store.close()
+
+    detail["promises"] = promises
+    detail["turns"] = turns
+    detail["events"] = events
+    return detail

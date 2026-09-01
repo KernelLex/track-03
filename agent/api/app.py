@@ -34,7 +34,12 @@ from agent.diagnose.llm_extract import ExtractionFailed, extract_from_reply
 from agent.diagnose.taxonomy import UnknownFailureCode
 from agent.ingest.listen import UnrecognizedWebhookEvent, facts_from_webhook
 from agent.ingest.webhooks import EventStore, MalformedWebhook, SignatureInvalid, verify_and_ingest
+from agent.debtor.registry import DebtorRegistry
+from agent.debtor.seed import seed_registry
 from agent.ledger.store import Ledger
+from agent.money import to_rupees_display
+from agent.notify.conversation import ConversationStore
+from agent.notify.protocol import ChannelUnavailable
 from agent.notify.telegram import TelegramChannel
 from agent.notify.whatsapp import WhatsAppChannel, parse_incoming_messages, verify_webhook_challenge, verify_webhook_signature
 from agent.orchestrate import UnmappedFailureCode, diagnose_from_failure_code, run_pipeline
@@ -104,6 +109,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     else:
         app.state.orchestrator_channel = None
         app.state.orchestrator_contact_chat_id = None
+
+    # Seed the debtor register: four declared histories spanning the score
+    # bands, plus the live demo contact with no history at all. Idempotent,
+    # and it never touches a real debtor's earned score (agent/debtor/seed.py).
+    try:
+        registry = DebtorRegistry(os.environ.get("TRUECOMMIT_DEBTORS_DB", "debtors.db"))
+        try:
+            seed_registry(registry)
+        finally:
+            registry.close()
+    except Exception:
+        _log.warning("could not seed the debtor register", exc_info=True)
 
     try:
         yield
@@ -290,12 +307,17 @@ async def receive_webhook(source: str, request: Request) -> dict[str, object]:
 
     orchestration = _maybe_orchestrate(request.app.state, facts)
     settlement = _maybe_settle(request.app.state, facts)
+    # Told after settling, so a "payment received" message can never go out
+    # for a capture the ledger refused to attribute.
+    outcome_notice = _notify_payment_outcome(request.app.state, facts)
 
     response: dict[str, object] = {"status": "ingested", "event_id": result.event_id, "facts": [f.name for f in facts]}
     if orchestration is not None:
         response["orchestration"] = orchestration
     if settlement is not None:
         response["settlement"] = settlement
+    if outcome_notice is not None:
+        response["debtor_notified"] = outcome_notice
     return response
 
 
@@ -460,3 +482,124 @@ def _notify_link_if_created(state, result, *, amount_paise: int, to: str | None)
     text = f"Hi, this is TrueCommit. Here's a payment link for Rs {amount_paise / 100:,.2f}: {short_url}"
     send_result = state.orchestrator_channel.send(to=to, text=text)
     return send_result.status == "sent"
+
+
+# --------------------------------------------------------------------------
+# Telling the debtor what happened to their payment.
+# --------------------------------------------------------------------------
+
+def _notify_payment_outcome(state, facts: list) -> dict[str, object] | None:
+    """A capture or a failure is told to the debtor, on the channel they
+    have been talking on.
+
+    The gap this closes: the whole conversation was about getting someone to
+    pay, and the moment they did, the system went silent. A debtor who
+    authorizes a mandate and then hears nothing has no way to know it
+    worked -- and one whose payment *failed* is the person most in need of
+    being told, since they believe they have paid and will not act again
+    until told otherwise.
+
+    A capture also settles the promise it answers, which is what moves the
+    debtor's score. That is deliberately driven from the rail's own event
+    rather than from anything said in the conversation: Law 7's standard is
+    a confirmed capture, and a score built on anything softer would be a
+    score built on how convincing someone sounded.
+    """
+    fact_map = {f.name: f.value for f in facts}
+    status = fact_map.get("payment_status")
+    failure_code = fact_map.get("payment_failure_code")
+    if status != "captured" and not failure_code:
+        return None  # not a payment outcome
+
+    chat_id = os.environ.get("DEMO_CONTACT_TELEGRAM_CHAT_ID")
+    if not chat_id:
+        return None
+
+    amount_paise = int(fact_map.get("payment_amount_paise") or 0)
+    payment_id = str(fact_map.get("payment_id") or "")
+    invoice_id = fact_map.get("invoice_id")
+
+    # Settling and recording happen first, and unconditionally. Whether a
+    # payment counts toward a debtor's record is a fact about the payment;
+    # it must not depend on whether a messaging channel happens to be
+    # configured. Getting this backwards meant a deployment with no
+    # Telegram token silently stopped scoring altogether.
+    settled = False
+    if status == "captured":
+        settled = _settle_promise_for(str(chat_id), payment_id=payment_id, invoice_id=invoice_id)
+
+    if status == "captured":
+        amount = to_rupees_display(amount_paise) if amount_paise else "the payment"
+        text = (
+            f"Payment received -- {amount} against {invoice_id or 'your invoice'} has cleared "
+            f"({payment_id}). Nothing further is owed on this invoice and automated follow-up "
+            "has stopped."
+        )
+        if settled:
+            text += " Thanks for paying on the date you named -- that's on your record."
+    else:
+        # Deliberately not a diagnosis or a demand. DIAGNOSE -> DECIDE ->
+        # BOUNDS -> ACT is already running on this same webhook and owns
+        # what happens next; this message exists only so the debtor is not
+        # left believing a failed payment succeeded.
+        text = (
+            f"That payment didn't go through ({failure_code}). Nothing has been taken from your "
+            "account. We're looking at why, and you'll get a working way to pay shortly -- "
+            "no need to try again in the meantime."
+        )
+
+    kind = "payment_captured" if status == "captured" else "payment_failed"
+    detail = {"payment_id": payment_id, "amount_paise": amount_paise,
+              "invoice_id": invoice_id, "failure_code": failure_code,
+              "promise_settled": settled, "text": text}
+
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token:
+        _record_payment_event(str(chat_id), kind=kind, detail={**detail, "notified": False})
+        return {"notified": False, "reason": "no_channel_configured", "promise_settled": settled}
+
+    try:
+        channel = TelegramChannel(token)
+        try:
+            result = channel.send(to=str(chat_id), text=text)
+        finally:
+            channel.close()
+    except ChannelUnavailable:
+        _log.warning("payment outcome: could not tell the debtor", exc_info=True)
+        _record_payment_event(str(chat_id), kind=kind, detail={**detail, "notified": False})
+        return {"notified": False, "reason": "channel_unavailable", "promise_settled": settled}
+
+    _record_payment_event(str(chat_id), kind=kind, detail=detail)
+    return {"notified": True, "status": result.status, "promise_settled": settled}
+
+
+def _settle_promise_for(channel_ref: str, *, payment_id: str, invoice_id: str | None) -> bool:
+    """Keep the debtor's oldest open promise, once, on a real capture."""
+    if not payment_id:
+        return False
+    try:
+        registry = DebtorRegistry(os.environ.get("TRUECOMMIT_DEBTORS_DB", "debtors.db"))
+        try:
+            debtor = registry.by_channel_ref(channel_ref)
+            if debtor is None:
+                return False
+            return registry.settle_promise(debtor.id, payment_id=payment_id, invoice_id=invoice_id)
+        finally:
+            registry.close()
+    except Exception:
+        _log.warning("payment outcome: could not settle the promise", exc_info=True)
+        return False
+
+
+def _record_payment_event(conversation_id: str, *, kind: str, detail: dict) -> None:
+    """Onto the same timeline the dashboard reads, so a payment appears in
+    the case file next to the conversation that produced it."""
+    try:
+        store = ConversationStore(os.environ.get("TRUECOMMIT_CONVERSATION_DB", "conversation.db"))
+        try:
+            store.record_event(conversation_id, kind=kind, channel="telegram", detail=detail)
+            store.record_turn(conversation_id, direction="outbound", text=detail.get("text", ""))
+        finally:
+            store.close()
+    except Exception:
+        _log.warning("payment outcome: could not record the event", exc_info=True)
