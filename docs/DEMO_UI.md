@@ -1,12 +1,14 @@
 # The demo dashboard
 
 Published at [truecommit.netlify.app](https://truecommit.netlify.app/)
-(title "TrueCommit Console", favicon 🎛️). A three-scenario, click-through
+(title "TrueCommit Console", favicon 🎛️), and prepped to deploy on Vercel
+from the same source (see "The architecture, and why it changed" below
+for how one frontend serves both). A three-scenario, click-through
 walkthrough of the real pipeline, ending in one genuinely live action per
 scenario. Originally an Artifact-only page; now a real, repo-tracked
-frontend (`frontend/index.html`), deployed on Netlify, talking to a
-permanently-running backend on Render — no laptop, no tunnel, no manual
-credential entry required from anyone who opens the link.
+frontend (`frontend/index.html`), talking to a permanently-running
+backend on Render — no laptop, no tunnel, no manual credential entry
+required from anyone who opens the link.
 
 ## What's real vs. scripted, and why
 
@@ -74,13 +76,13 @@ real secret one paste away from every visitor's clipboard.
 Current setup:
 
 ```
-Netlify (frontend/index.html)          <- anyone opens this URL
-        |  fetch() calls, in-browser
+Netlify or Vercel (frontend/index.html) <- anyone opens this URL
+        |  fetch() calls to /api/*, in-browser
         v
-Netlify Function (netlify/functions/*) <- runs server-side, holds the
+Serverless function (per-platform)      <- runs server-side, holds the
         |                                  real secret in its own env vars
         v
-Render (https://track-03.onrender.com) <- FastAPI backend, always-on
+Render (https://track-03.onrender.com)  <- FastAPI backend, always-on
         |                    |
         v                    v
    Turso (ledger,      Real Razorpay / Telegram / Twilio APIs
@@ -88,24 +90,36 @@ Render (https://track-03.onrender.com) <- FastAPI backend, always-on
    restarts)
 ```
 
-- **Netlify** serves the static page — no build step, no secrets in its
-  source (`netlify.toml`'s `publish = "frontend"`).
+**Deployed on both Netlify and Vercel from the same source, deliberately.**
+`frontend/index.html`'s JS calls a single platform-neutral path,
+`/api/demo-trigger` / `/api/demo-check-reply` — Vercel's own zero-config
+convention (`api/*.js` at the project root, `vercel.json`'s
+`outputDirectory: "frontend"` for the static page). Netlify doesn't share
+that convention (its functions live under `/.netlify/functions/*`), so
+`netlify.toml` carries two `[[redirects]]` rewriting `/api/*` to that
+location — the frontend itself never needs to know which platform served
+it. `netlify/functions/*.js` (Netlify's Node-style `exports.handler`) and
+`api/*.js` (Vercel's Web-standard `export async function POST(request)`)
+are two separate files implementing the identical proxy, one per
+platform's actual function signature — not something I could share as one
+file, since the two platforms' handler contracts are genuinely different,
+not just differently named.
+
 - **Render** replaced the laptop-plus-tunnel: a real, permanently-running
   deployment (see `docs/SETUP.md`'s webhook section for how the
   `payment.failed` -> live-orchestration path was proven against it) with
   its own durable ledger on Turso (`agent/db.py`), so a restart no longer
   loses state the way a local SQLite file behind a dead tunnel would have.
-- **Netlify Functions** (`demo-trigger.js`, `demo-check-reply.js`) are the
-  actual fix for the secret-handling problem the first version had: a
-  Function's env vars run server-side on Netlify's own infrastructure and
-  never ship to a visitor's browser, unlike anything written into a static
-  page's own JS. The browser sends only `{ channel, scenario }` (or
-  `{ after_update_id, diagnose }` for polling) — no secret at all. The
-  Function attaches the real `DEMO_TRIGGER_SECRET` itself before
-  forwarding to Render. View-source on the deployed page shows nothing;
-  a curl against the Function directly (bypassing the browser) still
-  requires knowing you're supposed to hit `/.netlify/functions/demo-trigger`
-  in the first place, and gets a same-origin check besides.
+- **The serverless function layer** (whichever platform is serving the
+  page) is the actual fix for the secret-handling problem the first
+  version had: its env vars run server-side and never ship to a visitor's
+  browser, unlike anything written into a static page's own JS. The
+  browser sends only `{ channel, scenario }` (or `{ after_update_id,
+  diagnose }` for polling) — no secret at all. The function attaches the
+  real `DEMO_TRIGGER_SECRET` itself before forwarding to Render.
+  View-source on the deployed page shows nothing; a curl against the
+  function directly (bypassing the browser) still gets a same-origin
+  check besides.
 
 **The one earlier approach I tried and reverted**: hardcoding the secret
 directly into the page's JS as a convenience default (so it auto-filled
@@ -123,9 +137,11 @@ was the actual fix, then replaced it.
    environment variables (a server restart there is automatic on env var
    save).
 2. `DEMO_TRIGGER_SECRET` and `BACKEND_URL` need to also be set as
-   **Netlify** environment variables (Site configuration -> Environment
-   variables) — these are the Functions' own copies, kept separately from
-   Render's on purpose, since a Function's env vars are a different trust
+   environment variables on **whichever platform is serving the page**
+   (Netlify: Site configuration -> Environment variables; Vercel: Project
+   Settings -> Environment Variables) — these are the function layer's own
+   copies, kept separately from Render's on purpose, since a Function's
+   env vars are a different trust
    boundary than the backend's.
 3. That's it — no per-visitor setup. The old "paste your backend URL and
    secret" settings panel only asks for a backend URL now (used solely for
@@ -133,7 +149,7 @@ was the actual fix, then replaced it.
 
 ## The security tradeoff, stated plainly
 
-`/demo/trigger` is reachable by anyone with the Netlify link — but never
+`/demo/trigger` is reachable by anyone with the deployed link — but never
 with a caller-supplied recipient. The endpoint can only ever contact the
 two `DEMO_CONTACT_*` values configured on Render, and is rate-limited to
 one trigger per channel per 20 seconds. Worst case if the setup is left
@@ -147,7 +163,7 @@ copy still says) or by taking the Render service down.
 
 ## Reactive Telegram: polling for a real reply
 
-After a live Telegram send, the dashboard polls `/.netlify/functions/demo-check-reply`
+After a live Telegram send, the dashboard polls `/api/demo-check-reply`
 (itself proxying to `/demo/check-reply`) every 3 seconds (up to ~2 minutes,
 or "Stop waiting"/"Check now" on demand). I reply on my actual phone, and
 the dashboard: appends my real message to the conversation thread, runs it

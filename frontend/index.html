@@ -502,7 +502,7 @@ async function triggerLive(btn){
   resultEl.textContent = 'Calling the live trigger…';
 
   try{
-    var res = await fetch('/.netlify/functions/demo-trigger', {
+    var res = await fetch('/api/demo-trigger', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ channel: scenario.channel, scenario: state.scenario }),
@@ -574,7 +574,7 @@ async function pollOnce(){
   if (state.pollsLeft <= 0){ stopPolling(); }
 
   try{
-    var res = await fetch('/.netlify/functions/demo-check-reply', {
+    var res = await fetch('/api/demo-check-reply', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ after_update_id: state.lastSeenUpdateId, diagnose: true }),

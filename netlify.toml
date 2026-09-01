@@ -1,3 +1,19 @@
 [build]
   publish = "frontend"
   functions = "netlify/functions"
+
+# The frontend calls the platform-neutral /api/* path (Vercel's own
+# zero-config convention) so the same frontend/index.html works unchanged
+# on both platforms -- this rewrites that path to Netlify's own
+# /.netlify/functions/* location. A rewrite (status 200), not a redirect:
+# the browser's fetch() should see /api/demo-trigger respond directly, not
+# get bounced through a visible 3xx hop.
+[[redirects]]
+  from = "/api/demo-trigger"
+  to = "/.netlify/functions/demo-trigger"
+  status = 200
+
+[[redirects]]
+  from = "/api/demo-check-reply"
+  to = "/.netlify/functions/demo-check-reply"
+  status = 200
