@@ -1,0 +1,1512 @@
+{
+  "n": 100,
+  "seed": 42,
+  "results": {
+    "SERIAL_PROMISER": [
+      {
+        "persona_id": "persona_00000",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00001",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00002",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00003",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00004",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00005",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00006",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00007",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00008",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00009",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00010",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00011",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00012",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00013",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00014",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00015",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00016",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00017",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00018",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00019",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00020",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00021",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00022",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00023",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00024",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00025",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00026",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00027",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00028",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00029",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00030",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00031",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00032",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00033",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00034",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00035",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00036",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00037",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00038",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00039",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00040",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00041",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00042",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00043",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00044",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00045",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00046",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00047",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00048",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00049",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00050",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00051",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00052",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00053",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00054",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00055",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00056",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00057",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00058",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00059",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00060",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00061",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00062",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00063",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00064",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00065",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00066",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00067",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00068",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00069",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00070",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00071",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00072",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00073",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00074",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00075",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00076",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00077",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00078",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00079",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00080",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00081",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00082",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00083",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00084",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00085",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00086",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00087",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00088",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00089",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00090",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00091",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00092",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00093",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00094",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00095",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00096",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00097",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00098",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      },
+      {
+        "persona_id": "persona_00099",
+        "permanently_stalled": false,
+        "n_attempts": 66
+      }
+    ],
+    "DISPUTE_ABUSER": [
+      {
+        "persona_id": "persona_00000",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00001",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00002",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00003",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00004",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00005",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00006",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00007",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00008",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00009",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00010",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00011",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00012",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00013",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00014",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00015",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00016",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00017",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00018",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00019",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00020",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00021",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00022",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00023",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00024",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00025",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00026",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00027",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00028",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00029",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00030",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00031",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00032",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00033",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00034",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00035",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00036",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00037",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00038",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00039",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00040",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00041",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00042",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00043",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00044",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00045",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00046",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00047",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00048",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00049",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00050",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00051",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00052",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00053",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00054",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00055",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00056",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00057",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00058",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00059",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00060",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00061",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00062",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00063",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00064",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00065",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00066",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00067",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00068",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00069",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00070",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00071",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00072",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00073",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00074",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00075",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00076",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00077",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00078",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00079",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00080",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00081",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00082",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00083",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00084",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00085",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00086",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00087",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00088",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00089",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00090",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00091",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00092",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00093",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00094",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00095",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00096",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00097",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00098",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      },
+      {
+        "persona_id": "persona_00099",
+        "permanently_stalled": false,
+        "n_attempts": 10
+      }
+    ],
+    "CHANNEL_HOPPER": [
+      {
+        "persona_id": "persona_00000",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00001",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00002",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00003",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00004",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00005",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00006",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00007",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00008",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00009",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00010",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00011",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00012",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00013",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00014",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00015",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00016",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00017",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00018",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00019",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00020",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00021",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00022",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00023",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00024",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00025",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00026",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00027",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00028",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00029",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00030",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00031",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00032",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00033",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00034",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00035",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00036",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00037",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00038",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00039",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00040",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00041",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00042",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00043",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00044",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00045",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00046",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00047",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00048",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00049",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00050",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00051",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00052",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00053",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00054",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00055",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00056",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00057",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00058",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00059",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00060",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00061",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00062",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00063",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00064",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00065",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00066",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00067",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00068",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00069",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00070",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00071",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00072",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00073",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00074",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00075",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00076",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00077",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00078",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00079",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00080",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00081",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00082",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00083",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00084",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00085",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00086",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00087",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00088",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00089",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00090",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00091",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00092",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00093",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00094",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00095",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00096",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00097",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00098",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      },
+      {
+        "persona_id": "persona_00099",
+        "permanently_stalled": false,
+        "n_attempts": 6
+      }
+    ]
+  }
+}

@@ -35,6 +35,15 @@ already declares for this parameter (§17.2), not a new range invented here."""
 
 PERTURBATION_FACTORS = (0.5, 1.5)  # +/-50%, §17.5
 
+ASSUMED_MINUTES_PER_ESCALATION = 8.0
+"""No dataset gives a real human-agent handling time for an escalated AR
+case -- a declared prior, same status as every other ASSUMED_* constant in
+eval/personas/generator.py, not a measured figure. A round, defensible
+guess (a person reads the case history, the diagnosis, and the bounds
+refusal reason, then acts) -- §25.2's own metric needs *some* per-touch
+human cost to be reportable at all; this is that cost, named as an
+assumption rather than smuggled in as if it were fitted."""
+
 
 def _preregistration_commit_hash() -> str:
     return subprocess.run(
@@ -76,6 +85,38 @@ def _find_break_even(*, touch_cost_paise: int, outcomes_by_lift_fn) -> BreakEven
     return BreakEven("never_catches_up")
 
 
+def compute_economics(summaries: dict, touch_cost_paise: int) -> dict[str, dict]:
+    """§25.1's autonomy rate and §25.2's unit economics, computed from the
+    same ArmSummary data the primary comparison table already has -- no
+    second simulation run needed. `cost_per_rupee_recovered` and
+    `human_minutes_per_recovery` both rest on a per-touch/per-escalation
+    cost that has to come from somewhere; touch_cost_paise is already a
+    named, declared constant (DEFAULT_TOUCH_COST_PAISE), and
+    ASSUMED_MINUTES_PER_ESCALATION is a new one, declared the same way."""
+    economics = {}
+    for arm, s in summaries.items():
+        total_touch_cost_paise = s.mean_touches * touch_cost_paise * s.n
+        total_recovered_paise = s.recovered_fraction * s.n * MEDIAN_INVOICE_FOR_ECONOMICS_PAISE
+        resolved_count = round(s.resolved_fraction * s.n)
+        human_escalation_count = round(s.human_escalation_rate * s.n)
+        economics[arm] = {
+            "autonomy_rate": 1.0 - s.human_escalation_rate,
+            "cost_per_rupee_recovered": (total_touch_cost_paise / total_recovered_paise) if total_recovered_paise else None,
+            "human_minutes_per_recovery": (
+                (human_escalation_count * ASSUMED_MINUTES_PER_ESCALATION) / resolved_count if resolved_count else None
+            ),
+            "cost_per_touch_paise": touch_cost_paise,
+        }
+    return economics
+
+
+MEDIAN_INVOICE_FOR_ECONOMICS_PAISE = 50_000_00
+"""Same Rs 50,000 population-scale assumption eval/personas/generator.py
+already uses (ASSUMED_MEDIAN_INVOICE_PAISE) -- reused here, not a second,
+inconsistent number, since recovered_fraction alone doesn't carry an
+absolute rupee scale on its own."""
+
+
 def main() -> None:
     commit_hash = _preregistration_commit_hash()
 
@@ -85,6 +126,7 @@ def main() -> None:
         touch_cost_paise=PRIMARY_TOUCH_COST_PAISE,
     )
     primary = {arm: summarize(arm, outcomes) for arm, outcomes in outcomes_by_arm.items()}
+    economics = compute_economics(primary, PRIMARY_TOUCH_COST_PAISE)
 
     # ---- Family B breakout ----
     family_b_summaries = {
@@ -127,6 +169,7 @@ def main() -> None:
         sweep_primary_cost=sweep_primary_cost, sweep_stress_cost=sweep_stress_cost,
         break_even_primary=break_even_primary, break_even_stress=break_even_stress,
         flip_rate_primary=flip_rate_primary, flip_rate_stress=flip_rate_stress,
+        economics=economics,
     )
     OUTPUT_PATH.write_text(markdown, encoding="utf-8")
     # Not printing the full markdown here: on Windows, stdout can be a
@@ -157,7 +200,7 @@ def _arm_table(summaries: dict) -> list[str]:
 
 def render_markdown(
     *, commit_hash, primary, family_b, sweep_primary_cost, sweep_stress_cost,
-    break_even_primary, break_even_stress, flip_rate_primary, flip_rate_stress,
+    break_even_primary, break_even_stress, flip_rate_primary, flip_rate_stress, economics,
 ) -> str:
     lines: list[str] = []
     lines.append("# Results — the synthetic Monte Carlo comparison (DEVDOC_v6 §17)")
@@ -311,6 +354,43 @@ def render_markdown(
         "from an independent angle: `lift_prior` doesn't decide anything at realistic messaging "
         "costs. At the stress cost, a nonzero flip rate is expected — this is close to the break-even "
         "region found above, exactly where a ±50% swing in an unsourced parameter should matter most."
+    )
+    lines.append("")
+
+    # Autonomy rate + unit economics (§25)
+    lines.append("## Autonomy rate and unit economics (§25)")
+    lines.append("")
+    lines.append(
+        "§25.1's own concern, stated directly: **\"bounded\" must not become a euphemism for "
+        "\"punts everything to a human.\"** At the primary comparison's parameters:"
+    )
+    lines.append("")
+    lines.append("| Arm | Autonomy rate (cases closed with zero human touch) | Cost per Rs recovered | Human-minutes per recovery |")
+    lines.append("|---|---|---|---|")
+    for arm in ("A", "B2", "C"):
+        e = economics[arm]
+        cost_str = f"Rs {e['cost_per_rupee_recovered']:.4f}" if e["cost_per_rupee_recovered"] is not None else "n/a"
+        mins_str = f"{e['human_minutes_per_recovery']:.2f}" if e["human_minutes_per_recovery"] is not None else "n/a"
+        lines.append(f"| {arm} | {_fmt_pct(economics[arm]['autonomy_rate'])} | {cost_str} | {mins_str} |")
+    lines.append("")
+    lines.append(
+        f"`human_minutes_per_recovery` rests on a declared, named assumption "
+        f"(`ASSUMED_MINUTES_PER_ESCALATION = {ASSUMED_MINUTES_PER_ESCALATION:.0f}` minutes per "
+        f"escalated case — no dataset gives a real human-agent handling time for this, same "
+        f"honesty standard as every other `ASSUMED_*` constant in `eval/personas/generator.py`). "
+        f"`cost_per_rupee_recovered` uses the same `touch_cost_paise` (Rs 5) already named "
+        f"throughout this report and the Rs 50,000 median-invoice scale "
+        f"`eval/personas/generator.py` already assumes for absolute rupee amounts."
+    )
+    lines.append("")
+    lines.append(
+        f"**Arm C's autonomy rate ({_fmt_pct(economics['C']['autonomy_rate'])}) is deliberately "
+        f"lower than the two ungated arms' (100%), not a flaw**: those two arms have no "
+        f"mechanism to escalate anything, ever — their 100% autonomy is the absence of a safety "
+        f"net, not evidence of a more capable system. Arm C's escalations are exactly the "
+        f"disputed-invoice cases §14.4/§24.2's own design says must reach a human; a lower "
+        f"autonomy rate here is the gate working as specified, the same point the violations "
+        f"column makes from a different angle."
     )
     lines.append("")
 

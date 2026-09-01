@@ -69,6 +69,20 @@ Per-persona `EV_FLOOR` pass/refuse, recomputed with `lift_prior` perturbed ±50%
 
 At the primary cost, a 0% flip rate is the same finding as the lift-sweep table above, from an independent angle: `lift_prior` doesn't decide anything at realistic messaging costs. At the stress cost, a nonzero flip rate is expected — this is close to the break-even region found above, exactly where a ±50% swing in an unsourced parameter should matter most.
 
+## Autonomy rate and unit economics (§25)
+
+§25.1's own concern, stated directly: **"bounded" must not become a euphemism for "punts everything to a human."** At the primary comparison's parameters:
+
+| Arm | Autonomy rate (cases closed with zero human touch) | Cost per Rs recovered | Human-minutes per recovery |
+|---|---|---|---|
+| A | 100.0% | Rs 0.0003 | 0.00 |
+| B2 | 100.0% | Rs 0.0002 | 0.00 |
+| C | 90.4% | Rs 0.0002 | 0.78 |
+
+`human_minutes_per_recovery` rests on a declared, named assumption (`ASSUMED_MINUTES_PER_ESCALATION = 8` minutes per escalated case — no dataset gives a real human-agent handling time for this, same honesty standard as every other `ASSUMED_*` constant in `eval/personas/generator.py`). `cost_per_rupee_recovered` uses the same `touch_cost_paise` (Rs 5) already named throughout this report and the Rs 50,000 median-invoice scale `eval/personas/generator.py` already assumes for absolute rupee amounts.
+
+**Arm C's autonomy rate (90.4%) is deliberately lower than the two ungated arms' (100%), not a flaw**: those two arms have no mechanism to escalate anything, ever — their 100% autonomy is the absence of a safety net, not evidence of a more capable system. Arm C's escalations are exactly the disputed-invoice cases §14.4/§24.2's own design says must reach a human; a lower autonomy rate here is the gate working as specified, the same point the violations column makes from a different angle.
+
 ## What this is not (repeating docs/LIMITATIONS.md, on purpose)
 
 Not a real-debtor result. Not extraction accuracy (no golden set exists yet). Not a claim about real Indian B2B response rates to any channel or instrument — `lift_prior` and the resolution-probability tables in `eval/simulate.py` are declared priors with no empirical source (§17.1), exactly the parameter this report's own sensitivity analysis exists to interrogate rather than assume.

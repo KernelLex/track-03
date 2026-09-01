@@ -9,7 +9,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from eval.report import BreakEven, _find_break_even
+import pytest
+
+from eval.report import ASSUMED_MINUTES_PER_ESCALATION, BreakEven, _find_break_even, compute_economics
+from eval.simulate import ArmSummary
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,3 +54,46 @@ class TestFindBreakEven:
         for a, c_fn in [(0.5, lambda l: 0.9), (0.9, lambda l: 0.1), (0.5, lambda l: 0.4 + l * 0.1)]:
             result = _find_break_even(touch_cost_paise=1, outcomes_by_lift_fn=_fake_lookup(a, c_fn))
             assert result.kind in {"dominates_throughout", "crosses", "never_catches_up"}
+
+
+def _summary(**overrides) -> ArmSummary:
+    defaults = dict(
+        arm="X", n=100, recovered_fraction=0.5, resolved_fraction=0.5, mean_days_to_resolution=5.0,
+        human_escalation_rate=0.0, contact_exhausted_rate=0.0, mean_touches=2.0, total_bounds_violations=0,
+    )
+    defaults.update(overrides)
+    return ArmSummary(**defaults)
+
+
+class TestComputeEconomics:
+    def test_autonomy_rate_is_the_inverse_of_human_escalation_rate(self):
+        economics = compute_economics({"A": _summary(human_escalation_rate=0.3)}, touch_cost_paise=500)
+        assert economics["A"]["autonomy_rate"] == pytest.approx(0.7)
+
+    def test_zero_escalations_yields_zero_human_minutes_per_recovery(self):
+        economics = compute_economics({"A": _summary(human_escalation_rate=0.0, resolved_fraction=0.8)}, touch_cost_paise=500)
+        assert economics["A"]["human_minutes_per_recovery"] == 0.0
+
+    def test_human_minutes_per_recovery_scales_with_the_declared_assumption(self):
+        economics = compute_economics(
+            {"A": _summary(human_escalation_rate=0.5, resolved_fraction=0.5, n=100)}, touch_cost_paise=500,
+        )
+        # 50 escalations * ASSUMED_MINUTES_PER_ESCALATION minutes / 50 resolved
+        assert economics["A"]["human_minutes_per_recovery"] == pytest.approx(ASSUMED_MINUTES_PER_ESCALATION)
+
+    def test_zero_recovery_yields_none_not_a_zero_division_crash(self):
+        economics = compute_economics({"A": _summary(recovered_fraction=0.0)}, touch_cost_paise=500)
+        assert economics["A"]["cost_per_rupee_recovered"] is None
+
+    def test_zero_resolved_yields_none_human_minutes_not_a_crash(self):
+        economics = compute_economics({"A": _summary(resolved_fraction=0.0, human_escalation_rate=0.0)}, touch_cost_paise=500)
+        assert economics["A"]["human_minutes_per_recovery"] is None
+
+    def test_cost_per_touch_paise_is_reported_as_given(self):
+        economics = compute_economics({"A": _summary()}, touch_cost_paise=12345)
+        assert economics["A"]["cost_per_touch_paise"] == 12345
+
+    def test_higher_touch_cost_raises_cost_per_rupee_recovered(self):
+        cheap = compute_economics({"A": _summary()}, touch_cost_paise=500)
+        expensive = compute_economics({"A": _summary()}, touch_cost_paise=50_000)
+        assert expensive["A"]["cost_per_rupee_recovered"] > cheap["A"]["cost_per_rupee_recovered"]
