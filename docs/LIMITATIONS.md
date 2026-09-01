@@ -9,7 +9,7 @@ I've built a tested, working implementation of TrueCommit's **pure-logic
 safety and compliance core** (DEVDOC_v6 §5.2's "the judgment"), **now also
 wired to a real, live Razorpay test-mode account** (as of 2026-08-30) for
 the capabilities that account actually has, plus a real (if minimal) HTTP
-webhook receiver. **847 tests passing / 11 skipped as of 2026-09-01**,
+webhook receiver. **854 tests passing / 11 skipped as of 2026-09-01**,
 measured without live credentials in the shell (the 11 skipped are the
 Razorpay-live-only suite, which skips cleanly rather than failing — no
 credentials are required to run the main suite). It's still **not**:
@@ -78,7 +78,24 @@ public internet: 200, full unattended DIAGNOSE->DECIDE->BOUNDS->ACT, a real
 payment link, a real Telegram send. I still haven't observed an *actual
 Razorpay-triggered* delivery reaching the receiver (every subscribed event
 needs a completed checkout to fire) — that's the one gap left, not
-reachability or payload-shape handling, both now confirmed. A real
+reachability or payload-shape handling, both now confirmed.
+
+**What changed 2026-09-01: SETTLE is now wired to that path too.** Until
+now a real `payment.captured` arriving here would have been ingested,
+turned into facts, and then dropped — `_maybe_orchestrate` only ever
+looked for a failure code, so the recovery half of the pipeline had no
+route from the live webhook at all. That is why `docs/RESULTS.md` can only
+call recovery "a modelling convention for my harness": the number came
+from the simulation harness, never from the rail. `_maybe_settle`
+(`agent/api/app.py`) now attributes a rail-confirmed capture through the
+same `RecoveryLedger.attribute()` that enforces Law 7 —
+`payment_status == "captured"` or refuse, `UNIQUE(payment_id)` for
+count-once, `rail_tag="razorpay"` never "simulated". Tested
+(`tests/agent/test_api_settle.py`, 7 tests). **Still not done: an actual
+paid invoice flowing through it.** The wiring exists and is tested; the
+one real rupee has not gone through it yet, and until it does this stays
+in the "built, not observed" column rather than being claimed as
+rail-confirmed recovery. A real
 dashboard UI exists too now (`frontend/index.html`, deployed on Netlify —
 see `docs/DEMO_UI.md`), not just the bare receiver endpoint.
 

@@ -47,6 +47,21 @@ def facts_from_webhook(result: IngestResult) -> list[Fact]:
             facts.append(Fact(name="payment_amount_paise", value=entity["amount"], provenance=Provenance.SYSTEM, source_ref=result.event_id))
         if entity.get("error_code"):
             facts.append(Fact(name="payment_failure_code", value=entity["error_code"], provenance=Provenance.SYSTEM, source_ref=result.event_id))
+        # A payment made against an invoice carries that invoice's id --
+        # which is what lets SETTLE attribute a real capture to the thing it
+        # actually paid, instead of deriving a placeholder id from the
+        # payment. Only present on real invoice payments, hence the guard.
+        if entity.get("invoice_id"):
+            facts.append(Fact(name="invoice_id", value=entity["invoice_id"], provenance=Provenance.SYSTEM, source_ref=result.event_id))
+        # Razorpay's arbitrary merchant metadata. This is where a real
+        # deployment puts the ids from its own AR system, and it's the
+        # documented answer to the placeholder-id limitation
+        # agent/api/app.py's orchestrator has carried since it was written.
+        notes = entity.get("notes") or {}
+        if isinstance(notes, dict):
+            for key in ("debtor_id", "invoice_id"):
+                if notes.get(key) and not any(f.name == key for f in facts):
+                    facts.append(Fact(name=key, value=notes[key], provenance=Provenance.SYSTEM, source_ref=result.event_id))
 
     if "mandate" in payload:
         entity = payload["mandate"]["entity"]

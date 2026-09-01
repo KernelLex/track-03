@@ -111,3 +111,23 @@ arriving and the message sending.
   HTTP wiring: a signed webhook through FastAPI's real request/response
   cycle triggers orchestration, writes to the real ledger, doesn't
   double-fire on a redelivery, and doesn't 500 on an unmappable code.
+
+## SETTLE, 2026-09-01: the pipeline no longer stops at ACT
+
+The unattended path described above ran DIAGNOSE -> DECIDE -> BOUNDS -> ACT
+and stopped. A `payment.captured` landing on the same endpoint was ingested
+and then dropped, because the orchestrator only ever looked for a failure
+code — so nothing in the live path could ever record money as recovered.
+
+`_maybe_settle` closes that. It calls the same
+`RecoveryLedger.attribute()` (§16, Law 7) every other caller uses, so the
+three properties that make attribution mean anything are enforced in the
+database rather than here: only a `captured` status is attributable, the
+`UNIQUE(payment_id)` constraint decides duplicates rather than application
+logic, and the entry carries `rail_tag="razorpay"` so a real capture can
+never be confused with a simulated one (Law 6).
+
+ids come from the payment's own `notes` when the merchant set them, then
+the real `invoice_id` an invoice payment carries, and only then a derived
+placeholder — which is the honest answer to the placeholder-id limitation
+this document has carried since it was written.

@@ -26,6 +26,7 @@ from fastapi.responses import PlainTextResponse
 
 from agent.act.actions import ActionType
 from agent.act.executor import OutboundActionStore
+from agent.ledger.recovery import NotCaptured, RecoveryLedger
 from agent.api.demo import router as demo_router
 from agent.auditor.scheduler import start_auditor_scheduler
 from agent.diagnose.extract import DiagnosisClass, Family
@@ -65,6 +66,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.orchestrator_ledger = Ledger(ledger_db_path) if ledger_db_path else None
     app.state.orchestrator_store = (
         OutboundActionStore(ledger_db_path.rsplit(".", 1)[0] + "_outbound.db") if ledger_db_path else None
+    )
+    # SETTLE's own store (§16, Law 7). Separate file from the hash-chained
+    # ledger for the same reason the outbound claim table is: a different
+    # table with a different uniqueness guarantee. Under Turso the path is
+    # ignored and every store shares the one database (agent/db.py), so
+    # this is a local-file distinction only.
+    app.state.recovery_ledger = (
+        RecoveryLedger(ledger_db_path.rsplit(".", 1)[0] + "_recovery.db") if ledger_db_path else None
     )
     # SimulatedRail by default for the auto-triggered path -- a real
     # RazorpayRail would create a real object in the merchant's account on
@@ -106,6 +115,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             app.state.orchestrator_ledger.close()
         if app.state.orchestrator_store is not None:
             app.state.orchestrator_store.close()
+        if app.state.recovery_ledger is not None:
+            app.state.recovery_ledger.close()
         if app.state.orchestrator_channel is not None:
             app.state.orchestrator_channel.close()
 
@@ -272,11 +283,85 @@ async def receive_webhook(source: str, request: Request) -> dict[str, object]:
         return {"status": "ingested_unrecognized_event", "event_id": result.event_id, "event_type": result.event_type}
 
     orchestration = _maybe_orchestrate(request.app.state, facts)
+    settlement = _maybe_settle(request.app.state, facts)
 
     response: dict[str, object] = {"status": "ingested", "event_id": result.event_id, "facts": [f.name for f in facts]}
     if orchestration is not None:
         response["orchestration"] = orchestration
+    if settlement is not None:
+        response["settlement"] = settlement
     return response
+
+
+def _maybe_settle(state, facts: list) -> dict[str, object] | None:
+    """SETTLE (§16, Law 7): a rail-confirmed capture becomes recovered money,
+    exactly once.
+
+    This is the half of the pipeline that had never run against a real
+    payment. DIAGNOSE->DECIDE->BOUNDS->ACT was wired to a live webhook
+    weeks before this was; until now a real `payment.captured` arriving here
+    was ingested, turned into facts, and then dropped, because
+    `_maybe_orchestrate` only ever looked for a failure code. That gap is
+    why `docs/RESULTS.md` could only call recovery "a modelling convention
+    for my harness" -- the number came from the simulation harness, never
+    from the rail.
+
+    Three properties are load-bearing and none of them are new code -- they
+    are `RecoveryLedger.attribute()`'s, which this only calls:
+      - **Only 'captured' counts.** A payment in any other status raises
+        NotCaptured rather than being counted; an authorization is not a
+        recovery (§16: "not authorized, not created").
+      - **Counted once.** `UNIQUE(payment_id)` in the database decides that,
+        not application logic -- so a redelivery that somehow passed INGEST's
+        own dedup still can't double-count. Returns None, which is a
+        duplicate, not an error.
+      - **Tagged with the rail that produced it** (Law 6): `rail_tag`
+        "razorpay" here, never "simulated".
+
+    ids come from the payment's own `notes` when the merchant set them
+    (agent/ingest/listen.py extracts those), then the real `invoice_id` a
+    payment against an invoice carries, and only then a derived placeholder
+    -- the honest fallback for a build with no AR system behind it.
+    """
+    if state.recovery_ledger is None:
+        return None  # no TRUECOMMIT_LEDGER_DB configured -- see the lifespan warning
+
+    fact_map = {f.name: f.value for f in facts}
+    if fact_map.get("payment_status") != "captured":
+        return None  # nothing to settle -- the only status that counts (§16)
+
+    payment_id = fact_map.get("payment_id")
+    amount_paise = fact_map.get("payment_amount_paise")
+    if not payment_id or not amount_paise:
+        _log.warning("settle: captured payment with no id/amount to attribute -- skipping")
+        return None
+
+    invoice_id = fact_map.get("invoice_id") or f"invoice_{payment_id}"
+    debtor_id = fact_map.get("debtor_id") or f"debtor_{payment_id}"
+
+    try:
+        entry = state.recovery_ledger.attribute(
+            payment_id=payment_id, payment_status="captured",
+            invoice_id=invoice_id, debtor_id=debtor_id,
+            amount_paise=int(amount_paise), rail_tag="razorpay",
+        )
+    except NotCaptured as exc:  # pragma: no cover -- guarded above, kept so it can never pass silently
+        _log.warning("settle: refused to attribute: %s", exc)
+        return None
+
+    if entry is None:
+        return {"attributed": False, "reason": "already_attributed", "payment_id": payment_id}
+
+    _log.info("settle: attributed %s paise from %s to invoice %s", entry.amount_paise, payment_id, invoice_id)
+    return {
+        "attributed": True,
+        "payment_id": entry.payment_id,
+        "invoice_id": entry.invoice_id,
+        "debtor_id": entry.debtor_id,
+        "amount_paise": entry.amount_paise,
+        "rail_tag": entry.rail_tag,
+        "recorded_at": entry.recorded_at,
+    }
 
 
 def _maybe_orchestrate(state, facts: list) -> dict[str, object] | None:
