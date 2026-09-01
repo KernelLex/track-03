@@ -11,6 +11,8 @@ No real network and no real model anywhere here.
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 import agent.api.demo as demo_module
 import pytest
 from fastapi.testclient import TestClient
@@ -180,3 +182,66 @@ class TestTheEndpointItself:
         assert body["events"] == []
         assert body["turns"] == []
         assert body["stage"] == "not_started"
+
+
+class TestARefusedActionIsNeverReportedAsAllowed:
+    """Found in a live run, not by a test.
+
+    A debtor replied "I can pay 21000 on the 5th and rest later". That put
+    them in PROMISED, PROMISE_COOLDOWN refused every action -- and the
+    timeline recorded `action=send_reminder, allowed=True, refusals=
+    ['PROMISE_COOLDOWN']`. The gate refused an action and the system
+    reported it as the allowed next step. For a project whose central claim
+    is that `check_bounds()` is a real chokepoint, that is the worst kind of
+    small bug: everything downstream of it still worked.
+    """
+
+    @staticmethod
+    def _soon():
+        return (date.today() + timedelta(days=200)).isoformat()
+
+    def _decide(self, monkeypatch, **kw):
+        from agent.diagnose.extract import ExtractionResult
+
+        return demo_module._decide_next_step(
+            ExtractionResult(**kw), demo_module.SCENARIOS["b2b"],
+            channel="telegram", debtor_key="regression_debtor",
+        )
+
+    def test_allowed_reflects_the_gate_not_the_fallback(self, client, monkeypatch):
+        """`allowed` used to be `chosen == proposed`, which is True both
+        when the gate passed and when every fallback failed and the refused
+        action was reused."""
+        decision = self._decide(
+            monkeypatch, family=Family.C, class_=DiagnosisClass.PROMISE_STATED, confidence=0.9,
+            promise=PromiseFields(amount_paise=21_000_00, date=self._soon()),
+        )
+        assert decision["refusals"] == ["PROMISE_COOLDOWN"]
+        assert decision["allowed"] is False
+        assert decision["action"] != decision["proposed_action"]
+
+    def test_a_promise_waits_rather_than_escalating(self, client, monkeypatch):
+        """A debtor naming a date is a good outcome. Escalating them to a
+        person over-reacts to what the cooldown actually asked for, and
+        buries the queue a real escalation needs to stay useful."""
+        decision = self._decide(
+            monkeypatch, family=Family.C, class_=DiagnosisClass.PROMISE_STATED, confidence=0.9,
+            promise=PromiseFields(amount_paise=21_000_00, date=self._soon()),
+        )
+        assert decision["action"] == "no_action"
+        assert decision["escalated_to_human"] is False
+
+    def test_a_dispute_still_escalates_to_a_person(self, client, monkeypatch):
+        """The wait-vs-escalate split must not turn every refusal into a
+        shrug. A dispute is exactly the case a person should see."""
+        decision = self._decide(
+            monkeypatch, family=Family.D, class_=DiagnosisClass.QUANTITY_QUALITY, confidence=0.9,
+        )
+        assert decision["action"] == "escalate_human"
+
+    def test_the_wait_set_names_only_timing_refusals(self):
+        """A guard on the set itself. Adding a rule here that means "a
+        person should look at this" would silently downgrade it to a shrug."""
+        assert demo_module.REFUSALS_THAT_MEAN_WAIT == frozenset(
+            {"PROMISE_COOLDOWN", "RBI_FPC_HOURS", "EV_FLOOR"}
+        )

@@ -102,6 +102,12 @@ def ev_floor(ctx: BoundsContext) -> bool:
 
 
 def promise_cooldown(ctx: BoundsContext) -> bool:
+    # A cooldown buys the debtor quiet time. Stopping *is* quiet time, and
+    # handing the case to a person is not a contact with them -- so refusing
+    # either is refusing the thing this rule wants. Refusing `no_action`
+    # outright is incoherent: it says "you may not do nothing".
+    if ctx.action.type in ("escalate_human", "no_action"):
+        return True
     if ctx.debtor.state != "PROMISED":
         return True
     if ctx.promise_date is None:

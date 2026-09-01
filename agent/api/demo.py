@@ -631,6 +631,21 @@ def _mandate_links_for(plan) -> list:
     return links
 
 
+REFUSALS_THAT_MEAN_WAIT = frozenset({"PROMISE_COOLDOWN", "RBI_FPC_HOURS", "EV_FLOOR"})
+"""Refusals whose answer is "not now", not "hand this to a person".
+
+A promise buys quiet time, contact hours reopen in the morning, and a
+case under the EV floor is one the system has decided not to chase --
+`EV_FLOOR` exists precisely so that decision is logged rather than
+silent (README's third claim). Escalating any of these to a human would
+be treating a healthy case as a problem, and would bury the queue a real
+escalation needs to stay useful.
+
+Every other refusal does mean a person should look: a dispute, an
+exhausted channel, a statutory gate, a ceiling reached.
+"""
+
+
 def _decide_next_step(extraction, scenario: dict[str, object], *, channel: str, debtor_key: str) -> dict[str, object]:
     """DECIDE -> BOUNDS on a diagnosed reply, through the real machinery.
 
@@ -685,17 +700,42 @@ def _decide_next_step(extraction, scenario: dict[str, object], *, channel: str, 
     chosen, refusals, escalated = action_type.value, [v.rule_id for v in result.refusals], False
 
     if not result.passed:
-        # The gate refused the diagnosis's natural action. Escalating is the
-        # designed answer -- a refusal is a routing decision, not a dead end.
-        escalated_result = _gate("escalate_human")
-        if escalated_result.passed:
-            chosen, escalated = "escalate_human", True
+        if refusals and set(refusals) <= REFUSALS_THAT_MEAN_WAIT:
+            # Not every refusal means "this needs a person". A debtor who
+            # just named a date is a *good* outcome, and escalating them to
+            # a human over-reacts to what the cooldown was asking for --
+            # which is simply quiet time. Waiting is the answer, and
+            # `no_action` is how this system says that out loud.
+            chosen = "no_action"
+        else:
+            # The gate refused for a reason that does need a person.
+            # Escalating is the designed answer -- a refusal is a routing
+            # decision, not a dead end.
+            escalated_result = _gate("escalate_human")
+            if escalated_result.passed:
+                chosen, escalated = "escalate_human", True
+            else:
+            # Both refused. The one thing this must not do is fall back to
+            # the action the gate just refused -- which is what it used to
+            # do, while reporting it as `allowed`. Observed live: a debtor
+            # stating a promise put them in PROMISED, PROMISE_COOLDOWN
+            # refused every action, and `send_reminder` was reported as the
+            # allowed next step anyway.
+            #
+                # `no_action` is the honest answer, and it is a
+                # first-class logged decision rather than silence
+                # (README's third claim).
+                chosen = "no_action"
 
     _conversation_touches[debtor_key] = touches + 1
     return {
         "action": chosen,
         "proposed_action": action_type.value,
-        "allowed": chosen == action_type.value,
+        # Whether the *gate* allowed the proposed action -- not whether the
+        # chosen action happens to equal it. Those differ exactly when
+        # everything was refused, which is the case worth reporting
+        # accurately.
+        "allowed": result.passed,
         "escalated_to_human": escalated,
         "refusals": refusals,
         "touches_before": touches,

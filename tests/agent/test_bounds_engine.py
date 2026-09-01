@@ -293,3 +293,34 @@ def test_trai_dnd_blocks_only_the_opted_out_channel():
         action=ActionCtx(type="send_reminder", channel="sms", rail_tag="simulated"),
     )
     assert verdict_for(check_bounds(ctx_other_channel), "TRAI_DND") == "PASS"
+
+
+def test_promise_cooldown_exempts_the_actions_that_mean_stop():
+    """The third rule in the WHAT_BROKE #12 family, found live rather than
+    by the sweep that fixed TOUCH_BUDGET and ATTEMPT_CEILING.
+
+    A cooldown buys the debtor quiet time. Refusing `no_action` says "you
+    may not do nothing", which is incoherent -- doing nothing is precisely
+    what the rule is asking for -- and refusing `escalate_human` counts
+    routing to a person as a contact with the debtor, which it isn't.
+    """
+    promised = dict(
+        debtor=DebtorCtx(id="d", state="PROMISED"),
+        promise_date=datetime(2026, 6, 20, 12, 0),  # still inside the cooldown
+    )
+    assert verdict_for(check_bounds(base_context(**promised)), "PROMISE_COOLDOWN") == "REFUSE"
+
+    for action in ("escalate_human", "no_action"):
+        ctx = base_context(action=ActionCtx(type=action, rail_tag="simulated"), **promised)
+        assert verdict_for(check_bounds(ctx), "PROMISE_COOLDOWN") == "PASS", action
+
+
+def test_promise_cooldown_still_refuses_a_chase_inside_the_window():
+    """The exemption must not become a hole: chasing is exactly what the
+    cooldown exists to stop."""
+    ctx = base_context(
+        debtor=DebtorCtx(id="d", state="PROMISED"),
+        promise_date=datetime(2026, 6, 20, 12, 0),
+        action=ActionCtx(type="create_payment_link", rail_tag="simulated"),
+    )
+    assert verdict_for(check_bounds(ctx), "PROMISE_COOLDOWN") == "REFUSE"

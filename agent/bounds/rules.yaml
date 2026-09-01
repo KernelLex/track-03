@@ -138,6 +138,7 @@ stopping:
 
   - id: PROMISE_COOLDOWN
     machine: >-
+      action.type in ['escalate_human', 'no_action'] or
       debtor.state != 'PROMISED' or
       (promise_date is not None and
        now >= promise_date + timedelta(config.grace_days * debtor.promise_credibility))

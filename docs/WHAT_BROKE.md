@@ -392,6 +392,83 @@ the face-value grouping. `test_no_leg_is_ever_authorized_for_more_than_it_is_wor
 holds the broader line: no leg is ever authorized above its own face
 value, so the "just use the larger amount" shortcut stays closed too.
 
+## 14. The gate refused an action, and the system reported it as allowed
+
+**Symptom.** Found in a live run, not by a test -- which is the part worth
+noting, because everything downstream of it worked correctly.
+
+A real debtor replied "I can pay 21000 on the 5th and rest later". The
+timeline recorded:
+
+```
+decided  action=send_reminder  allowed=True  refusals=['PROMISE_COOLDOWN']
+```
+
+`check_bounds()` refused `send_reminder`, and the system named
+`send_reminder` as the allowed next step anyway.
+
+**Root cause, part one.** `_decide_next_step()` tried the diagnosis's
+natural action, then escalation, and if both were refused fell through to
+the refused action:
+
+```python
+chosen = action_type.value          # the refused action, still
+if not result.passed:
+    if _gate("escalate_human").passed:
+        chosen, escalated = "escalate_human", True
+# ... no else
+```
+
+`allowed` was then computed as `chosen == action_type.value` -- True both
+when the gate passed *and* when every fallback failed and the refused
+action was silently reused. Two different outcomes, one label.
+
+**Root cause, part two.** Why escalation was also refused:
+`PROMISE_COOLDOWN` had no exemption for the actions that mean *stop*.
+
+```yaml
+machine: "debtor.state != 'PROMISED' or (promise_date is not None and ...)"
+```
+
+This is WHAT_BROKE #12 again, in a rule that sweep didn't cover. #12 fixed
+`TOUCH_BUDGET` and `ATTEMPT_CEILING` and stopped there. Refusing
+`no_action` under a cooldown is incoherent on its face -- it says "you may
+not do nothing", when doing nothing is exactly what the rule is asking
+for.
+
+**Fix, in three parts.**
+
+`PROMISE_COOLDOWN` now exempts `escalate_human` and `no_action`, in
+`rules.yaml` and in the independently-written `human_twin.py`.
+
+`_decide_next_step()` falls back to `no_action` when everything is
+refused, never to the refused action, and `allowed` now reports
+`result.passed` -- what the gate actually said.
+
+And a distinction that did not exist before: **not every refusal means "a
+person should look at this."** Escalating a debtor who just named a
+payment date over-reacts to what a cooldown asked for, and buries the
+queue a real escalation needs to stay useful. `REFUSALS_THAT_MEAN_WAIT`
+(`PROMISE_COOLDOWN`, `RBI_FPC_HOURS`, `EV_FLOOR`) route to `no_action`;
+everything else -- a dispute, an exhausted channel, a statutory gate --
+still escalates.
+
+**Verification.** The 5,000-case differential test still passes, so the two
+bounds implementations agree after both were changed separately.
+`test_promise_cooldown_exempts_the_actions_that_mean_stop` and
+`test_promise_cooldown_still_refuses_a_chase_inside_the_window` pin the
+rule from both sides. `test_allowed_reflects_the_gate_not_the_fallback`
+fails against the old `chosen == proposed` computation, and
+`test_a_dispute_still_escalates_to_a_person` holds the line against the
+wait/escalate split becoming a universal shrug.
+
+**What this cost.** Nothing, this time -- the reply that went out was
+correct and useful, and the send itself was governed by a separate gate
+(`_bounds_gate_followup`) that passed honestly. What was wrong was the
+*reported* decision. For a project whose central claim is that the gate is
+a real chokepoint, a decision record that says `allowed` about a refusal
+is the kind of small dishonesty that makes the whole claim unverifiable.
+
 ## What this list is for
 
 I found every one of these by actually building against DEVDOC_v6, not by
