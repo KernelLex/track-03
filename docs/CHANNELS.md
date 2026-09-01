@@ -54,7 +54,7 @@ what's actually exercised."
 | Telegram | `agent/notify/telegram.py` | ✅ mocked (`tests/agent/test_notify_channels.py`) | ✅ 2026-08-31 — real send confirmed, see below |
 | Twilio voice (`ivr`) | `agent/notify/twilio_voice.py` | ✅ mocked | 🔶 2026-08-31 — credentials confirmed; real call cleanly refused by Twilio's own trial-account limits, see below |
 | Simulated | `agent/notify/simulated.py` | ✅ | n/a — never touches the network by design |
-| Twilio WhatsApp | `agent/notify/twilio_whatsapp.py` | ✅ mocked (`tests/agent/test_twilio_whatsapp_channel.py`, 10 tests) | 🔶 2026-09-01 — real account, real number, sender registration blocked on a Meta-side restriction, see below |
+| Twilio WhatsApp | `agent/notify/twilio_whatsapp.py` | ✅ mocked (`tests/agent/test_twilio_whatsapp_channel.py`, 10 tests) | 🔶 2026-09-01 — sender genuinely live (real send accepted and routed); a real Content Template is the remaining piece for a cold send, see below |
 | SMS / email | not implemented | — | — |
 
 "Tested" means I assert the request shape (URL, body, form/JSON encoding)
@@ -136,20 +136,29 @@ Twilio's real Messages API — a genuinely different endpoint shape from the
 direct Meta integration (`agent/notify/whatsapp.py`), not a config flip on
 the same channel.
 
-**What's still open here, and why it's not a code gap**: sending through
-Twilio's real "Try out WhatsApp" product needs the purchased number
-registered as a WhatsApp sender first — a Twilio-guided flow, lighter than
-direct Meta business verification, but the phone-number verification step
-inside it is currently blocked by two separate things I hit live, not by
-anything in this codebase: (1) the flow initially auto-selected a WhatsApp
-Business Account already flagged "restricted" by Meta, tied to an earlier,
-abandoned direct-Meta-App attempt on the same Facebook identity; and (2)
-after getting past that, repeated verification-code requests tripped
-Meta's own rate limiter, which doesn't publish a fixed cooldown window.
-`TwilioWhatsAppChannel.send()` itself is real, tested code, ready the
-moment a sender is verified — the gap is entirely Meta/Twilio-side account
-state, the same category of external blocker `README.md`'s "What's still
-open" section already names for the direct Meta path.
+**Update, 2026-09-01: the WhatsApp sender registration cleared.** Getting
+there hit two separate external blockers, neither in this codebase: (1)
+the flow initially auto-selected a WhatsApp Business Account already
+flagged "restricted" by Meta, tied to an earlier, abandoned direct-Meta-App
+attempt on the same Facebook identity; and (2) after getting past that,
+repeated verification-code requests tripped Meta's own rate limiter, which
+doesn't publish a fixed cooldown window. Both resolved on their own with
+time (not a code fix).
+
+**Live-verified once it cleared**: a real `POST .../Messages.json` with
+`From=whatsapp:+19376467656` was accepted and routed by Twilio (no
+sender-registration error) — confirming the sender itself is genuinely
+live. It came back `status: undelivered`, `error_code: 63016`
+("WhatsApp Messaging Window Violation" — checked against Twilio's own
+error docs, not guessed from the code alone): a plain `Body` text only
+delivers within 24 hours of the recipient's own last message, or via a
+pre-approved Content Template for a cold send — the same platform rule
+every WhatsApp provider enforces, Twilio included, not a bug or an
+account restriction. `TwilioWhatsAppChannel.send()` is real, tested,
+and now provably reaches a genuinely registered sender; a real Content
+Template (Content API, unlocked on the Full-tier account) is the
+remaining piece needed for a cold outbound send — the actual use case
+this project needs, since a debtor won't have messaged first.
 
 ## Wiring a live send
 

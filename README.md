@@ -86,15 +86,17 @@ server-side rather than shipping it to every visitor — see
 
 ## What's still open
 
-I'm blocked on things outside my own code, not on more of it: real
-WhatsApp Business credentials — I have a real Twilio phone number now, but
-WhatsApp sender registration through it is stuck on a Meta-side "WhatsApp
-Business account restricted" error tied to an earlier, abandoned direct
-Meta App attempt (the channel itself is built and tested either way — see
-[`docs/WHATSAPP.md`](docs/WHATSAPP.md) and `docs/CHANNELS.md`'s Twilio
-section) — and my Razorpay test account's own live-rail ceiling on
-`present_debit`/`modify_mandate`. See `docs/LIMITATIONS.md` for the
-complete list, including what I deliberately scoped out (the
+I'm blocked on things outside my own code, not on more of it: the Twilio
+WhatsApp sender is genuinely live now (a real send was accepted and
+routed — see `docs/CHANNELS.md`'s Twilio section), but a real Content
+Template is still needed for a cold outbound send, since a debtor won't
+have messaged first — the same platform rule every WhatsApp provider
+enforces, not an account restriction. The direct Meta integration
+(`agent/notify/whatsapp.py`, see [`docs/WHATSAPP.md`](docs/WHATSAPP.md))
+remains its own separate path, blocked on Meta's own business
+verification. Also still open: my Razorpay test account's own live-rail
+ceiling on `present_debit`/`modify_mandate`. See `docs/LIMITATIONS.md` for
+the complete list, including what I deliberately scoped out (the
 25-respondent vignette study, §27) rather than left undone by accident.
 
 Full positioning, architecture, the bounds register, regulatory mapping,
