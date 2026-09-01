@@ -45,11 +45,28 @@ the actual orchestration path uses — test-mode, so no real money moves).
 Live-caught building this: Razorpay's test-mode account has a hard
 **30-payment-link cap**, and creating a fresh one per click burns through
 it fast — a session of routine testing had already exhausted it once,
-which surfaced as the message silently sending without a link (the
-intended best-effort degradation, working exactly as designed, just for
-an unexpected reason the first time). Fixed properly, not just tolerated:
-the trigger now creates **one** real link per demo run and reuses it on
-every subsequent b2b click, rather than minting a new one each time.
+which surfaced as the message silently sending without a link. Two fixes,
+because the first one wasn't enough:
+
+1. The trigger creates **one** real payable URL per demo run and reuses it
+   on every subsequent b2b click, rather than minting a new one each time.
+2. **That cap counts lifetime creates, not live links** — cancelling six
+   old probe links freed nothing, and `create_payment_link` on an
+   exhausted account can never succeed again. So the fallback is a real
+   Razorpay **invoice** (`create_invoice`), which has its own quota and is
+   arguably the better object anyway: the scenario *is* an overdue
+   invoice, so a real Razorpay-hosted invoice page is what a debtor would
+   actually be sent. Both are rail-created and payable; neither is a
+   stand-in.
+
+**No placeholder URLs, ever.** An earlier version filled the WhatsApp
+template's link variable with `https://rzp.io/i/pending` when link
+creation failed — a template variable can't be empty, so *something* had
+to go there. That shipped a real message containing a fake-looking link,
+which is worse than not sending: WhatsApp now refuses the send outright
+(503) when no real payable URL is available. Telegram still degrades
+gracefully instead, because its body is free-form and can simply omit the
+line.
 
 Replying is no longer a dead end either — `/demo/check-reply` sends a real
 message back over the same channel after diagnosing a reply, not just a

@@ -63,7 +63,7 @@ from agent.notify.telegram import TelegramChannel
 from agent.notify.twilio_voice import TwilioVoiceChannel
 from agent.notify.twilio_whatsapp import TwilioWhatsAppChannel
 from agent.rails.razorpay_rail import RazorpayRail
-from agent.rails.types import LinkSpec
+from agent.rails.types import InvoiceSpec, LinkSpec
 
 _log = logging.getLogger("trucommit.demo")
 
@@ -229,11 +229,20 @@ def _create_real_payment_link(scenario: dict[str, object]) -> str | None:
     failure is still logged, not silently dropped.
 
     Reuses `_last_payment_link_url` if one already exists rather than
-    creating a fresh link on every single click -- caught live: Razorpay's
+    creating a fresh object on every single click -- caught live: Razorpay's
     test-mode account has a hard 30-payment-link cap, and creating a new
     one per trigger burns through it in well under 30 clicks. One real
-    link per demo run is enough to prove the capability; recreating it
-    repeatedly was never load-bearing for that."""
+    payable URL per demo run is enough to prove the capability; recreating
+    it repeatedly was never load-bearing for that.
+
+    Falls back from a payment link to a real **invoice** when links are
+    capped. Caught live: that 30-link cap counts lifetime creates, not live
+    links -- cancelling old ones frees nothing, so on an exhausted account
+    `create_payment_link` can never succeed again. Invoices have their own
+    quota and are the better fit for this demo anyway: the scenario is an
+    overdue *invoice*, so a real Razorpay-hosted invoice page is what a
+    debtor would actually be sent. Both are real, payable, rail-created
+    objects -- neither is a stand-in."""
     global _last_payment_link_url
     if _last_payment_link_url:
         return _last_payment_link_url
@@ -241,17 +250,25 @@ def _create_real_payment_link(scenario: dict[str, object]) -> str | None:
     key_secret = os.environ.get("RAZORPAY_KEY_SECRET")
     if not key_id or not key_secret:
         return None
+
+    rail = RazorpayRail(key_id=key_id, key_secret=key_secret)
+    description = f"TrueCommit demo -- {scenario['invoice_id']}"
+    amount_paise = int(scenario["amount_paise"])
+
     try:
-        rail = RazorpayRail(key_id=key_id, key_secret=key_secret)
-        link = rail.create_payment_link(LinkSpec(
-            amount_paise=int(scenario["amount_paise"]),
-            description=f"TrueCommit demo -- {scenario['invoice_id']}",
-        ))
+        link = rail.create_payment_link(LinkSpec(amount_paise=amount_paise, description=description))
+        _last_payment_link_url = link.short_url
+        return link.short_url
     except Exception:
-        _log.warning("demo: real payment link creation failed", exc_info=True)
+        _log.warning("demo: payment link creation failed, trying a real invoice instead", exc_info=True)
+
+    try:
+        invoice = rail.create_invoice(InvoiceSpec(amount_paise=amount_paise, description=description))
+        _last_payment_link_url = invoice.short_url
+        return invoice.short_url
+    except Exception:
+        _log.warning("demo: real invoice creation failed too -- no payable URL available", exc_info=True)
         return None
-    _last_payment_link_url = link.short_url
-    return link.short_url
 
 
 def _agent_reply_for(family: Family) -> str:
@@ -344,7 +361,18 @@ def trigger_demo_contact(payload: DemoTriggerRequest) -> dict[str, object]:
         phone = _resolve_recipient(payload.to, "DEMO_CONTACT_PHONE_NUMBER")
         secret_value, username = (api_key_secret, api_key_sid) if api_key_secret else (auth_token, None)
         channel_obj = TwilioWhatsAppChannel(sid, secret_value, whatsapp_from, auth_username=username)
-        link_url = _create_real_payment_link(scenario) or "https://rzp.io/i/pending"
+        # No fake placeholder here. A WhatsApp template variable can't be
+        # empty, and a made-up URL in a real message is worse than no
+        # message at all -- so an unavailable payable URL fails the send
+        # loudly instead. (Telegram degrades gracefully instead: it just
+        # omits the "Pay now" line, since its body is free-form.)
+        link_url = _create_real_payment_link(scenario)
+        if not link_url:
+            raise HTTPException(
+                status_code=503,
+                detail="no real payable URL could be created on the Razorpay account, and this template "
+                       "requires one -- refusing to send a message with a placeholder link",
+            )
         content_variables = {
             "1": str(scenario["invoice_id"]),
             "2": f"{int(scenario['amount_paise']) / 100:,.0f}",

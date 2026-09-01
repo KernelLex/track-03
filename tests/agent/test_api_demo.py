@@ -140,9 +140,23 @@ def test_whatsapp_trigger_falls_back_to_the_projects_own_template(client, monkey
     uses this project's own real template rather than failing, so it isn't
     one more thing to configure on every deployment."""
     monkeypatch.delenv("TWILIO_WHATSAPP_CONTENT_SID", raising=False)
+    monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_fake")
+    monkeypatch.setenv("RAZORPAY_KEY_SECRET", "fake_secret")
+    monkeypatch.setattr(demo_module, "RazorpayRail", _FakeRazorpayRail)
     response = client.post("/demo/trigger", json={"secret": SECRET, "channel": "whatsapp", "scenario": "b2b"})
     assert response.status_code == 200
     assert _FakeChannel.sent[0]["content_sid"] == demo_module.DEFAULT_WHATSAPP_CONTENT_SID
+
+
+def test_whatsapp_refuses_to_send_a_placeholder_link(client, monkeypatch):
+    """A WhatsApp template variable can't be empty, and inventing a URL to
+    fill it is worse than not sending -- so with no real payable URL
+    available the send is refused outright."""
+    monkeypatch.delenv("RAZORPAY_KEY_ID", raising=False)
+    monkeypatch.delenv("RAZORPAY_KEY_SECRET", raising=False)
+    response = client.post("/demo/trigger", json={"secret": SECRET, "channel": "whatsapp", "scenario": "b2b"})
+    assert response.status_code == 503
+    assert _FakeChannel.sent == []
 
 
 def test_whatsapp_trigger_missing_twilio_config_returns_a_clear_error(client, monkeypatch):
@@ -160,18 +174,30 @@ class _FakeRazorpayRail:
     def __init__(self, *, key_id, key_secret):
         pass
 
+    created_invoice_specs: list = []
+    invoice_raises: bool = False
+
     def create_payment_link(self, spec):
         if _FakeRazorpayRail.raises:
-            raise RuntimeError("razorpay unavailable")
+            raise RuntimeError("test mode limit of 30 reached for payment_link")
         _FakeRazorpayRail.created_specs.append(spec)
         from agent.rails.types import PaymentLink
         return PaymentLink(id="plink_fake1", short_url="https://rzp.io/i/fake123", amount_paise=spec.amount_paise, status="created")
+
+    def create_invoice(self, spec):
+        if _FakeRazorpayRail.invoice_raises:
+            raise RuntimeError("invoices unavailable too")
+        _FakeRazorpayRail.created_invoice_specs.append(spec)
+        from agent.rails.types import Invoice
+        return Invoice(id="inv_fake1", short_url="https://rzp.io/rzp/fakeInv", amount_paise=spec.amount_paise, status="issued")
 
 
 @pytest.fixture(autouse=True)
 def _reset_razorpay_fake():
     _FakeRazorpayRail.created_specs = []
+    _FakeRazorpayRail.created_invoice_specs = []
     _FakeRazorpayRail.raises = False
+    _FakeRazorpayRail.invoice_raises = False
     demo_module._last_payment_link_url = None
     yield
 
@@ -197,17 +223,6 @@ def test_b2b_trigger_still_sends_if_razorpay_credentials_are_missing(client, mon
     assert "rzp.io" not in _FakeChannel.sent[0]["text"]
 
 
-def test_b2b_trigger_still_sends_if_link_creation_raises(client, monkeypatch):
-    monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_fake")
-    monkeypatch.setenv("RAZORPAY_KEY_SECRET", "fake_secret")
-    monkeypatch.setattr(demo_module, "RazorpayRail", _FakeRazorpayRail)
-    _FakeRazorpayRail.raises = True
-
-    response = client.post("/demo/trigger", json={"secret": SECRET, "channel": "telegram", "scenario": "b2b"})
-    assert response.status_code == 200
-    assert "rzp.io" not in _FakeChannel.sent[0]["text"]
-
-
 def test_second_b2b_trigger_reuses_the_first_links_url_not_a_fresh_one(client, monkeypatch):
     """Razorpay test-mode caps payment links at 30 total -- creating a new
     one per click burns through that fast. A second trigger should reuse
@@ -223,6 +238,37 @@ def test_second_b2b_trigger_reuses_the_first_links_url_not_a_fresh_one(client, m
 
     assert len(_FakeRazorpayRail.created_specs) == 1
     assert _FakeChannel.sent[0]["text"] == _FakeChannel.sent[1]["text"]
+
+
+def test_a_capped_payment_link_falls_back_to_a_real_invoice(client, monkeypatch):
+    """Live-caught: Razorpay's 30-payment-link test-mode cap counts lifetime
+    creates, not live links -- cancelling old ones frees nothing, so on an
+    exhausted account create_payment_link can never succeed again. A real
+    invoice is the fallback: also rail-created, also payable, and arguably
+    the better fit since the scenario is an overdue invoice."""
+    monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_fake")
+    monkeypatch.setenv("RAZORPAY_KEY_SECRET", "fake_secret")
+    monkeypatch.setattr(demo_module, "RazorpayRail", _FakeRazorpayRail)
+    _FakeRazorpayRail.raises = True  # links exhausted
+
+    response = client.post("/demo/trigger", json={"secret": SECRET, "channel": "telegram", "scenario": "b2b"})
+    assert response.status_code == 200
+    assert len(_FakeRazorpayRail.created_invoice_specs) == 1
+    assert "https://rzp.io/rzp/fakeInv" in _FakeChannel.sent[0]["text"]
+
+
+def test_no_payable_url_at_all_still_lets_telegram_send_without_one(client, monkeypatch):
+    """Telegram's body is free-form, so it degrades by omitting the line --
+    unlike the WhatsApp template, whose variable can't be empty."""
+    monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_fake")
+    monkeypatch.setenv("RAZORPAY_KEY_SECRET", "fake_secret")
+    monkeypatch.setattr(demo_module, "RazorpayRail", _FakeRazorpayRail)
+    _FakeRazorpayRail.raises = True
+    _FakeRazorpayRail.invoice_raises = True
+
+    response = client.post("/demo/trigger", json={"secret": SECRET, "channel": "telegram", "scenario": "b2b"})
+    assert response.status_code == 200
+    assert "Pay now" not in _FakeChannel.sent[0]["text"]
 
 
 def test_subscription_scenario_never_gets_a_payment_link(client, monkeypatch):
@@ -276,7 +322,10 @@ def test_ivr_can_call_a_caller_supplied_number(client):
     assert _FakeChannel.sent[0]["to"] == "+911234567890"
 
 
-def test_whatsapp_can_message_a_caller_supplied_number(client):
+def test_whatsapp_can_message_a_caller_supplied_number(client, monkeypatch):
+    monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_fake")
+    monkeypatch.setenv("RAZORPAY_KEY_SECRET", "fake_secret")
+    monkeypatch.setattr(demo_module, "RazorpayRail", _FakeRazorpayRail)
     response = client.post(
         "/demo/trigger",
         json={"secret": SECRET, "channel": "whatsapp", "scenario": "b2b", "to": "+911234567890"},
