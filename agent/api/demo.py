@@ -25,10 +25,20 @@ decision_seq)) exists to stop a *production* action from double-firing --
 exactly wrong for a demo trigger meant to be clicked repeatably. The bounds
 check runs for real; the ledger write does not, since this isn't a real
 recovery action.
+
+2026-09-01: the b2b scenario's Telegram send now includes a real Razorpay
+payment link (`_create_real_payment_link`, same `RazorpayRail` the real
+orchestration path uses -- test-mode account, so no real money moves) --
+best-effort, the message still sends without one if link creation fails.
+`check-reply` also sends a real, family-level follow-up back over the same
+channel after diagnosing a reply (`_agent_reply_for`), turning this from a
+one-shot send into an actual two-way exchange rather than a diagnosis that
+only ever surfaces on the dashboard.
 """
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 
@@ -38,15 +48,28 @@ from pydantic import BaseModel
 from agent.auditor.extraction_log import ExtractionLog
 from agent.bounds.context import ActionCtx, BoundsContext, ConfigCtx, DebtorCtx, DecisionCtx, InvoiceCtx, MandateCtx
 from agent.bounds.engine import check_bounds
+from agent.diagnose.extract import Family
 from agent.diagnose.llm_extract import ExtractionFailed, extract_from_reply
 from agent.notify.protocol import ChannelUnavailable
 from agent.notify.telegram import TelegramChannel
 from agent.notify.twilio_voice import TwilioVoiceChannel
+from agent.rails.razorpay_rail import RazorpayRail
+from agent.rails.types import LinkSpec
+
+_log = logging.getLogger("trucommit.demo")
 
 router = APIRouter(prefix="/demo", tags=["demo"])
 
 MIN_SECONDS_BETWEEN_TRIGGERS = 20.0
 _last_triggered_at: dict[str, float] = {}
+
+# Set by a b2b trigger that successfully creates a real link, read back by
+# check-reply's follow-up so a debtor asking for the link again (or just
+# replying at all) gets the same real one, not a second freshly-created
+# link on every reply -- one real Razorpay object per demo run, not per
+# message. Best-effort: a b2b send still goes out with no link at all if
+# Razorpay creation fails, rather than blocking the whole message on it.
+_last_payment_link_url: str | None = None
 
 SCENARIOS: dict[str, dict[str, object]] = {
     "b2b": {
@@ -55,8 +78,7 @@ SCENARIOS: dict[str, dict[str, object]] = {
         "text_message": (
             "Hi, this is TrueCommit on behalf of Acme Textiles. Invoice INV-2201 for "
             "Rs 42,500 is now 22 days overdue. Reply here if anything about this invoice "
-            "looks wrong -- this demo message doesn't include a live payment link (the "
-            "dashboard's scripted Act stage shows what a real one looks like)."
+            "looks wrong."
         ),
         "text_voice": (
             "Hello, this is an automated call from True Commit, regarding invoice "
@@ -119,6 +141,52 @@ def _check_rate_limit(channel: str) -> None:
     _last_triggered_at[channel] = now
 
 
+def _create_real_payment_link(scenario: dict[str, object]) -> str | None:
+    """Best-effort: a real Razorpay payment link (test-mode account), the
+    same rail (`RazorpayRail`) and object type the real orchestration path
+    creates on a real payment.failed webhook -- not a second, fake-looking
+    stand-in. Returns None (never raises) on any failure, so a missing link
+    degrades the message rather than blocking the send entirely; the
+    failure is still logged, not silently dropped."""
+    key_id = os.environ.get("RAZORPAY_KEY_ID")
+    key_secret = os.environ.get("RAZORPAY_KEY_SECRET")
+    if not key_id or not key_secret:
+        return None
+    try:
+        rail = RazorpayRail(key_id=key_id, key_secret=key_secret)
+        link = rail.create_payment_link(LinkSpec(
+            amount_paise=int(scenario["amount_paise"]),
+            description=f"TrueCommit demo -- {scenario['invoice_id']}",
+        ))
+    except Exception:
+        _log.warning("demo: real payment link creation failed", exc_info=True)
+        return None
+    global _last_payment_link_url
+    _last_payment_link_url = link.short_url
+    return link.short_url
+
+
+def _agent_reply_for(family: Family) -> str:
+    """A real follow-up sent back over the same channel after diagnosing a
+    reply -- the piece that turns this from a one-shot "send and diagnose"
+    into an actual two-way exchange. Family-level, not per-DiagnosisClass:
+    29 classes' worth of bespoke replies would be a lot of surface for a
+    demo follow-up to get subtly wrong, and the family-level distinction
+    (instrument / blocker / liquidity / dispute) is already what the
+    dashboard's own scripted Diagnose stage explains to a viewer."""
+    if family == Family.A:
+        return "Got it -- flagging that for repair on our end so it doesn't fail the same way again."
+    if family == Family.B:
+        return "Understood -- pausing automated contact on this invoice while that's sorted out on your end."
+    if family == Family.D:
+        return "This needs a person to review, not another automated message -- flagging your case now, and pausing automated contact on this invoice."
+    # Family C: liquidity/willingness -- the one case where resending the
+    # real link (if one exists from this run) is actually the right response.
+    if _last_payment_link_url:
+        return f"No problem -- here's the link again whenever you're ready: {_last_payment_link_url}"
+    return "Understood -- no rush, it'll confirm itself once it's paid."
+
+
 def _bounds_context_for(scenario: dict[str, object], channel: str) -> BoundsContext:
     return BoundsContext(
         debtor=DebtorCtx(id="demo_debtor", state="ENGAGED", touches_7d=0),
@@ -157,6 +225,10 @@ def trigger_demo_contact(payload: DemoTriggerRequest) -> dict[str, object]:
             raise HTTPException(status_code=503, detail="Telegram demo contact not configured on this server")
         channel_obj = TelegramChannel(token)
         to, text = chat_id, str(scenario["text_message"])
+        if payload.scenario == "b2b":
+            link_url = _create_real_payment_link(scenario)
+            if link_url:
+                text += f"\n\nPay now: {link_url}"
     else:
         phone = os.environ.get("DEMO_CONTACT_PHONE_NUMBER")
         sid = os.environ.get("TWILIO_ACCOUNT_SID")
@@ -238,7 +310,7 @@ def check_reply(payload: CheckReplyRequest) -> dict[str, object]:
     latest = matching[-1]
     text = latest["message"]["text"]
     result: dict[str, object] = {
-        "has_reply": True, "text": text, "update_id": latest["update_id"], "diagnosis": None,
+        "has_reply": True, "text": text, "update_id": latest["update_id"], "diagnosis": None, "agent_reply": None,
     }
 
     if payload.diagnose:
@@ -251,6 +323,20 @@ def check_reply(payload: CheckReplyRequest) -> dict[str, object]:
                 "class": extraction.class_.value,
                 "confidence": extraction.confidence,
             }
+
+            # The conversational half: a real message back over the same
+            # channel, not just a diagnosis shown on a dashboard. Best-effort
+            # -- a failed follow-up send still leaves the diagnosis itself
+            # intact in the response rather than failing the whole poll.
+            reply_text = _agent_reply_for(extraction.family)
+            reply_channel = TelegramChannel(token)
+            try:
+                reply_channel.send(to=chat_id, text=reply_text)
+                result["agent_reply"] = reply_text
+            except ChannelUnavailable:
+                _log.warning("demo: follow-up reply send failed", exc_info=True)
+            finally:
+                reply_channel.close()
         except ExtractionFailed as exc:
             result["diagnosis"] = {"error": str(exc)}
 

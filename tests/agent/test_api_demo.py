@@ -90,6 +90,75 @@ def test_valid_ivr_trigger_sends_to_the_configured_phone_number(client):
     assert _FakeChannel.sent[0]["to"] == "+919999999999"
 
 
+class _FakeRazorpayRail:
+    """Stand-in for RazorpayRail -- asserts the real create_payment_link()
+    call shape without ever making a real Razorpay API call."""
+    created_specs: list = []
+    raises: bool = False
+
+    def __init__(self, *, key_id, key_secret):
+        pass
+
+    def create_payment_link(self, spec):
+        if _FakeRazorpayRail.raises:
+            raise RuntimeError("razorpay unavailable")
+        _FakeRazorpayRail.created_specs.append(spec)
+        from agent.rails.types import PaymentLink
+        return PaymentLink(id="plink_fake1", short_url="https://rzp.io/i/fake123", amount_paise=spec.amount_paise, status="created")
+
+
+@pytest.fixture(autouse=True)
+def _reset_razorpay_fake():
+    _FakeRazorpayRail.created_specs = []
+    _FakeRazorpayRail.raises = False
+    demo_module._last_payment_link_url = None
+    yield
+
+
+def test_b2b_trigger_includes_a_real_payment_link_when_razorpay_is_configured(client, monkeypatch):
+    monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_fake")
+    monkeypatch.setenv("RAZORPAY_KEY_SECRET", "fake_secret")
+    monkeypatch.setattr(demo_module, "RazorpayRail", _FakeRazorpayRail)
+
+    response = client.post("/demo/trigger", json={"secret": SECRET, "channel": "telegram", "scenario": "b2b"})
+    assert response.status_code == 200
+    assert "https://rzp.io/i/fake123" in _FakeChannel.sent[0]["text"]
+    assert len(_FakeRazorpayRail.created_specs) == 1
+    assert _FakeRazorpayRail.created_specs[0].amount_paise == 42_500_00
+
+
+def test_b2b_trigger_still_sends_if_razorpay_credentials_are_missing(client, monkeypatch):
+    monkeypatch.delenv("RAZORPAY_KEY_ID", raising=False)
+    monkeypatch.delenv("RAZORPAY_KEY_SECRET", raising=False)
+
+    response = client.post("/demo/trigger", json={"secret": SECRET, "channel": "telegram", "scenario": "b2b"})
+    assert response.status_code == 200
+    assert "rzp.io" not in _FakeChannel.sent[0]["text"]
+
+
+def test_b2b_trigger_still_sends_if_link_creation_raises(client, monkeypatch):
+    monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_fake")
+    monkeypatch.setenv("RAZORPAY_KEY_SECRET", "fake_secret")
+    monkeypatch.setattr(demo_module, "RazorpayRail", _FakeRazorpayRail)
+    _FakeRazorpayRail.raises = True
+
+    response = client.post("/demo/trigger", json={"secret": SECRET, "channel": "telegram", "scenario": "b2b"})
+    assert response.status_code == 200
+    assert "rzp.io" not in _FakeChannel.sent[0]["text"]
+
+
+def test_subscription_scenario_never_gets_a_payment_link(client, monkeypatch):
+    """Only b2b's message references a link at all -- the other scenarios
+    shouldn't attempt real Razorpay calls they have no use for."""
+    monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_fake")
+    monkeypatch.setenv("RAZORPAY_KEY_SECRET", "fake_secret")
+    monkeypatch.setattr(demo_module, "RazorpayRail", _FakeRazorpayRail)
+
+    response = client.post("/demo/trigger", json={"secret": SECRET, "channel": "telegram", "scenario": "subscription"})
+    assert response.status_code == 200
+    assert _FakeRazorpayRail.created_specs == []
+
+
 def test_escalation_scenario_sends_escalation_specific_text_not_the_b2b_message(client):
     """Regression test: the escalation scenario's live trigger initially had
     no server-side text of its own and silently fell back to the b2b
@@ -214,6 +283,37 @@ class TestCheckReply:
         response = client.post("/demo/check-reply", json={"secret": SECRET, "diagnose": True})
         body = response.json()
         assert body["diagnosis"] == {"family": "C", "class": "PROMISE_STATED", "confidence": 0.9}
+
+    def test_a_diagnosed_reply_gets_a_real_followup_sent_back(self, client, monkeypatch):
+        """The conversational half: check-reply doesn't just diagnose and
+        stop -- it sends a real message back over the same channel, and
+        reports what it sent."""
+        from agent.diagnose.extract import DiagnosisClass, ExtractionResult, Family
+
+        fake_result = ExtractionResult(family=Family.D, class_=DiagnosisClass.QUANTITY_QUALITY, confidence=0.9)
+        monkeypatch.setattr(demo_module, "extract_from_reply", lambda text, **kw: fake_result)
+
+        _FakeChannel.updates = [self._update(101, "999888777", "this is disputed")]
+        response = client.post("/demo/check-reply", json={"secret": SECRET, "diagnose": True})
+        body = response.json()
+
+        assert body["agent_reply"] is not None
+        assert "review" in body["agent_reply"].lower()
+        # The follow-up is a second, real send -- not just text echoed in the response.
+        followup_sends = [s for s in _FakeChannel.sent if s["text"] == body["agent_reply"]]
+        assert len(followup_sends) == 1
+        assert followup_sends[0]["to"] == "999888777"
+
+    def test_family_c_followup_resends_the_real_link_when_one_exists(self, client, monkeypatch):
+        from agent.diagnose.extract import DiagnosisClass, ExtractionResult, Family
+
+        demo_module._last_payment_link_url = "https://rzp.io/i/fromEarlierRun"
+        fake_result = ExtractionResult(family=Family.C, class_=DiagnosisClass.PROMISE_STATED, confidence=0.7)
+        monkeypatch.setattr(demo_module, "extract_from_reply", lambda text, **kw: fake_result)
+
+        _FakeChannel.updates = [self._update(101, "999888777", "send me the link again")]
+        response = client.post("/demo/check-reply", json={"secret": SECRET, "diagnose": True})
+        assert "https://rzp.io/i/fromEarlierRun" in response.json()["agent_reply"]
 
     def test_diagnose_false_skips_the_extractor_entirely(self, client, monkeypatch):
         called = []

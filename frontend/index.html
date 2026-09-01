@@ -614,6 +614,14 @@ async function pollOnce(){
       + '</div>'
     );
     addLedgerRow('DIAGNOSE', 'live_reply:extracted', 'pass');
+
+    // The agent's real follow-up, sent back over the same channel -- shown
+    // as a genuine system bubble, not just a diagnosis on the dashboard.
+    if (body.agent_reply){
+      state.liveReplies.push({ who: 'system', text: body.agent_reply + ' (this is a real reply, sent for real)' });
+      renderConvo(document.getElementById('convoContainer'));
+      addLedgerRow('ACT', 'live_reply:followed_up', 'pass');
+    }
   }catch(e){
     // network hiccup -- silently retried on the next scheduled poll
   }
