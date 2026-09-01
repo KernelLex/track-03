@@ -178,6 +178,58 @@ code, .mono{font-family:var(--font-mono);}
 
 .foot-note{margin-top:1.5rem; font-size:0.78rem; color:var(--ink-faint); line-height:1.6;}
 .foot-note a{color:var(--accent);}
+
+/* ---------- live console ---------- */
+.console{margin:1.5rem 0; border:1px solid var(--line-strong); border-radius:12px; background:var(--surface); overflow:hidden;}
+.console-head{padding:0.9rem 1.15rem; border-bottom:1px solid var(--line); display:flex; align-items:baseline; justify-content:space-between; gap:1rem; flex-wrap:wrap;}
+.console-head h2{font-size:1.05rem; font-family:var(--font-body); font-weight:600;}
+.console-head .sub{font-size:0.8rem; color:var(--ink-faint);}
+.console-body{padding:1.1rem 1.15rem;}
+.recipient-row{display:flex; gap:0.7rem; align-items:flex-end; flex-wrap:wrap; margin-bottom:1rem;}
+.recipient-row .field{flex:1 1 260px;}
+.channel-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:0.7rem;}
+@media (max-width:720px){.channel-grid{grid-template-columns:1fr;}}
+.channel-card{border:1px solid var(--line); border-radius:10px; background:var(--surface-2); padding:0.9rem 0.95rem; display:flex; flex-direction:column; gap:0.55rem;}
+.channel-card h4{font-family:var(--font-body); font-size:0.9rem; font-weight:600; display:flex; align-items:center; gap:0.45rem;}
+.channel-card .why{font-size:0.76rem; color:var(--ink-faint); line-height:1.5; flex:1;}
+.channel-card .btn{width:100%;}
+.chan-tag{font-family:var(--font-mono); font-size:0.6rem; text-transform:uppercase; letter-spacing:0.06em; padding:0.15em 0.45em; border-radius:4px; border:1px solid var(--line-strong); color:var(--ink-faint);}
+.chan-tag.two-way{color:var(--good); border-color:color-mix(in srgb, var(--good) 40%, transparent); background:var(--good-bg);}
+.chan-tag.one-way{color:var(--warn); border-color:color-mix(in srgb, var(--warn) 40%, transparent); background:var(--warn-bg);}
+.console-note{margin-top:0.9rem; font-size:0.78rem; color:var(--ink-faint); line-height:1.6; border-top:1px solid var(--line); padding-top:0.8rem;}
+.console-note code{color:var(--accent-ink);}
+.console-note strong{color:var(--ink-soft);}
+
+/* ---------- activity feed ---------- */
+.activity{margin-top:1.5rem; border:1px solid var(--line); border-radius:12px; background:var(--surface); overflow:hidden;}
+.activity-head{padding:0.85rem 1.15rem; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; gap:1rem;}
+.activity-head h3{font-size:0.95rem; font-family:var(--font-body); font-weight:600;}
+.activity-head .count{font-family:var(--font-mono); font-size:0.72rem; color:var(--ink-faint);}
+.activity-empty{padding:1.6rem 1.15rem; text-align:center; color:var(--ink-faint); font-size:0.85rem; line-height:1.6;}
+.activity-list{max-height:460px; overflow-y:auto;}
+.event{padding:0.85rem 1.15rem; border-top:1px solid var(--line); display:flex; gap:0.8rem;}
+.event:first-child{border-top:none;}
+.event .rail{flex:none; width:6px; border-radius:3px; background:var(--line-strong);}
+.event.ok .rail{background:var(--good);}
+.event.err .rail{background:var(--bad);}
+.event.inbound .rail{background:var(--accent);}
+.event.agent .rail{background:var(--live);}
+.event-body{flex:1; min-width:0;}
+.event-top{display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.35rem;}
+.event-title{font-size:0.86rem; font-weight:600;}
+.event-chan{font-family:var(--font-mono); font-size:0.62rem; text-transform:uppercase; letter-spacing:0.05em; padding:0.15em 0.45em; border-radius:4px; background:var(--surface-3); color:var(--ink-soft);}
+.event-time{font-family:var(--font-mono); font-size:0.68rem; color:var(--ink-faint); margin-left:auto;}
+.event-text{font-size:0.85rem; color:var(--ink-soft); line-height:1.55; word-wrap:break-word; overflow-wrap:anywhere;}
+.event-text.quoted{font-style:italic; padding-left:0.7rem; border-left:2px solid var(--line-strong);}
+.event-meta{display:flex; flex-wrap:wrap; gap:0.4rem; margin-top:0.5rem;}
+.pill{font-family:var(--font-mono); font-size:0.68rem; padding:0.2em 0.55em; border-radius:999px; background:var(--surface-2); color:var(--ink-soft); border:1px solid var(--line-strong);}
+.pill.good{color:var(--good); border-color:color-mix(in srgb, var(--good) 35%, transparent);}
+.pill.bad{color:var(--bad); border-color:color-mix(in srgb, var(--bad) 35%, transparent);}
+.pill.accent{color:var(--accent-ink); border-color:var(--accent); background:var(--accent-soft);}
+.score-bar{display:inline-block; width:52px; height:5px; border-radius:3px; background:var(--surface-3); overflow:hidden; vertical-align:middle; margin-left:0.3rem;}
+.score-bar span{display:block; height:100%; background:var(--good);}
+.waiting-row{display:flex; align-items:center; gap:0.6rem; padding:0.7rem 1.15rem; border-top:1px solid var(--line); font-size:0.8rem; color:var(--ink-soft);}
+.waiting-row .spinner{width:8px; height:8px; border-radius:50%; background:var(--accent); animation:pulse 0.9s ease-in-out infinite; flex:none;}
 </style>
 </head>
 <body>
@@ -203,9 +255,63 @@ code, .mono{font-family:var(--font-mono);}
         <button class="btn btn-small" id="testConnBtn">Test connection</button>
         <span class="settings-note" id="settingsNote" style="padding-top:0;">No credential needed here anymore — the live-send buttons route through this site's own serverless function, which holds the real secret server-side and never ships it to a visitor's browser.</span>
       </div>
-      <p class="settings-note">Everything except the two "send this for real" buttons runs entirely in this page using real, precomputed output from <code>check_bounds()</code> / <code>compute_ev()</code> / <code>select_instrument()</code>. See <code>docs/DEMO_UI.md</code>.</p>
+      <p class="settings-note">The scripted walkthrough below runs entirely in this page using real, precomputed output from <code>check_bounds()</code> / <code>compute_ev()</code> / <code>select_instrument()</code>. The live console does not — every button there reaches a real channel. See <code>docs/DEMO_UI.md</code>.</p>
     </div>
   </details>
+
+  <section class="console">
+    <div class="console-head">
+      <h2>Live console</h2>
+      <span class="sub">Real sends, real replies, real diagnosis — invoice INV-2201, ₹42,500, 22 days overdue</span>
+    </div>
+    <div class="console-body">
+      <div class="recipient-row">
+        <div class="field">
+          <label for="recipient">Recipient number (WhatsApp &amp; call only) — E.164, e.g. +919876543210</label>
+          <input id="recipient" type="tel" placeholder="+91…  — leave blank to use the demo's own configured number" autocomplete="off" spellcheck="false">
+        </div>
+      </div>
+
+      <div class="channel-grid">
+        <div class="channel-card">
+          <h4>📲 Telegram <span class="chan-tag two-way">two-way</span></h4>
+          <p class="why">Sends the real overdue-invoice message with a real Razorpay payment link, then watches for your reply and answers it.</p>
+          <button class="btn btn-live" data-channel="telegram">Send Telegram message</button>
+        </div>
+        <div class="channel-card">
+          <h4>🟢 WhatsApp <span class="chan-tag two-way">two-way</span></h4>
+          <p class="why">Sends an approved WhatsApp Content Template (required for a cold send) carrying the same real payment link, then watches for your reply.</p>
+          <button class="btn btn-live" data-channel="whatsapp">Send WhatsApp message</button>
+        </div>
+        <div class="channel-card">
+          <h4>📞 Voice call <span class="chan-tag one-way">one-way</span></h4>
+          <p class="why">Places a real text-to-speech call. One-way by design in this build — there's no inbound capture for a spoken reply, unlike the two text channels.</p>
+          <button class="btn btn-live" data-channel="ivr">Call this number</button>
+        </div>
+      </div>
+
+      <p class="console-note">
+        <strong>Telegram — do this first:</strong> a Telegram bot can only message someone who has messaged it first, so
+        there's no phone number to address and the recipient field above doesn't apply to it. To receive the Telegram
+        message yourself: open Telegram, search <code>@TrueCommit_bot</code>, send it any message (<code>hi</code> is
+        enough), and tell the demo owner your chat is live — otherwise the Telegram button messages the demo's own
+        configured chat. WhatsApp and calls have no such restriction: put any real number in the field above and it goes
+        there.
+      </p>
+    </div>
+  </section>
+
+  <section class="activity">
+    <div class="activity-head">
+      <h3>Activity — everything real that happened</h3>
+      <span class="count" id="activityCount">0 events</span>
+    </div>
+    <div class="activity-empty" id="activityEmpty">
+      Nothing yet. Use the live console above — every real send, reply, diagnosis and answer lands here with a timestamp.
+    </div>
+    <div class="activity-list" id="activityList"></div>
+    <div id="activityWaiting"></div>
+  </section>
 
   <div class="scenarios" id="scenarioTabs"></div>
 
@@ -350,11 +456,22 @@ var SCENARIOS = {
 // ---- state ----
 var state = {
   scenario: 'b2b', revealed: 0, openStage: -1, running: false, ledgerSeq: 0,
-  polling: false, pollTimer: null, pollsLeft: 0, lastSeenUpdateId: null,
   liveReplies: [], // real replies for the *current* run only -- SCENARIOS[key].convo is static reference data, never mutated
+  activity: [],    // every real event, newest last; rendered newest-first
 };
 var POLL_INTERVAL_MS = 3000;
 var MAX_POLLS = 40; // ~2 minutes
+
+// Per-channel polling state. Telegram and WhatsApp track separate cursors
+// because they're genuinely different id spaces (Telegram's integer
+// update_id vs a Twilio message SID) -- sharing one would silently drop
+// replies whenever both channels are in play in the same session.
+var poll = {
+  telegram: { timer: null, left: 0, cursor: null },
+  whatsapp: { timer: null, left: 0, cursor: null },
+};
+
+var CHANNEL_LABEL = { telegram: 'Telegram', whatsapp: 'WhatsApp', ivr: 'Voice call' };
 
 function loadSettings(){
   try{
@@ -376,7 +493,7 @@ function renderScenarioTabs(){
     card.className = 'scenario-card' + (state.scenario === key ? ' active' : '');
     card.innerHTML = '<span class="eyebrow">'+s.eyebrow+'</span><h3>'+s.label+'</h3><p>'+s.blurb+'</p>';
     card.addEventListener('click', function(){
-      stopPolling(); state.lastSeenUpdateId = null; state.liveReplies = [];
+      stopAllPolling(); state.liveReplies = [];
       state.scenario = key; state.revealed = 0; state.openStage = -1;
       render();
     });
@@ -405,12 +522,9 @@ function renderPipeline(){
     if (stage.live && isOpen){
       liveHtml = '<div class="live-trigger"><div class="row">'
         + '<span class="live-badge"><span class="dot"></span>LIVE</span>'
-        + '<button class="btn btn-live btn-small" data-live="'+i+'">'
-        + (scenario.channel === 'ivr' ? '📞 Call my phone for real' : '📲 Send this to my Telegram for real')
-        + '</button></div>'
-        + '<div class="live-result" id="liveResult"></div>'
-        + (scenario.channel === 'telegram' ? '<div id="replyPanel"></div>' : '')
-        + '</div>';
+        + '<span style="font-size:0.82rem;color:var(--ink-soft);">This stage is where a real send happens \u2014 '
+        + 'use the live console at the top of the page to fire one on any of the three channels.</span>'
+        + '</div></div>';
     }
 
     wrap.innerHTML =
@@ -432,9 +546,6 @@ function renderPipeline(){
       renderPipeline();
       renderRuleStrips();
     });
-  });
-  el.querySelectorAll('[data-live]').forEach(function(btn){
-    btn.addEventListener('click', function(){ triggerLive(btn); });
   });
 
   renderRuleStrips();
@@ -490,140 +601,182 @@ async function testConnection(){
   }
 }
 
-async function triggerLive(btn){
-  var resultEl = document.getElementById('liveResult');
-  var scenario = SCENARIOS[state.scenario];
+// ---- live console: three real channels ----
 
-  btn.disabled = true;
-  var originalText = btn.textContent;
-  btn.textContent = 'Sending…';
-  resultEl.className = 'live-result show';
-  resultEl.style.color = 'var(--ink-soft)';
-  resultEl.textContent = 'Calling the live trigger…';
-
-  try{
-    var res = await fetch('/api/demo-trigger', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ channel: scenario.channel, scenario: state.scenario }),
-    });
-    var body = await res.json();
-    if (res.ok && body.status === 'sent'){
-      resultEl.className = 'live-result show ok';
-      resultEl.textContent = '✓ Sent for real — channel=' + body.channel + (body.external_ref ? (' ref=' + body.external_ref) : '');
-      addLedgerRow('ACT', 'sent:' + scenario.channel, 'pass');
-      if (scenario.channel === 'telegram'){ startPolling(); }
-    } else if (res.ok && body.status === 'failed'){
-      // The request itself worked (bounds passed, the channel was reached) --
-      // the channel's own API said no. Distinct from a network/auth error below.
-      resultEl.className = 'live-result show err';
-      var reason = (body.detail && (body.detail.message || JSON.stringify(body.detail))) || 'channel rejected the send';
-      resultEl.textContent = '✗ Reached ' + body.channel + ', but it wasn\'t sent: ' + reason;
-    } else {
-      resultEl.className = 'live-result show err';
-      resultEl.textContent = '✗ ' + (body.detail || ('HTTP ' + res.status));
-    }
-  }catch(e){
-    resultEl.className = 'live-result show err';
-    resultEl.textContent = '✗ Could not reach the live trigger. Try again in a moment.';
-  }finally{
-    btn.disabled = false;
-    btn.textContent = originalText;
-  }
+function nowLabel(){
+  return new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
 }
 
-// ---- reactive Telegram: poll for a real reply, diagnose it for real ----
-
-function renderReplyPanel(html){
-  var panel = document.getElementById('replyPanel');
-  if (panel) panel.innerHTML = html;
+function addActivity(entry){
+  entry.at = nowLabel();
+  state.activity.push(entry);
+  renderActivity();
 }
 
-function startPolling(){
-  stopPolling();
-  state.polling = true;
-  state.pollsLeft = MAX_POLLS;
-  renderReplyPanel(
-    '<div class="reply-wait"><span class="spinner"></span>Waiting for your reply on Telegram… (checking every 3s)</div>'
-    + '<div class="reply-manual"><button class="btn btn-small" id="checkNowBtn">Check now</button>'
-    + ' <button class="btn btn-small" id="stopWaitBtn">Stop waiting</button></div>'
-  );
-  bindReplyPanelButtons();
-  state.pollTimer = setInterval(function(){ pollOnce(); }, POLL_INTERVAL_MS);
-}
+function renderActivity(){
+  var list = document.getElementById('activityList');
+  var empty = document.getElementById('activityEmpty');
+  document.getElementById('activityCount').textContent =
+    state.activity.length + (state.activity.length === 1 ? ' event' : ' events');
+  empty.style.display = state.activity.length ? 'none' : 'block';
 
-function stopPolling(){
-  if (state.pollTimer){ clearInterval(state.pollTimer); state.pollTimer = null; }
-  state.polling = false;
-}
-
-function bindReplyPanelButtons(){
-  var checkBtn = document.getElementById('checkNowBtn');
-  var stopBtn = document.getElementById('stopWaitBtn');
-  if (checkBtn) checkBtn.addEventListener('click', function(){ pollOnce(); });
-  if (stopBtn) stopBtn.addEventListener('click', function(){
-    stopPolling();
-    renderReplyPanel('<div class="reply-wait">Stopped waiting. <button class="btn btn-small" id="checkNowBtn2">Check now</button></div>');
-    var btn2 = document.getElementById('checkNowBtn2');
-    if (btn2) btn2.addEventListener('click', function(){ startPolling(); });
+  list.innerHTML = '';
+  state.activity.slice().reverse().forEach(function(e){
+    var div = document.createElement('div');
+    div.className = 'event ' + (e.kind || '');
+    var meta = (e.pills || []).map(function(pill){
+      return '<span class="pill '+(pill.tone||'')+'">'+escapeHtml(pill.text)+'</span>';
+    }).join('');
+    div.innerHTML =
+      '<div class="rail"></div>'
+      + '<div class="event-body">'
+      +   '<div class="event-top">'
+      +     '<span class="event-title">'+escapeHtml(e.title)+'</span>'
+      +     (e.channel ? '<span class="event-chan">'+escapeHtml(CHANNEL_LABEL[e.channel] || e.channel)+'</span>' : '')
+      +     '<span class="event-time">'+e.at+'</span>'
+      +   '</div>'
+      +   (e.text ? '<div class="event-text'+(e.quoted?' quoted':'')+'">'+escapeHtml(e.text)+'</div>' : '')
+      +   (meta ? '<div class="event-meta">'+meta+'</div>' : '')
+      + '</div>';
+    list.appendChild(div);
   });
 }
 
-async function pollOnce(){
-  state.pollsLeft -= 1;
-  if (state.pollsLeft <= 0){ stopPolling(); }
+function renderWaiting(){
+  var el = document.getElementById('activityWaiting');
+  var active = Object.keys(poll).filter(function(c){ return poll[c].timer; });
+  if (!active.length){ el.innerHTML = ''; return; }
+  el.innerHTML = active.map(function(c){
+    return '<div class="waiting-row"><span class="spinner"></span>Watching ' + CHANNEL_LABEL[c]
+      + ' for a reply… <button class="btn btn-small" data-stop="'+c+'">Stop</button></div>';
+  }).join('');
+  el.querySelectorAll('[data-stop]').forEach(function(btn){
+    btn.addEventListener('click', function(){ stopPolling(btn.getAttribute('data-stop')); });
+  });
+}
+
+async function triggerChannel(channel, btn){
+  var to = document.getElementById('recipient').value.trim();
+  var payload = { channel: channel, scenario: 'b2b' };
+  // Telegram has no number to address (a bot can only message someone who
+  // messaged it first) -- sending `to` there is a 400 by design, so the
+  // recipient field simply doesn't apply to it.
+  if (to && channel !== 'telegram'){ payload.to = to; }
+
+  var original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+
+  try{
+    var res = await fetch('/api/demo-trigger', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload),
+    });
+    var body = await res.json();
+
+    if (res.ok && body.status === 'sent'){
+      var pills = [{text:(body.bounds_checks ? body.bounds_checks.length : 0)+'/19 bounds rules passed', tone:'good'}];
+      if (body.external_ref){ pills.push({text:'ref '+body.external_ref}); }
+      addActivity({
+        kind:'ok', channel:channel,
+        title: channel === 'ivr' ? 'Call placed for real' : 'Message sent for real',
+        text: (to && channel !== 'telegram') ? ('to ' + to) : 'to the demo’s own configured contact',
+        pills: pills,
+      });
+      addLedgerRow('ACT', 'sent:'+channel, 'pass');
+      if (channel === 'telegram' || channel === 'whatsapp'){ startPolling(channel); }
+    } else if (res.ok && body.status === 'failed'){
+      // The request worked (bounds passed, the channel was reached) and the
+      // channel's own API said no -- distinct from the errors below.
+      addActivity({
+        kind:'err', channel:channel, title:'Channel reached, but it refused the send',
+        text:(body.detail && (body.detail.message || JSON.stringify(body.detail))) || 'no reason given',
+      });
+    } else {
+      addActivity({
+        kind:'err', channel:channel, title:'Refused (HTTP '+res.status+')',
+        text: body.detail ? String(body.detail) : 'no detail given',
+      });
+    }
+  }catch(e){
+    addActivity({kind:'err', channel:channel, title:'Could not reach the backend', text:String(e)});
+  }finally{
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+}
+
+function startPolling(channel){
+  stopPolling(channel);
+  poll[channel].left = MAX_POLLS;
+  poll[channel].timer = setInterval(function(){ pollOnce(channel); }, POLL_INTERVAL_MS);
+  renderWaiting();
+}
+
+function stopPolling(channel){
+  if (poll[channel] && poll[channel].timer){
+    clearInterval(poll[channel].timer);
+    poll[channel].timer = null;
+  }
+  renderWaiting();
+}
+
+function stopAllPolling(){ Object.keys(poll).forEach(stopPolling); }
+
+async function pollOnce(channel){
+  var p = poll[channel];
+  p.left -= 1;
+  if (p.left <= 0){ stopPolling(channel); }
+
+  var payload = { channel: channel, scenario: 'b2b', diagnose: true };
+  if (channel === 'telegram'){ payload.after_update_id = p.cursor; }
+  else { payload.after_message_sid = p.cursor; }
 
   try{
     var res = await fetch('/api/demo-check-reply', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ after_update_id: state.lastSeenUpdateId, diagnose: true }),
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload),
     });
-    if (!res.ok){ return; } // transient/misconfig -- next poll (or "check now") tries again
+    if (!res.ok) return;  // transient/misconfig -- the next poll tries again
     var body = await res.json();
     if (!body.has_reply) return;
 
-    stopPolling();
-    state.lastSeenUpdateId = body.update_id;
+    stopPolling(channel);
+    p.cursor = body.update_id;
 
-    // Add the real reply to the conversation thread as a genuine debtor
-    // bubble -- appended to this run's own list, never onto the shared
-    // SCENARIOS[key].convo static data (that would duplicate across re-runs).
-    state.liveReplies.push({ who: 'debtor', text: body.text + ' — (this is your real reply)' });
-    renderConvo(document.getElementById('convoContainer'));
+    addActivity({kind:'inbound', channel:channel, title:'Real reply received', text:body.text, quoted:true});
 
-    var diagHtml;
     if (body.diagnosis && body.diagnosis.error){
-      diagHtml = '<div class="diagnosis-row"><span class="diagnosis-pill">extraction failed: ' + escapeHtml(body.diagnosis.error) + '</span></div>';
+      addActivity({kind:'err', channel:channel, title:'Extraction failed', text:body.diagnosis.error});
     } else if (body.diagnosis){
-      diagHtml =
-        '<div class="diagnosis-row">'
-        + '<span class="diagnosis-pill">family: ' + escapeHtml(body.diagnosis.family) + '</span>'
-        + '<span class="diagnosis-pill">class: ' + escapeHtml(body.diagnosis.class) + '</span>'
-        + '<span class="diagnosis-pill confidence">confidence: ' + (body.diagnosis.confidence*100).toFixed(0) + '%</span>'
-        + '</div>';
-    } else {
-      diagHtml = '';
+      var conf = Math.round((body.diagnosis.confidence || 0) * 100);
+      addActivity({
+        kind:'', channel:channel, title:'Scored by the real extractor',
+        pills:[
+          {text:'family '+body.diagnosis.family, tone:'accent'},
+          {text:body.diagnosis['class']},
+          {text:'confidence '+conf+'%', tone: conf >= 60 ? 'good' : ''},
+        ],
+      });
+      addLedgerRow('DIAGNOSE', 'reply:'+channel, 'pass');
     }
 
-    renderReplyPanel(
-      '<div class="reply-card">'
-      + '<span class="label">Your real reply, just read by the actual extractor</span>'
-      + '<div class="reply-text">“' + escapeHtml(body.text) + '”</div>'
-      + diagHtml
-      + '</div>'
-    );
-    addLedgerRow('DIAGNOSE', 'live_reply:extracted', 'pass');
+    if (body.followup_bounds_refusals){
+      addActivity({
+        kind:'err', channel:channel, title:'check_bounds() refused the reply',
+        pills: body.followup_bounds_refusals.map(function(r){ return {text:r, tone:'bad'}; }),
+      });
+      addLedgerRow('BOUNDS', 'reply:'+channel, 'refuse');
+    }
 
-    // The agent's real follow-up, sent back over the same channel -- shown
-    // as a genuine system bubble, not just a diagnosis on the dashboard.
     if (body.agent_reply){
-      state.liveReplies.push({ who: 'system', text: body.agent_reply + ' (this is a real reply, sent for real)' });
-      renderConvo(document.getElementById('convoContainer'));
-      addLedgerRow('ACT', 'live_reply:followed_up', 'pass');
+      addActivity({
+        kind:'agent', channel:channel,
+        title:'Agent answered — composed against what they actually said',
+        text:body.agent_reply,
+      });
+      addLedgerRow('ACT', 'reply_sent:'+channel, 'pass');
     }
   }catch(e){
-    // network hiccup -- silently retried on the next scheduled poll
+    // network hiccup -- retried on the next scheduled poll
   }
 }
 
@@ -664,7 +817,7 @@ function render(){
 async function runScenario(){
   if (state.running) return;
   state.running = true;
-  stopPolling(); state.lastSeenUpdateId = null; state.liveReplies = [];
+  stopAllPolling(); state.liveReplies = [];
   var scenario = SCENARIOS[state.scenario];
   var runBtn = document.getElementById('runBtn');
   runBtn.disabled = true;
@@ -686,10 +839,14 @@ async function runScenario(){
 
 document.getElementById('runBtn').addEventListener('click', runScenario);
 document.getElementById('resetBtn').addEventListener('click', function(){
-  stopPolling(); state.lastSeenUpdateId = null; state.liveReplies = [];
+  stopAllPolling(); state.liveReplies = [];
   state.revealed = 0; state.openStage = -1; resetLedger(); renderPipeline();
   renderConvo(document.getElementById('convoContainer'));
 });
+document.querySelectorAll('[data-channel]').forEach(function(btn){
+  btn.addEventListener('click', function(){ triggerChannel(btn.getAttribute('data-channel'), btn); });
+});
+
 document.getElementById('testConnBtn').addEventListener('click', testConnection);
 document.getElementById('backendUrl').addEventListener('change', saveSettings);
 

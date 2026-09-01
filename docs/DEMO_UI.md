@@ -61,6 +61,28 @@ rely on a client's own tracked position — `_last_followed_up_update_id`
 not the caller's good behavior (a page reload resetting the dashboard's
 state would otherwise re-trigger a real duplicate send for an old reply).
 
+## The page, as laid out
+
+1. **Live console** (top) — a recipient field and three buttons, one per
+   real channel. This is the only place a real send is fired from; the
+   scripted walkthrough below it explains the pipeline but no longer
+   triggers anything (two places to fire the same real send was worse than
+   one). The Telegram card carries its own instructions inline, because
+   its constraint is genuinely different from the other two — see the
+   table below.
+2. **Activity** — every real event, newest first, with a timestamp:
+   the send itself (with how many of the 19 bounds rules passed and the
+   channel's own reference id), the real reply when it arrives quoted
+   verbatim, the extractor's scoring (family, class, and a real
+   confidence, not a fixed number), a bounds refusal if the follow-up is
+   ever gated, and the composed answer that went back. This is the panel
+   to point a judge at: everything in it actually happened, none of it is
+   scripted.
+3. **Scripted walkthrough** (below) — the three-scenario pipeline
+   explainer, unchanged, still driven by real precomputed numbers.
+4. **Ledger — this session** — the terse per-stage row view, still fed by
+   both the scripted run and the real console events.
+
 ## Three real channels, and what each can actually do
 
 | | Telegram | WhatsApp | Voice call |
