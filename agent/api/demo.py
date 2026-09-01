@@ -846,6 +846,15 @@ def _decide_next_step(extraction, scenario: dict[str, object], *, channel: str, 
     result = _gate(action_type.value)
     chosen, refusals, escalated = action_type.value, [v.rule_id for v in result.refusals], False
 
+    # The rule's own words, not just its id. `BoundsVerdict.reason` is
+    # already `rule.human` on a refusal, so the plain-language explanation
+    # existed all along and was being thrown away at this boundary -- which
+    # is why a refusal rendered in the dashboard as a bare identifier a
+    # viewer had to already know the meaning of.
+    refusal_detail = [{"rule_id": v.rule_id, "reason": v.reason} for v in result.refusals]
+    rules_passed = sum(1 for v in result.verdicts if v.verdict == "PASS")
+    rules_total = len(result.verdicts)
+
     if not result.passed:
         if refusals and set(refusals) <= REFUSALS_THAT_MEAN_WAIT:
             # Not every refusal means "this needs a person". A debtor who
@@ -885,6 +894,11 @@ def _decide_next_step(extraction, scenario: dict[str, object], *, channel: str, 
         "allowed": result.passed,
         "escalated_to_human": escalated,
         "refusals": refusals,
+        "refusal_detail": refusal_detail,
+        # The tally the dashboard needs to say "18/19 passed, 1 refused"
+        # rather than showing a refusal with no sense of scale.
+        "rules_passed": rules_passed,
+        "rules_total": rules_total,
         "touches_before": touches,
         "debtor_state": debtor_state,
         "promise_date": promise.date if promise is not None else None,

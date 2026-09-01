@@ -742,3 +742,60 @@ reset would hit a 429 left over from before it.
 every boot and uses `add_if_absent`, so a restart can never resurrect an
 invoice a real capture has settled. Reset is a deliberate, secret-gated
 call and uses `upsert`, so it can. There is a test for each side of that.
+
+## The refusal strip
+
+Every other surface in this dashboard shows what the agent *did*. The
+thesis is that the part worth judging is what it *refuses* to do -- and
+until now a refusal rendered like this:
+
+```
+Next step decided
+no_action · refused by PROMISE_COOLDOWN
+```
+
+Small grey text, one row among many, visually indistinguishable from a
+successful send. The single most important thing this system does was the
+least visible thing on screen.
+
+It now renders as a state:
+
+```
+✗  check_bounds   18/19 passed · 1 REFUSED
+
+   PROMISE_COOLDOWN
+   A promise buys quiet time. A history of broken promises buys less of
+   it, on a sliding scale -- not a hard cutoff -- down to none at zero
+   credibility.
+
+   → nothing sent  no_action
+```
+
+Three things that line could not do:
+
+**It names the rule and explains it.** `BoundsVerdict.reason` is already
+`rule.human` on a refusal, so the plain-language sentence existed the whole
+time and was being dropped at the API boundary. The fix was to stop
+throwing it away, not to write new copy -- which is why the wording on
+screen is the same wording in `rules.yaml`, and stays in sync with it.
+
+**It shows scale.** "1 REFUSED" means little on its own; "18/19 passed"
+says a specific gate fired, not that everything failed.
+
+**It shows what happened instead.** A refusal with no stated outcome reads
+as the system giving up. The whole design argument is that a refusal is a
+*routing decision*, so `→ nothing sent no_action` or `→ handed to a person
+escalate_human` sits directly beneath it.
+
+`no_action` also gets its own row treatment. It is described everywhere in
+this repo as "a first-class logged decision, not silence", and it was
+rendering identically to every other event -- which made it look exactly
+like the silence it is supposed to be the opposite of.
+
+A clean pass stays quiet: `✓ check_bounds 19/19 passed`, no body. The
+refusal colour is reserved for refusals, so it reads at a glance rather
+than competing with a wall of green ticks.
+
+**Back-compatible by construction.** An event recorded before this change
+carries no `rules_total`, and `renderGate()` returns an empty string rather
+than a broken strip -- so the existing timeline still renders.

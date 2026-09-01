@@ -322,3 +322,72 @@ class TestASilentFallbackIsRecorded:
         failed = [e for e in client.get("/demo/timeline").json()["events"]
                   if e["kind"] == "compose_failed"]
         assert len(failed) == 1, "the second reply succeeded and must not be marked degraded"
+
+
+class TestTheGateVerdictIsRenderable:
+    """The dashboard showed a refusal as small grey text -- `no_action ·
+    refused by PROMISE_COOLDOWN` -- indistinguishable at a glance from a
+    successful send. For a project whose thesis is "the part worth judging
+    is what it refuses to do", the refusal was the least visible thing on
+    screen.
+
+    These pin the backend contract the refusal strip renders from. The
+    strip is markup, but it can only say what the decision carries.
+    """
+
+    def _decide(self, **kw):
+        from agent.diagnose.extract import ExtractionResult
+
+        return demo_module._decide_next_step(
+            ExtractionResult(**kw), demo_module.SCENARIOS["b2b"],
+            channel="telegram", debtor_key="gate_render_debtor",
+        )
+
+    def test_a_refusal_carries_the_rules_own_words(self, client):
+        """`BoundsVerdict.reason` is already `rule.human` on a refusal, so
+        the plain-language explanation existed and was being dropped at this
+        boundary -- which is why the UI could only show a bare identifier a
+        viewer had to already know the meaning of."""
+        from datetime import date, timedelta
+
+        decision = self._decide(
+            family=Family.C, class_=DiagnosisClass.PROMISE_STATED, confidence=0.9,
+            promise=PromiseFields(amount_paise=21_000_00,
+                                  date=(date.today() + timedelta(days=5)).isoformat()),
+        )
+        assert decision["refusals"] == ["PROMISE_COOLDOWN"]
+        detail = decision["refusal_detail"]
+        assert detail and detail[0]["rule_id"] == "PROMISE_COOLDOWN"
+        assert len(detail[0]["reason"]) > 20, "a rule id without its reason is not an explanation"
+
+    def test_the_tally_lets_the_ui_show_scale(self, client):
+        """"1 REFUSED" means little without "18/19 passed" beside it."""
+        from datetime import date, timedelta
+
+        decision = self._decide(
+            family=Family.C, class_=DiagnosisClass.PROMISE_STATED, confidence=0.9,
+            promise=PromiseFields(amount_paise=21_000_00,
+                                  date=(date.today() + timedelta(days=5)).isoformat()),
+        )
+        assert decision["rules_total"] == 19
+        assert decision["rules_passed"] == decision["rules_total"] - len(decision["refusals"])
+
+    def test_a_clean_pass_reports_a_full_tally_and_no_refusals(self, client):
+        decision = self._decide(
+            family=Family.C, class_=DiagnosisClass.STALLING, confidence=0.5)
+        assert decision["refusal_detail"] == []
+        assert decision["rules_passed"] == decision["rules_total"]
+
+    def test_the_outcome_is_on_the_decision_so_a_refusal_is_never_a_dead_end(self, client):
+        """A refusal with no stated outcome reads as the system giving up.
+        The whole design argument is that it is a routing decision, so what
+        happened instead has to be renderable next to it."""
+        from datetime import date, timedelta
+
+        decision = self._decide(
+            family=Family.C, class_=DiagnosisClass.PROMISE_STATED, confidence=0.9,
+            promise=PromiseFields(amount_paise=21_000_00,
+                                  date=(date.today() + timedelta(days=5)).isoformat()),
+        )
+        assert decision["action"] in ("no_action", "escalate_human")
+        assert decision["allowed"] is False

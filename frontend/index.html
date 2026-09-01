@@ -277,6 +277,40 @@ code, .mono{font-family:var(--font-mono);}
 .case-detail{font-size:0.8rem; color:var(--ink-soft); margin-top:0.2rem; word-wrap:break-word; overflow-wrap:anywhere;}
 .case-detail.quoted{font-style:italic; padding-left:0.7rem; border-left:2px solid var(--line-strong);}
 
+/* ---------- the refusal strip ----------
+   The gate's verdict as a visual state, not a sentence. A refusal used to
+   render as small grey text among the other rows, which made the single
+   most important thing this system does look like a footnote. */
+.gate{margin-top:0.5rem; border:1px solid var(--line-strong); border-radius:8px; overflow:hidden;}
+.gate.refused{border-color:color-mix(in srgb, var(--bad) 55%, var(--line-strong));}
+.gate-head{
+  display:flex; align-items:center; gap:0.55rem; padding:0.45rem 0.7rem;
+  background:var(--surface-2); font-family:var(--font-mono); font-size:0.7rem;
+  letter-spacing:0.04em; text-transform:uppercase;
+}
+.gate.refused .gate-head{background:var(--bad-bg);}
+.gate-mark{font-weight:700; font-size:0.8rem;}
+.gate.passed .gate-mark{color:var(--good);}
+.gate.refused .gate-mark{color:var(--bad);}
+.gate-tally{color:var(--ink-soft); font-variant-numeric:tabular-nums;}
+.gate-tally b{color:var(--bad); font-weight:600;}
+.gate-body{padding:0.55rem 0.7rem; display:flex; flex-direction:column; gap:0.5rem;}
+.gate-rule{display:flex; flex-direction:column; gap:0.15rem;}
+.gate-rule .rule-id{font-family:var(--font-mono); font-size:0.72rem; color:var(--bad); font-weight:600;}
+.gate-rule .rule-why{font-size:0.79rem; color:var(--ink-soft); line-height:1.5;}
+.gate-outcome{
+  font-size:0.79rem; color:var(--ink); padding-top:0.4rem;
+  border-top:1px dashed var(--line-strong);
+}
+.gate-outcome .arrow{color:var(--ink-faint); margin-right:0.3rem;}
+.gate-outcome code{
+  font-family:var(--font-mono); font-size:0.75rem; padding:0.1em 0.4em; border-radius:4px;
+  background:var(--surface-3); color:var(--accent-ink);
+}
+/* no_action is a logged decision, not an absence -- so it must not render
+   like every other row. */
+.case-row.stopped .case-dot{background:var(--warn); box-shadow:0 0 0 3px var(--warn-bg);}
+
 /* ---------- tabs ---------- */
 .tabs{display:flex; gap:0.25rem; margin:1.25rem 0 0; border-bottom:1px solid var(--line); overflow-x:auto;}
 .tab{
@@ -978,12 +1012,62 @@ var CASE_EVENT = {
   diagnosed:       {title:'Scored by the real extractor',     cls:''},
   extraction_failed:{title:'Extraction failed',               cls:'bad'},
   bounds_refused:  {title:'check_bounds() refused the reply', cls:'bad'},
-  decided:         {title:'Next step decided',                cls:''},
+  decided:         {title:'Next step decided — gate passed',  cls:''},
   plan_built:      {title:'Instalment plan computed',         cls:''},
   mandate_issued:  {title:'Real e-mandate created',           cls:'mandate'},
   agent_replied:   {title:'Agent answered',                   cls:'agent', quote:true},
   reply_send_failed:{title:'Reply could not be delivered',    cls:'bad'},
 };
+
+var ACTION_LABEL = {
+  no_action: 'nothing sent',
+  escalate_human: 'handed to a person',
+  send_reminder: 'a reminder',
+  create_payment_link: 'a payment link',
+  reissue_artifact: 'the document reissued',
+};
+
+function renderGate(d){
+  // The gate's verdict as a visual state. A refusal is the single most
+  // important thing this system does and it used to render as small grey
+  // text, indistinguishable at a glance from a success.
+  var total = d.rules_total || 0;
+  if (!total) return '';
+  var passed = d.rules_passed || 0;
+  var refused = (d.refusal_detail && d.refusal_detail.length)
+    ? d.refusal_detail
+    : (d.refusals || []).map(function(id){ return {rule_id:id, reason:''}; });
+  var isRefused = refused.length > 0;
+
+  var head = '<div class="gate-head">'
+    + '<span class="gate-mark">' + (isRefused ? '✗' : '✓') + '</span>'
+    + '<span>check_bounds</span>'
+    + '<span class="gate-tally">' + passed + '/' + total + ' passed'
+    +   (isRefused ? ' · <b>' + refused.length + ' REFUSED</b>' : '')
+    + '</span></div>';
+
+  if (!isRefused){
+    return '<div class="gate passed">' + head + '</div>';
+  }
+
+  var rules = refused.map(function(r){
+    return '<div class="gate-rule">'
+      + '<span class="rule-id">' + escapeHtml(r.rule_id) + '</span>'
+      + (r.reason ? '<span class="rule-why">' + escapeHtml(r.reason) + '</span>' : '')
+      + '</div>';
+  }).join('');
+
+  // What happened instead. A refusal with no stated outcome reads as a
+  // dead end, and the whole design argument is that it is a routing
+  // decision.
+  var outcome = '<div class="gate-outcome"><span class="arrow">→</span>'
+    + escapeHtml(ACTION_LABEL[d.action] || d.action)
+    + ' <code>' + escapeHtml(d.action) + '</code>'
+    + (d.escalated_to_human ? ' — the case goes to a human queue' : '')
+    + '</div>';
+
+  return '<div class="gate refused">' + head + '<div class="gate-body">' + rules + outcome + '</div></div>';
+}
 
 function caseDetail(kind, d){
   if (!d) return '';
@@ -1001,9 +1085,8 @@ function caseDetail(kind, d){
     return line;
   }
   if (kind === 'decided'){
-    var line2 = d.action + (d.escalated_to_human ? ' (escalated — the gate refused ' + d.proposed_action + ')' : '');
-    if (d.refusals && d.refusals.length){ line2 += ' · refused by ' + d.refusals.join(', '); }
-    return line2;
+    // Rendered as a strip, not a sentence -- see renderGate().
+    return '';
   }
   if (kind === 'plan_built'){
     var legs = (d.legs || []).map(function(l){
@@ -1074,15 +1157,32 @@ function renderCaseFile(body){
 
   list.innerHTML = body.events.slice().reverse().map(function(e){
     var meta = CASE_EVENT[e.kind] || {title:e.kind, cls:''};
-    var detail = caseDetail(e.kind, e.detail);
+    var d = e.detail || {};
+    var detail = caseDetail(e.kind, d);
     var when = e.at ? new Date(e.at.replace(' ', 'T')).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'}) : '';
-    return '<li class="case-row '+meta.cls+'">'
+
+    // A refusal, and a decision to stop, each get their own look. Both used
+    // to render exactly like a successful send.
+    var cls = meta.cls;
+    var title = meta.title;
+    if (e.kind === 'decided'){
+      var wasRefused = (d.refusals && d.refusals.length) || d.allowed === false;
+      if (wasRefused){
+        cls = d.action === 'no_action' ? 'stopped' : 'bad';
+        title = d.escalated_to_human ? 'Gate refused — handed to a person'
+                                     : 'Gate refused — nothing sent';
+      }
+    }
+
+    var gate = e.kind === 'decided' ? renderGate(d) : '';
+    return '<li class="case-row '+cls+'">'
       + '<span class="case-dot"></span>'
       + '<div class="case-body">'
-      +   '<div class="case-top"><span class="case-title">'+escapeHtml(meta.title)+'</span>'
+      +   '<div class="case-top"><span class="case-title">'+escapeHtml(title)+'</span>'
       +     (e.channel ? '<span class="event-chan">'+escapeHtml(CHANNEL_LABEL[e.channel] || e.channel)+'</span>' : '')
       +     '<span class="case-time">'+escapeHtml(when)+'</span></div>'
       +   (detail ? '<div class="case-detail'+(meta.quote?' quoted':'')+'">'+escapeHtml(detail)+'</div>' : '')
+      +   gate
       + '</div></li>';
   }).join('');
 }

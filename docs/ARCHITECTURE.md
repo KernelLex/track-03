@@ -115,6 +115,13 @@ then `handle_inbound_message()` runs the real extractor, the real
 composer. It is still a driver outside the stages, calling their pure
 functions, not a stage calling another stage.
 
+**A refusal is now visible, not just recorded.** `_decide_next_step()`
+returns the refusing rules' own `human` text and a passed/total tally
+alongside the chosen action, so the dashboard can render the gate's verdict
+as a state rather than a sentence (`docs/DEMO_UI.md`). No new decision
+logic -- the reason was already on `BoundsVerdict` and was being discarded
+at the API boundary.
+
 **A capture now moves a debtor's record.** `payment.captured` settles the
 oldest open promise through the same webhook that INGEST and SETTLE already
 handle -- deliberately driven from the rail's event rather than from
