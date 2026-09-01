@@ -51,17 +51,58 @@ an unexpected reason the first time). Fixed properly, not just tolerated:
 the trigger now creates **one** real link per demo run and reuses it on
 every subsequent b2b click, rather than minting a new one each time.
 
-Replying is no longer a dead end either — `/demo/check-reply` sends a
-real, family-level message back over the same channel after diagnosing a
-reply (`_agent_reply_for`), not just a diagnosis shown on the dashboard.
-A liquidity/willingness reply (Family C) gets the real link resent; a
-dispute (Family D) gets told it's being escalated to a human; and so on.
-**Guarded against sending twice**: diagnosing the same reply repeatedly is
-harmless, but the follow-up *send* isn't idempotent by nature, and this
-endpoint has no session concept to rely on a client's own tracked
-position — `_last_followed_up_update_id` is the actual guard, not the
-caller's good behavior (a page reload resetting the dashboard's state
-would otherwise re-trigger a real duplicate send for an old reply).
+Replying is no longer a dead end either — `/demo/check-reply` sends a real
+message back over the same channel after diagnosing a reply, not just a
+diagnosis shown on the dashboard. **Guarded against sending twice**:
+diagnosing the same reply repeatedly is harmless, but the follow-up *send*
+isn't idempotent by nature, and this endpoint has no session concept to
+rely on a client's own tracked position — `_last_followed_up_update_id`
+(and `_last_followed_up_whatsapp_sid` for WhatsApp) is the actual guard,
+not the caller's good behavior (a page reload resetting the dashboard's
+state would otherwise re-trigger a real duplicate send for an old reply).
+
+## Three real channels, and what each can actually do
+
+| | Telegram | WhatsApp | Voice call |
+|---|---|---|---|
+| Send | real message | real Content Template (cold sends need one — WhatsApp's rule, see `docs/CHANNELS.md`) | real TTS call |
+| Custom recipient | **no** — a bot can only message someone who messaged it first, so there's no number to address; a supplied `to` is refused outright rather than silently ignored | yes, E.164 | yes, E.164 |
+| Reads replies | yes (Telegram's own update feed) | yes (polls this Twilio account's own message history — no webhook, so no Console configuration needed for a demo surface) | **no** — one-way TTS, no inbound capture |
+| Answers replies | yes | yes | n/a |
+
+Guardrails on a caller-supplied number, since honoring one gives up this
+endpoint's original "can only ever reach the demo owner" property
+deliberately: E.164 format validation, plus a 5-minute per-number cooldown
+*on top of* the existing 20-second per-channel one.
+
+## The reply is composed, not canned
+
+The first version answered with one fixed sentence per diagnosis family
+("Understood — pausing automated contact on this invoice"). Defensible as
+a fallback, but it doesn't *read* what was actually said: a promise of a
+specific date, a question about the link, and a flat refusal all got the
+same Family C sentence. `agent/notify/compose.py` replaces that with a
+real, budget-tracked model call that answers the actual message — the
+generating counterpart to the extractor's classifying one.
+
+Two things it deliberately doesn't relax:
+
+- **Law 8** — the debtor's message goes in the user turn, never
+  concatenated into the system prompt, exactly as `llm_extract` does it.
+  Nothing in a reply can reach the instruction channel, however it's
+  phrased.
+- **Authority** — the prompt forbids promising a discount, waiver, or
+  extension; confirming a payment as received; or stating any consequence
+  (legal, credit, fees, suspension). An LLM asked to be helpful reaches
+  for exactly those otherwise, and none of them are a message-writer's to
+  give. The fixed family line remains the fallback when the composer is
+  unavailable — a bland known-safe sentence, never a retry with the
+  guardrails loosened.
+
+**The bounds gate runs on the reply too** (`_bounds_gate_followup`), not
+just on the outbound trigger. A reply is an outbound contact like any
+other; exempting it for being a response would be exactly the kind of
+quiet carve-out this project exists not to have.
 
 ## The architecture, and why it changed
 

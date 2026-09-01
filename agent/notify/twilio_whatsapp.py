@@ -5,20 +5,21 @@ to Twilio's Messages endpoint (POST .../Messages.json with whatsapp: To/
 From prefixes), a genuinely different API shape from Meta's own Graph API
 messages endpoint -- not a config flip on the existing channel.
 
-Built specifically for the Sandbox path: Twilio's shared sandbox number
-(conventionally whatsapp:+14155238886) sends and receives real WhatsApp
-messages with **zero Meta business verification** -- the recipient only
-has to text "join <sandbox-code>" to that number once, then Twilio can
-message them freely for the sandbox's session lifetime. This is
-demo/dev-only, not a production channel: a real, branded WhatsApp
-business number still needs the same underlying Meta business
-verification agent/notify/whatsapp.py's direct integration was built
-for -- Twilio is a Meta Business Solution Provider on the back end, not a
-way around that requirement. This module sidesteps it for exactly the
-sandbox use case, nothing more.
+Real, verified WhatsApp sender as of 2026-09-01 (docs/CHANNELS.md), not
+the classic shared sandbox this module started against -- registering a
+real number as a sender through Twilio's guided flow is lighter than
+Meta's own direct business verification, but doesn't remove the
+underlying Meta requirement (Twilio is a Meta Business Solution Provider,
+not a way around it): free-form `send()` still only works inside a 24h
+customer-service window (WhatsApp's own platform rule, error 63016
+outside it, checked against Twilio's own error docs, not guessed), and
+`send_template()` is the only way to message a debtor from cold, the same
+two-tier shape agent/notify/whatsapp.py's direct integration already has.
 """
 
 from __future__ import annotations
+
+import json
 
 import httpx
 
@@ -92,6 +93,69 @@ class TwilioWhatsAppChannel:
             channel="whatsapp", external_ref=body.get("sid"), status="sent",
             detail={"status": body.get("status")},
         )
+
+    def send_template(self, *, to: str, content_sid: str, content_variables: dict[str, str]) -> MessageSendResult:
+        """Send a pre-approved WhatsApp Content Template -- the only way to
+        message a debtor from cold (outside the 24h window `send()` needs).
+        `content_sid` comes from Twilio's Content API (`HX...`); Twilio
+        substitutes `content_variables` into the template's `{{1}}`,
+        `{{2}}`, ... placeholders server-side. Live-verified: a raw
+        `whatsapp:+E164` `From` works here exactly like it does for
+        `send()` -- no Messaging Service SID needed, despite some
+        documentation implying otherwise. Same failure handling as
+        `send()`: a clean Twilio-side rejection (most commonly, right after
+        submitting a template: still pending WhatsApp approval) comes back
+        as status="failed", not an exception."""
+        try:
+            response = self._client.post(
+                f"{self._base}/Messages.json",
+                data={
+                    "To": _as_whatsapp(to), "From": self._from,
+                    "ContentSid": content_sid, "ContentVariables": json.dumps(content_variables),
+                },
+            )
+        except httpx.HTTPError as exc:
+            raise ChannelUnavailable("whatsapp", str(exc)) from exc
+
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise ChannelUnavailable("whatsapp", f"non-JSON response: {exc}") from exc
+
+        if response.status_code >= 300:
+            return MessageSendResult(
+                channel="whatsapp", external_ref=None, status="failed",
+                detail={"status_code": response.status_code, "message": body.get("message"), "code": body.get("code")},
+            )
+
+        return MessageSendResult(
+            channel="whatsapp", external_ref=body.get("sid"), status="sent",
+            detail={"status": body.get("status")},
+        )
+
+    def list_messages(self, *, to: str, from_: str, limit: int = 5) -> list[dict]:
+        """Recent messages between `to` (usually this channel's own number)
+        and `from_` (the other party), newest first -- Twilio's own default
+        ordering, live-verified. Exists so a real inbound reply can be found
+        by polling this account's own message history, the same shape
+        TelegramChannel.get_updates() serves for Telegram, without needing
+        a live webhook + Twilio Console configuration for a demo/dev
+        surface. Raises ChannelUnavailable only when the call itself
+        couldn't complete or Twilio's API rejected it outright."""
+        try:
+            response = self._client.get(
+                f"{self._base}/Messages.json",
+                params={"To": _as_whatsapp(to), "From": _as_whatsapp(from_), "PageSize": limit},
+            )
+        except httpx.HTTPError as exc:
+            raise ChannelUnavailable("whatsapp", str(exc)) from exc
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise ChannelUnavailable("whatsapp", f"non-JSON response: {exc}") from exc
+        if response.status_code >= 300:
+            raise ChannelUnavailable("whatsapp", f"list messages failed: {body}")
+        return body.get("messages", [])
 
     def verify_credentials(self) -> dict | None:
         """Fetches the account resource -- read-only, no message sent, no

@@ -6,6 +6,7 @@ convention for TwilioVoiceChannel."""
 from __future__ import annotations
 
 import base64
+import json
 from urllib.parse import parse_qs
 
 import httpx
@@ -109,6 +110,93 @@ class TestSend:
             TwilioWhatsAppChannel("ACxxx", "", "whatsapp:+14155238886")
         with pytest.raises(ValueError):
             TwilioWhatsAppChannel("ACxxx", "authtoken", "")
+
+
+class TestSendTemplate:
+    def test_send_template_posts_content_sid_and_json_encoded_variables(self):
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["form"] = {k: v[0] for k, v in parse_qs(request.content.decode()).items()}
+            return httpx.Response(201, json={"sid": "MM123", "status": "queued"})
+
+        channel = TwilioWhatsAppChannel(
+            "ACxxx", "authtoken", "whatsapp:+19376467656", client=_client_with(handler),
+        )
+        result = channel.send_template(
+            to="+919611550053", content_sid="HX5790acebff4a2faa3ae74c1cb8439554",
+            content_variables={"1": "INV-2201", "2": "42,500", "3": "22", "4": "https://rzp.io/i/abc"},
+        )
+
+        assert captured["form"]["To"] == "whatsapp:+919611550053"
+        assert captured["form"]["From"] == "whatsapp:+19376467656"
+        assert captured["form"]["ContentSid"] == "HX5790acebff4a2faa3ae74c1cb8439554"
+        assert json.loads(captured["form"]["ContentVariables"]) == {
+            "1": "INV-2201", "2": "42,500", "3": "22", "4": "https://rzp.io/i/abc",
+        }
+        assert "Body" not in captured["form"]
+        assert result.status == "sent"
+        assert result.external_ref == "MM123"
+
+    def test_send_template_before_approval_clears_is_a_clean_failed_result(self):
+        """Live-caught: sending via an unapproved/pending ContentSid doesn't
+        raise -- Twilio answers with a clean rejection (error 63016, the
+        24h-window rule, until the template is actually approved), exactly
+        like a sandbox opt-out rejection on send()."""
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"sid": "MM124", "status": "undelivered"})
+
+        channel = TwilioWhatsAppChannel(
+            "ACxxx", "authtoken", "whatsapp:+19376467656", client=_client_with(handler),
+        )
+        result = channel.send_template(
+            to="+919611550053", content_sid="HXpending", content_variables={"1": "x"},
+        )
+        assert result.status == "sent"  # the HTTP call itself succeeded; delivery status is Twilio's async concern
+        assert result.detail["status"] == "undelivered"
+
+    def test_send_template_network_error_raises_channel_unavailable(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("connection refused", request=request)
+
+        channel = TwilioWhatsAppChannel("ACxxx", "authtoken", "whatsapp:+19376467656", client=_client_with(handler))
+        with pytest.raises(ChannelUnavailable):
+            channel.send_template(to="+919611550053", content_sid="HXxxx", content_variables={})
+
+
+class TestListMessages:
+    def test_lists_messages_filtered_by_to_and_from(self):
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["url"] = str(request.url)
+            return httpx.Response(200, json={"messages": [
+                {"sid": "SM2", "body": "second reply", "direction": "inbound", "date_sent": "2026-09-01T13:00:00Z"},
+                {"sid": "SM1", "body": "first reply", "direction": "inbound", "date_sent": "2026-09-01T12:00:00Z"},
+            ]})
+
+        channel = TwilioWhatsAppChannel("ACxxx", "authtoken", "whatsapp:+19376467656", client=_client_with(handler))
+        messages = channel.list_messages(to="+19376467656", from_="+919611550053", limit=5)
+
+        assert "To=whatsapp" in captured["url"] or "To=whatsapp%3A" in captured["url"]
+        assert len(messages) == 2
+        assert messages[0]["sid"] == "SM2"
+
+    def test_list_messages_api_error_raises_channel_unavailable(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(400, json={"message": "bad request"})
+
+        channel = TwilioWhatsAppChannel("ACxxx", "authtoken", "whatsapp:+19376467656", client=_client_with(handler))
+        with pytest.raises(ChannelUnavailable):
+            channel.list_messages(to="+19376467656", from_="+919611550053")
+
+    def test_list_messages_network_error_raises_channel_unavailable(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("connection refused", request=request)
+
+        channel = TwilioWhatsAppChannel("ACxxx", "authtoken", "whatsapp:+19376467656", client=_client_with(handler))
+        with pytest.raises(ChannelUnavailable):
+            channel.list_messages(to="+19376467656", from_="+919611550053")
 
 
 class TestVerifyCredentials:

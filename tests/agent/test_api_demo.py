@@ -19,6 +19,7 @@ class _FakeChannel:
     sent: list[dict] = []
     updates: list[dict] = []
     last_offset = None
+    messages: list[dict] = []
 
     def __init__(self, *args, **kwargs):
         pass
@@ -27,9 +28,16 @@ class _FakeChannel:
         _FakeChannel.sent.append({"to": to, "text": text})
         return MessageSendResult(channel="fake", external_ref="fake-1", status="sent", detail={})
 
+    def send_template(self, *, to, content_sid, content_variables):
+        _FakeChannel.sent.append({"to": to, "content_sid": content_sid, "content_variables": content_variables})
+        return MessageSendResult(channel="fake", external_ref="fake-template-1", status="sent", detail={})
+
     def get_updates(self, *, offset=None):
         _FakeChannel.last_offset = offset
         return _FakeChannel.updates
+
+    def list_messages(self, *, to, from_, limit=5):
+        return _FakeChannel.messages
 
     def close(self):
         pass
@@ -38,13 +46,18 @@ class _FakeChannel:
 @pytest.fixture(autouse=True)
 def _reset_rate_limit():
     demo_module._last_triggered_at.clear()
+    demo_module._last_triggered_at_by_number.clear()
     demo_module._last_followed_up_update_id = 0
+    demo_module._last_followed_up_whatsapp_sid = None
     _FakeChannel.sent = []
     _FakeChannel.updates = []
     _FakeChannel.last_offset = None
+    _FakeChannel.messages = []
     yield
     demo_module._last_triggered_at.clear()
+    demo_module._last_triggered_at_by_number.clear()
     demo_module._last_followed_up_update_id = 0
+    demo_module._last_followed_up_whatsapp_sid = None
 
 
 @pytest.fixture
@@ -58,8 +71,18 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("TWILIO_ACCOUNT_SID", "ACfake")
     monkeypatch.setenv("TWILIO_FROM_NUMBER", "+15551234567")
     monkeypatch.setenv("TWILIO_AUTH_TOKEN", "fake-auth-token")
+    monkeypatch.setenv("TWILIO_WHATSAPP_FROM", "whatsapp:+19376467656")
+    monkeypatch.setenv("TWILIO_WHATSAPP_CONTENT_SID", "HXfaketemplate")
     monkeypatch.setattr(demo_module, "TelegramChannel", _FakeChannel)
     monkeypatch.setattr(demo_module, "TwilioVoiceChannel", _FakeChannel)
+    monkeypatch.setattr(demo_module, "TwilioWhatsAppChannel", _FakeChannel)
+    # Explicit, so no test ever depends on a real Anthropic call -- or on
+    # the composer happening to fail for want of an API key, which is what
+    # would otherwise silently exercise the fallback path everywhere.
+    monkeypatch.setattr(
+        demo_module, "compose_reply",
+        lambda reply_text, **kw: f"composed: {reply_text[:40]}",
+    )
 
     from agent.api.app import app
 
@@ -90,6 +113,32 @@ def test_valid_ivr_trigger_sends_to_the_configured_phone_number(client):
     response = client.post("/demo/trigger", json={"secret": SECRET, "channel": "ivr", "scenario": "subscription"})
     assert response.status_code == 200
     assert _FakeChannel.sent[0]["to"] == "+919999999999"
+
+
+def test_whatsapp_trigger_sends_a_template_with_the_real_link_as_a_variable(client, monkeypatch):
+    monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_fake")
+    monkeypatch.setenv("RAZORPAY_KEY_SECRET", "fake_secret")
+    monkeypatch.setattr(demo_module, "RazorpayRail", _FakeRazorpayRail)
+
+    response = client.post("/demo/trigger", json={"secret": SECRET, "channel": "whatsapp", "scenario": "b2b"})
+    assert response.status_code == 200
+    sent = _FakeChannel.sent[0]
+    assert sent["to"] == "+919999999999"
+    assert sent["content_sid"] == "HXfaketemplate"
+    assert sent["content_variables"]["1"] == "INV-2201"
+    assert sent["content_variables"]["4"] == "https://rzp.io/i/fake123"
+
+
+def test_whatsapp_trigger_only_supports_the_b2b_scenario(client):
+    response = client.post("/demo/trigger", json={"secret": SECRET, "channel": "whatsapp", "scenario": "subscription"})
+    assert response.status_code == 400
+    assert _FakeChannel.sent == []
+
+
+def test_whatsapp_trigger_missing_content_sid_returns_a_clear_error(client, monkeypatch):
+    monkeypatch.delenv("TWILIO_WHATSAPP_CONTENT_SID", raising=False)
+    response = client.post("/demo/trigger", json={"secret": SECRET, "channel": "whatsapp", "scenario": "b2b"})
+    assert response.status_code == 503
 
 
 class _FakeRazorpayRail:
@@ -190,16 +239,70 @@ def test_escalation_scenario_sends_escalation_specific_text_not_the_b2b_message(
     assert "INV-2201" not in sent_text
 
 
-def test_request_cannot_choose_its_own_recipient(client):
-    """The recipient is never taken from the request body -- there's no
-    field for it at all, and this asserts the send still goes to the
-    server-configured contact even if extra keys are smuggled in."""
+def test_telegram_rejects_a_caller_supplied_number_rather_than_ignoring_it(client):
+    """Telegram can't message a cold number regardless -- rejected loudly,
+    not silently ignored, since staying quiet would look like a bug rather
+    than the platform rule it is."""
     response = client.post(
         "/demo/trigger",
         json={"secret": SECRET, "channel": "telegram", "scenario": "b2b", "to": "+911234567890"},
     )
+    assert response.status_code == 400
+    assert _FakeChannel.sent == []
+
+
+def test_telegram_without_a_number_still_goes_to_the_configured_chat_id(client):
+    response = client.post("/demo/trigger", json={"secret": SECRET, "channel": "telegram", "scenario": "b2b"})
     assert response.status_code == 200
-    assert _FakeChannel.sent[0]["to"] == "999888777"  # the configured chat_id, not the smuggled "to"
+    assert _FakeChannel.sent[0]["to"] == "999888777"
+
+
+def test_ivr_can_call_a_caller_supplied_number(client):
+    response = client.post(
+        "/demo/trigger",
+        json={"secret": SECRET, "channel": "ivr", "scenario": "b2b", "to": "+911234567890"},
+    )
+    assert response.status_code == 200
+    assert _FakeChannel.sent[0]["to"] == "+911234567890"
+
+
+def test_whatsapp_can_message_a_caller_supplied_number(client):
+    response = client.post(
+        "/demo/trigger",
+        json={"secret": SECRET, "channel": "whatsapp", "scenario": "b2b", "to": "+911234567890"},
+    )
+    assert response.status_code == 200
+    assert _FakeChannel.sent[0]["to"] == "+911234567890"
+
+
+def test_a_caller_supplied_number_must_be_e164(client):
+    response = client.post(
+        "/demo/trigger",
+        json={"secret": SECRET, "channel": "ivr", "scenario": "b2b", "to": "9611550053"},
+    )
+    assert response.status_code == 400
+    assert _FakeChannel.sent == []
+
+
+def test_the_same_supplied_number_has_its_own_cooldown(client):
+    first = client.post(
+        "/demo/trigger", json={"secret": SECRET, "channel": "ivr", "scenario": "b2b", "to": "+911234567890"},
+    )
+    assert first.status_code == 200
+
+    # A different number is unaffected -- this is per-number, not a blanket
+    # "one custom contact per window".
+    demo_module._last_triggered_at.clear()
+    other = client.post(
+        "/demo/trigger", json={"secret": SECRET, "channel": "ivr", "scenario": "b2b", "to": "+911234567891"},
+    )
+    assert other.status_code == 200
+
+    demo_module._last_triggered_at.clear()
+    same_again = client.post(
+        "/demo/trigger", json={"secret": SECRET, "channel": "ivr", "scenario": "b2b", "to": "+911234567890"},
+    )
+    assert same_again.status_code == 429
 
 
 def test_unknown_scenario_is_rejected(client):
@@ -317,11 +420,52 @@ class TestCheckReply:
         body = response.json()
 
         assert body["agent_reply"] is not None
-        assert "review" in body["agent_reply"].lower()
         # The follow-up is a second, real send -- not just text echoed in the response.
         followup_sends = [s for s in _FakeChannel.sent if s["text"] == body["agent_reply"]]
         assert len(followup_sends) == 1
         assert followup_sends[0]["to"] == "999888777"
+
+    def test_the_followup_is_composed_from_the_debtors_actual_words(self, client, monkeypatch):
+        """Not a fixed line per family: the composer gets the real message,
+        the real diagnosis, and the real invoice context."""
+        from agent.diagnose.extract import DiagnosisClass, ExtractionResult, Family
+
+        captured = {}
+
+        def _fake_compose(reply_text, **kwargs):
+            captured["reply_text"] = reply_text
+            captured.update(kwargs)
+            return "a specific, composed reply"
+
+        monkeypatch.setattr(demo_module, "compose_reply", _fake_compose)
+        fake_result = ExtractionResult(family=Family.D, class_=DiagnosisClass.QUANTITY_QUALITY, confidence=0.9)
+        monkeypatch.setattr(demo_module, "extract_from_reply", lambda text, **kw: fake_result)
+
+        _FakeChannel.updates = [self._update(101, "999888777", "half the order never arrived")]
+        response = client.post("/demo/check-reply", json={"secret": SECRET, "diagnose": True})
+
+        assert response.json()["agent_reply"] == "a specific, composed reply"
+        assert captured["reply_text"] == "half the order never arrived"
+        assert captured["family"] == "D"
+        assert captured["class_"] == "QUANTITY_QUALITY"
+        assert captured["invoice_id"] == "INV-2201"
+        assert captured["days_overdue"] == 22
+
+    def test_a_failed_composer_falls_back_to_the_fixed_line_rather_than_going_silent(self, client, monkeypatch):
+        from agent.diagnose.extract import DiagnosisClass, ExtractionResult, Family
+        from agent.notify.compose import ComposeFailed
+
+        def _boom(reply_text, **kwargs):
+            raise ComposeFailed("no budget left")
+
+        monkeypatch.setattr(demo_module, "compose_reply", _boom)
+        fake_result = ExtractionResult(family=Family.D, class_=DiagnosisClass.QUANTITY_QUALITY, confidence=0.9)
+        monkeypatch.setattr(demo_module, "extract_from_reply", lambda text, **kw: fake_result)
+
+        _FakeChannel.updates = [self._update(101, "999888777", "this is disputed")]
+        response = client.post("/demo/check-reply", json={"secret": SECRET, "diagnose": True})
+
+        assert "review" in response.json()["agent_reply"].lower()  # the known-safe Family D line
 
     def test_querying_the_same_reply_twice_only_sends_the_followup_once(self, client, monkeypatch):
         """Live-caught: diagnosis is harmless to repeat, but a real send
@@ -343,16 +487,24 @@ class TestCheckReply:
         followup_sends = [s for s in _FakeChannel.sent if s["to"] == "999888777"]
         assert len(followup_sends) == 1
 
-    def test_family_c_followup_resends_the_real_link_when_one_exists(self, client, monkeypatch):
+    def test_the_real_payment_link_is_given_to_the_composer_as_context(self, client, monkeypatch):
+        """The composer decides whether to include the link (only if they
+        actually asked for a way to pay) -- but it can't include one it was
+        never given, so passing it through is what's asserted here."""
         from agent.diagnose.extract import DiagnosisClass, ExtractionResult, Family
 
+        captured = {}
+        monkeypatch.setattr(
+            demo_module, "compose_reply",
+            lambda reply_text, **kw: captured.update(kw) or "here you go",
+        )
         demo_module._last_payment_link_url = "https://rzp.io/i/fromEarlierRun"
         fake_result = ExtractionResult(family=Family.C, class_=DiagnosisClass.PROMISE_STATED, confidence=0.7)
         monkeypatch.setattr(demo_module, "extract_from_reply", lambda text, **kw: fake_result)
 
         _FakeChannel.updates = [self._update(101, "999888777", "send me the link again")]
-        response = client.post("/demo/check-reply", json={"secret": SECRET, "diagnose": True})
-        assert "https://rzp.io/i/fromEarlierRun" in response.json()["agent_reply"]
+        client.post("/demo/check-reply", json={"secret": SECRET, "diagnose": True})
+        assert captured["payment_link"] == "https://rzp.io/i/fromEarlierRun"
 
     def test_diagnose_false_skips_the_extractor_entirely(self, client, monkeypatch):
         called = []
@@ -381,4 +533,70 @@ class TestCheckReply:
     def test_missing_contact_config_returns_a_clear_error(self, client, monkeypatch):
         monkeypatch.delenv("DEMO_CONTACT_TELEGRAM_CHAT_ID", raising=False)
         response = client.post("/demo/check-reply", json={"secret": SECRET})
+        assert response.status_code == 503
+
+
+class TestCheckWhatsAppReply:
+    """/demo/check-reply?channel=whatsapp -- polls this account's own
+    Twilio message history rather than a live webhook (see
+    _check_whatsapp_reply's docstring)."""
+
+    def _msg(self, sid, body):
+        return {"sid": sid, "body": body, "direction": "inbound"}
+
+    def test_no_messages_means_no_reply(self, client):
+        _FakeChannel.messages = []
+        response = client.post("/demo/check-reply", json={"secret": SECRET, "channel": "whatsapp", "diagnose": False})
+        assert response.json() == {"has_reply": False}
+
+    def test_a_new_message_is_surfaced(self, client):
+        _FakeChannel.messages = [self._msg("SM2", "will pay by friday")]
+        response = client.post("/demo/check-reply", json={"secret": SECRET, "channel": "whatsapp", "diagnose": False})
+        body = response.json()
+        assert body["has_reply"] is True
+        assert body["text"] == "will pay by friday"
+        assert body["update_id"] == "SM2"
+
+    def test_same_message_sid_again_is_not_a_new_reply(self, client):
+        _FakeChannel.messages = [self._msg("SM2", "will pay by friday")]
+        response = client.post(
+            "/demo/check-reply",
+            json={"secret": SECRET, "channel": "whatsapp", "after_message_sid": "SM2", "diagnose": False},
+        )
+        assert response.json() == {"has_reply": False}
+
+    def test_diagnosed_reply_gets_a_real_whatsapp_followup(self, client, monkeypatch):
+        from agent.diagnose.extract import DiagnosisClass, ExtractionResult, Family
+
+        fake_result = ExtractionResult(family=Family.C, class_=DiagnosisClass.PROMISE_STATED, confidence=0.7)
+        monkeypatch.setattr(demo_module, "extract_from_reply", lambda text, **kw: fake_result)
+        _FakeChannel.messages = [self._msg("SM3", "will pay soon")]
+
+        response = client.post("/demo/check-reply", json={"secret": SECRET, "channel": "whatsapp", "diagnose": True})
+        body = response.json()
+        assert body["diagnosis"]["family"] == "C"
+        assert body["agent_reply"] is not None
+
+        followup_sends = [s for s in _FakeChannel.sent if s.get("to") == "+919999999999"]
+        assert len(followup_sends) == 1
+        assert followup_sends[0]["text"] == body["agent_reply"]
+
+    def test_querying_the_same_whatsapp_reply_twice_only_sends_the_followup_once(self, client, monkeypatch):
+        from agent.diagnose.extract import DiagnosisClass, ExtractionResult, Family
+
+        fake_result = ExtractionResult(family=Family.A, class_=DiagnosisClass.INSTRUMENT_EXPIRED, confidence=0.8)
+        monkeypatch.setattr(demo_module, "extract_from_reply", lambda text, **kw: fake_result)
+        _FakeChannel.messages = [self._msg("SM4", "card expired")]
+
+        first = client.post("/demo/check-reply", json={"secret": SECRET, "channel": "whatsapp", "diagnose": True})
+        assert first.json()["agent_reply"] is not None
+        second = client.post("/demo/check-reply", json={"secret": SECRET, "channel": "whatsapp", "diagnose": True})
+        assert second.json()["agent_reply"] is None
+
+        followup_sends = [s for s in _FakeChannel.sent if s.get("to") == "+919999999999"]
+        assert len(followup_sends) == 1
+
+    def test_whatsapp_missing_contact_config_returns_a_clear_error(self, client, monkeypatch):
+        monkeypatch.delenv("DEMO_CONTACT_PHONE_NUMBER", raising=False)
+        response = client.post("/demo/check-reply", json={"secret": SECRET, "channel": "whatsapp"})
         assert response.status_code == 503
