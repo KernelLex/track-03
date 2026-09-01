@@ -123,6 +123,7 @@ def extract_from_reply(
     extraction_log: ExtractionLog | None = None,
     purpose: str = "path_b_extraction",
     today: date | None = None,
+    conversation_context: str | None = None,
 ) -> ExtractionResult:
     """The one place a live model call happens for Path B. `reply_text` is
     untrusted counterparty text (Law 8) and is sent only as the user turn's
@@ -174,7 +175,20 @@ def extract_from_reply(
                                   "partial date the debtor gives (\"next Friday\", \"the 15th\", "
                                   "\"October 1st\") against this, into a full ISO8601 date."},
     ]
-    messages = [{"role": "user", "content": truncated}]
+    # Prior turns go in the *user* turn with the message they contextualise,
+    # never into system_blocks. "Yes, that works" is unclassifiable alone and
+    # obvious against the offer it answers -- but the history is still the
+    # counterparty's words, and Law 8's guarantee is structural precisely
+    # because none of it reaches the instruction channel.
+    if conversation_context:
+        user_content = (
+            "Conversation so far (for context only -- classify the latest message):\n"
+            f"{conversation_context[:MAX_REPLY_CHARS]}\n\n"
+            f"Latest message to classify:\n{truncated}"
+        )
+    else:
+        user_content = truncated
+    messages = [{"role": "user", "content": user_content}]
 
     try:
         token_count = client.messages.count_tokens(model=model, system=system_blocks, messages=messages)

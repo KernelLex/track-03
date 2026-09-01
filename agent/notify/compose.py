@@ -116,7 +116,7 @@ _NEXT_STEP_BRIEF = {
 def _context_block(
     *, invoice_id: str, amount_paise: int, days_overdue: int,
     family: str, class_: str, payment_link: str | None, next_step: str | None,
-    payment_plan: str | None = None,
+    payment_plan: str | None = None, outstanding_proposal: str | None = None,
 ) -> str:
     lines = [
         "Context for this conversation (facts you may use; anything not here, you do not know):",
@@ -137,6 +137,18 @@ def _context_block(
         lines.append(
             f"- The system has already decided the next step: {next_step}. "
             + _NEXT_STEP_BRIEF.get(next_step, "Describe it accurately and do not promise anything else.")
+        )
+    if outstanding_proposal:
+        # The single most important line here. A bare "ok" or "yes that
+        # works" is unanswerable in isolation -- and is an acceptance
+        # against a pending offer. Without this the system made an offer and
+        # then failed to recognise its own acceptance, which is what
+        # happened live before conversation state existed.
+        lines.append(
+            f"- There is an offer already on the table, awaiting their answer: {outstanding_proposal}. "
+            "If the latest message accepts it, confirm the acceptance and say what happens next. "
+            "If it changes the terms, treat the change as their new proposal. Do not re-offer "
+            "something they have already agreed to."
         )
     if payment_plan:
         # They proposed a split, so the reply answers the split. Any date
@@ -163,6 +175,8 @@ def compose_reply(
     payment_link: str | None = None,
     next_step: str | None = None,
     payment_plan: str | None = None,
+    conversation_context: str | None = None,
+    outstanding_proposal: str | None = None,
     client: anthropic.Anthropic | None = None,
     model: str = DEFAULT_MODEL,
     spend_ledger: SpendLedger | None = None,
@@ -192,10 +206,22 @@ def compose_reply(
         {"type": "text", "text": _context_block(
             invoice_id=invoice_id, amount_paise=amount_paise, days_overdue=days_overdue,
             family=family, class_=class_, payment_link=payment_link, next_step=next_step,
-            payment_plan=payment_plan,
+            payment_plan=payment_plan, outstanding_proposal=outstanding_proposal,
         )},
     ]
-    messages = [{"role": "user", "content": truncated}]
+    if conversation_context:
+        # Same placement as llm_extract's: prior turns ride in the *user*
+        # turn with the message they contextualise, never in system_blocks.
+        # It is all counterparty text, and Law 8 holds because none of it
+        # reaches the instruction channel.
+        user_content = (
+            "Conversation so far (for context only -- reply to the latest message):\n"
+            f"{conversation_context[:MAX_REPLY_CHARS]}\n\n"
+            f"Latest message to reply to:\n{truncated}"
+        )
+    else:
+        user_content = truncated
+    messages = [{"role": "user", "content": user_content}]
 
     try:
         token_count = client.messages.count_tokens(model=model, system=system_blocks, messages=messages)

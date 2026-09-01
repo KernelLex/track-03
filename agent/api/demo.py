@@ -50,7 +50,7 @@ import re
 import time
 from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from agent.auditor.extraction_log import ExtractionLog
@@ -60,6 +60,7 @@ from agent.diagnose.extract import Family
 from agent.diagnose.llm_extract import ExtractionFailed, extract_from_reply
 from agent.orchestrate import select_action_for_diagnosis
 from agent.mandate.payment_plan import PlanRejected, build_plan, describe_plan
+from agent.notify.conversation import ConversationStore
 from agent.notify.compose import ComposeFailed, compose_reply
 from agent.notify.protocol import ChannelUnavailable
 from agent.notify.telegram import TelegramChannel
@@ -448,14 +449,15 @@ _last_followed_up_whatsapp_sid: str | None = None
 _conversation_touches: dict[str, int] = {}
 
 
-def _diagnose_and_note(text: str):
+def _diagnose_and_note(text: str, *, conversation_context: str | None = None):
     """The extraction half, shared by both channels: real extractor, real
     budget-tracked call. Returns the whole ExtractionResult rather than three
     flattened fields -- the promise's date and amount are on it, and DECIDE
     needs them (a stated promise is what PROMISE_COOLDOWN acts on)."""
     log_path = os.environ.get("TRUECOMMIT_EXTRACTION_LOG", "extraction_log.db")
     with ExtractionLog(log_path) as extraction_log:
-        return extract_from_reply(text, purpose="demo_dashboard_live_reply", extraction_log=extraction_log)
+        return extract_from_reply(text, purpose="demo_dashboard_live_reply", extraction_log=extraction_log,
+                                  conversation_context=conversation_context)
 
 
 def _diagnosis_dict(extraction) -> dict[str, object]:
@@ -610,6 +612,7 @@ def _decide_next_step(extraction, scenario: dict[str, object], *, channel: str, 
 def _compose_or_fallback(
     reply_text: str, diagnosis: dict[str, object], scenario: dict[str, object],
     decision: dict[str, object] | None = None, plan: dict[str, object] | None = None,
+    conversation_context: str | None = None, outstanding_proposal: str | None = None,
 ) -> str:
     """A real, specific reply to what the debtor actually said
     (agent.notify.compose) -- falling back to the fixed family-level line
@@ -637,6 +640,8 @@ def _compose_or_fallback(
             ),
             next_step=None if decision is None else str(decision.get("action")),
             payment_plan=None if plan is None else str(plan.get("summary")),
+            conversation_context=conversation_context,
+            outstanding_proposal=outstanding_proposal,
             purpose="demo_dashboard_conversational_reply",
         )
     except Exception as exc:
@@ -824,3 +829,177 @@ def _check_whatsapp_reply(payload: CheckReplyRequest) -> dict[str, object]:
             result["diagnosis"] = {"error": str(exc)}
 
     return result
+
+
+# --------------------------------------------------------------------------
+# The one path an inbound debtor message takes, whatever delivered it.
+# --------------------------------------------------------------------------
+
+def _conversation_store() -> ConversationStore:
+    return ConversationStore(os.environ.get("TRUECOMMIT_CONVERSATION_DB", "conversation.db"))
+
+
+def _describe_proposal(proposal) -> str:
+    """One line naming what is currently on the table, for the composer."""
+    if proposal.kind == "payment_plan":
+        legs = proposal.detail.get("legs", [])
+        parts = [f"Rs {leg['amount_paise'] / 100:,.0f} on {leg['due_date']}" for leg in legs]
+        return "an instalment plan of " + " then ".join(parts)
+    return proposal.kind
+
+
+def handle_inbound_message(
+    *,
+    conversation_id: str,
+    external_id: str,
+    text: str,
+    channel: str,
+    scenario_key: str = "b2b",
+    send,
+) -> dict[str, object]:
+    """Diagnose, decide, plan, compose, reply -- with memory.
+
+    Both the Telegram webhook and the dashboard's polling endpoint call
+    this, so a message is handled identically however it arrived. `send` is
+    injected rather than chosen here: the caller already holds an open,
+    authenticated channel, and this function has no business picking one.
+
+    The message is claimed before anything else happens. A webhook
+    redelivery, a poller racing the webhook, or a restart mid-handle would
+    otherwise answer the same message twice -- and unlike diagnosis, a reply
+    is not free to repeat. The UNIQUE constraint decides that, not a prior
+    read.
+    """
+    scenario = SCENARIOS[scenario_key]
+    store = _conversation_store()
+    try:
+        if not store.claim_message(conversation_id, external_id):
+            return {"handled": False, "reason": "already_handled", "external_id": external_id}
+
+        # Read the history *before* recording this turn, so the transcript
+        # is what came before rather than including the message itself.
+        proposal = store.outstanding_proposal(conversation_id)
+        transcript = store.transcript(conversation_id)
+        store.record_turn(conversation_id, direction="inbound", text=text)
+
+        result: dict[str, object] = {"handled": True, "text": text, "external_id": external_id}
+
+        try:
+            extraction = _diagnose_and_note(text, conversation_context=transcript or None)
+        except ExtractionFailed as exc:
+            result["diagnosis"] = {"error": str(exc)}
+            return result
+
+        result["diagnosis"] = _diagnosis_dict(extraction)
+
+        refusals = _bounds_gate_followup(scenario, channel)
+        result["followup_bounds_refusals"] = refusals
+        if refusals is not None:
+            return result
+
+        decision = _decide_next_step(
+            extraction, scenario, channel=channel, debtor_key=f"{channel}_{conversation_id}",
+        )
+        result["decision"] = decision
+
+        plan = _plan_from_promise(extraction, scenario)
+        if plan is not None:
+            result["payment_plan"] = plan
+
+        reply_text = _compose_or_fallback(
+            text, result["diagnosis"], scenario, decision, plan,
+            conversation_context=transcript or None,
+            outstanding_proposal=None if proposal is None else _describe_proposal(proposal),
+        )
+
+        try:
+            send(reply_text)
+        except ChannelUnavailable:
+            _log.warning("inbound: reply send failed on %s", channel, exc_info=True)
+            return result
+
+        result["agent_reply"] = reply_text
+        store.record_turn(conversation_id, direction="outbound", text=reply_text)
+
+        # A plan just put to them becomes the thing on the table, so the next
+        # "yes" has something to attach to. Nothing is treated as agreed
+        # here -- only as offered.
+        if plan is not None:
+            store.set_proposal(conversation_id, kind="payment_plan", detail=plan)
+
+        return result
+    finally:
+        store.close()
+
+
+@router.post("/telegram-webhook")
+async def telegram_webhook(request: Request) -> dict[str, object]:
+    """Telegram pushes a debtor's reply here the moment they send it.
+
+    This replaces polling, and it is the difference between a demo that
+    answers and one that only answers while a browser tab happens to be
+    watching. Before this existed, a reply sent two minutes after the
+    dashboard's polling window closed was simply never handled -- the
+    debtor got silence, which is the single behaviour this project argues
+    hardest against.
+
+    It is also most of the latency. Polling cost up to a full interval
+    before detection even began; a push costs nothing.
+
+    Authenticated by Telegram's own `secret_token`, which it echoes in
+    `X-Telegram-Bot-Api-Secret-Token` on every delivery. This endpoint is
+    public, so an unauthenticated caller could otherwise fabricate a reply
+    and make the system answer a message the debtor never sent -- the same
+    class of risk `verify_and_ingest()` exists to close for Razorpay, and
+    handled the same way: verify before doing anything with the body.
+
+    Always returns 200. Telegram retries a non-2xx delivery, and a retry of
+    a message that failed for a non-transient reason (an unparseable
+    payload, a message from someone who isn't the demo contact) would just
+    fail again forever. Genuine duplicates are stopped by the claim in
+    `handle_inbound_message`, not by making Telegram give up.
+    """
+    expected = os.environ.get("TELEGRAM_WEBHOOK_SECRET")
+    if not expected:
+        raise HTTPException(status_code=503, detail="TELEGRAM_WEBHOOK_SECRET not configured on this server")
+    if request.headers.get("x-telegram-bot-api-secret-token") != expected:
+        raise HTTPException(status_code=403, detail="bad or missing Telegram secret token")
+
+    try:
+        update = await request.json()
+    except ValueError:
+        return {"ok": True, "handled": False, "reason": "unparseable_body"}
+
+    message = update.get("message") or update.get("edited_message") or {}
+    text = message.get("text")
+    chat_id = str((message.get("chat") or {}).get("id", ""))
+    if not text or not chat_id:
+        # Photos, stickers, delivery receipts, join events. Acknowledged and
+        # ignored rather than treated as a debtor reply.
+        return {"ok": True, "handled": False, "reason": "no_text"}
+
+    # Only the configured demo contact. A stranger who finds the bot must
+    # never be able to drive the conversation, and their message must never
+    # surface as though the demo's own debtor had sent it.
+    demo_contact = os.environ.get("DEMO_CONTACT_TELEGRAM_CHAT_ID")
+    if demo_contact and chat_id != str(demo_contact):
+        _log.info("telegram webhook: ignoring a message from a non-demo chat")
+        return {"ok": True, "handled": False, "reason": "not_the_demo_contact"}
+
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token:
+        raise HTTPException(status_code=503, detail="TELEGRAM_BOT_TOKEN not configured on this server")
+
+    channel_obj = TelegramChannel(token)
+    try:
+        result = handle_inbound_message(
+            conversation_id=chat_id,
+            external_id=str(update.get("update_id")),
+            text=text,
+            channel="telegram",
+            send=lambda reply: channel_obj.send(to=chat_id, text=reply),
+        )
+    finally:
+        channel_obj.close()
+
+    return {"ok": True, **result}
