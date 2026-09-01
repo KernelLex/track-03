@@ -459,8 +459,13 @@ var state = {
   liveReplies: [], // real replies for the *current* run only -- SCENARIOS[key].convo is static reference data, never mutated
   activity: [],    // every real event, newest last; rendered newest-first
 };
-var POLL_INTERVAL_MS = 3000;
-var MAX_POLLS = 40; // ~2 minutes
+// Measured on the live path: the two real model calls total ~6.8s and the
+// round trip adds ~1.5s, so detection latency is the only part of the wait
+// worth shortening. A 1.2s interval costs a handful of extra polls -- each
+// one free, since a poll that finds nothing new does no model work -- and
+// takes up to 1.8s off how long a reply appears to take.
+var POLL_INTERVAL_MS = 1200;
+var MAX_POLLS = 500; // ~10 minutes -- long enough to reply at a natural pace mid-demo
 
 // Per-channel polling state. Telegram and WhatsApp track separate cursors
 // because they're genuinely different id spaces (Telegram's integer
@@ -864,6 +869,9 @@ document.getElementById('pipeline').insertAdjacentElement('afterend', convoSecti
 
 loadSettings();
 render();
+// testConnection() hits /health, which doubles as a wake-up: Render's free
+// tier cold-starts in 30-50s, and without this the first live trigger of a
+// demo is the request that pays for it.
 testConnection();
 })();
 </script>

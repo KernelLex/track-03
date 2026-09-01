@@ -1,0 +1,31 @@
+name: Keep the demo backend warm
+
+# Render's free tier spins a service down after ~15 minutes idle, and the
+# next request pays a 30-50s cold start before any work begins. Measured
+# against the live conversational path, that dwarfs everything else: the
+# two real model calls total ~6.8s and the poll adds ~1.5s, so a cold start
+# is roughly five times the entire rest of the request.
+#
+# That is fine for a webhook (Razorpay retries) and unacceptable for a live
+# demo, where the first message someone sends is exactly the one that hits
+# a cold server. A cheap ping on a schedule keeps it awake for the window
+# that matters.
+#
+# Deliberately /health and nothing else: it touches no rail, sends no
+# message, and costs nothing. This is not a uptime monitor and shouldn't
+# grow into one.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping the backend
+        # Never fail the workflow on a bad ping -- a red X here would be
+        # noise about Render's free tier, not a signal about this repo.
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 https://track-03.onrender.com/health || echo "000")
+          echo "health returned $code"
