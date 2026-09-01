@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import sqlite3
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+from agent.db import connect
 from agent.ledger.models import LedgerEntry
 
 GENESIS_HASH = "0" * 64
@@ -44,8 +44,7 @@ class Ledger:
 
     def __init__(self, db_path: str | Path):
         self.db_path = str(db_path)
-        self._conn = sqlite3.connect(self.db_path)
-        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn = connect(self.db_path)
         self._init_schema()
 
     def close(self) -> None:

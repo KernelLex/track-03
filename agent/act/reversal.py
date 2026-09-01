@@ -13,12 +13,12 @@ this module exists to uphold:
 
 from __future__ import annotations
 
-import sqlite3
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
 from agent.act.actions import ActionType
+from agent.db import connect
 
 
 class ReversalGate(str, Enum):
@@ -101,8 +101,7 @@ class ReversalsLedger:
 
     def __init__(self, db_path: str | Path):
         self.db_path = str(db_path)
-        self._conn = sqlite3.connect(self.db_path)
-        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn = connect(self.db_path)
         self._init_schema()
 
     def close(self) -> None:

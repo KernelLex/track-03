@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from agent.db import connect
+
 RailTag = Literal["razorpay", "simulated"]
 
 
@@ -36,8 +38,7 @@ class RecoveryEntry:
 class RecoveryLedger:
     def __init__(self, db_path: str | Path):
         self.db_path = str(db_path)
-        self._conn = sqlite3.connect(self.db_path)
-        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn = connect(self.db_path)
         self._init_schema()
 
     def close(self) -> None:

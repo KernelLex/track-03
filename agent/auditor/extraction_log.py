@@ -21,10 +21,10 @@ unaffected.
 
 from __future__ import annotations
 
-import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
+from agent.db import connect
 from agent.diagnose.extract import DiagnosisClass, ExtractionResult, Family
 
 DEFAULT_LOG_PATH = Path("extraction_log.db")
@@ -45,8 +45,7 @@ class LoggedExtraction:
 class ExtractionLog:
     def __init__(self, db_path: str | Path = DEFAULT_LOG_PATH):
         self.db_path = str(db_path)
-        self._conn = sqlite3.connect(self.db_path)
-        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn = connect(self.db_path)
         self._init_schema()
 
     def close(self) -> None:
