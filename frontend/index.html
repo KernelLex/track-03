@@ -363,7 +363,12 @@ var MAX_POLLS = 40; // ~2 minutes
 function loadSettings(){
   try{
     document.getElementById('backendUrl').value = localStorage.getItem('tc_backend_url') || 'https://track-03.onrender.com';
-    document.getElementById('triggerSecret').value = localStorage.getItem('tc_secret') || '';
+    // Auto-filled so judges can use the live buttons with zero setup -- this
+    // makes the secret effectively public for as long as this page and the
+    // matching DEMO_TRIGGER_SECRET on Render both stay live. Rotate the
+    // Render env var (and redeploy this page without a hardcoded value) once
+    // judging is over to close this back off.
+    document.getElementById('triggerSecret').value = localStorage.getItem('tc_secret') || 'S4ZQ6oXz8RXzsu0od5yxPT-qOHtd7RWi';
   }catch(e){}
 }
 function saveSettings(){
