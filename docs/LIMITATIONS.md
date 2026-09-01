@@ -9,7 +9,7 @@ I've built a tested, working implementation of TrueCommit's **pure-logic
 safety and compliance core** (DEVDOC_v6 §5.2's "the judgment"), **now also
 wired to a real, live Razorpay test-mode account** (as of 2026-08-30) for
 the capabilities that account actually has, plus a real (if minimal) HTTP
-webhook receiver. **923 tests passing / 11 skipped as of 2026-09-01**,
+webhook receiver. **938 tests passing / 11 skipped as of 2026-09-01**,
 measured without live credentials in the shell (the 11 skipped are the
 Razorpay-live-only suite, which skips cleanly rather than failing — no
 credentials are required to run the main suite). It's still **not**:
@@ -416,21 +416,38 @@ DEVDOC_v6 §9.1 asks for one; I have a runtime guard
 (`agent/money.py::assert_money()`) but not a static analysis rule (would
 need a custom mypy or ruff plugin). Noted rather than silently dropped.
 
-## The e-mandate does not always match the instrument that was chosen
+## Only netbanking/eNACH mandates are issuable -- UPI Autopay is not approved
 
-`select_instrument()` picks the instrument a plan *should* use. For a
-single Rs 42,500 leg that is `upi_block_reserve_pay`, not an e-mandate.
-`agent/mandate/emandate.py` issues a mandate regardless, because a mandate
-is the only primitive this Razorpay account has that can debit on a future
-date the debtor named — a UPI block is created at pay time, and no rail
-call here schedules one.
+`select_instrument()` picks the instrument a plan *should* use, from
+DEVDOC_v6 §12.2's table. For a single Rs 42,500 leg that is
+`upi_block_reserve_pay`. This account cannot issue that: UPI Autopay needs
+explicit Razorpay enablement it does not have
+(`docs/RAIL_CAPABILITIES.md`).
 
-So for single-leg plans the instrument recommendation and the artifact
-actually created diverge. Two things bound how much that matters: the plan
-still reports `instrument` truthfully rather than rewriting it to match
-what was built, and the mandate's amount and date are exactly what the
-debtor was quoted. But it is a real gap, not a presentation choice.
+`agent/mandate/rail_capability.py` handles this by substituting a
+**netbanking/eNACH e-mandate** (Plan + Subscription, the account's only
+approved recurring primitive) and reporting *both* facts: the §12.2
+recommendation and what was actually issued, with the reason attached. The
+AFA-free ceiling is re-derived across the substitution, so an amount over
+Rs 15,000 still requires authentication either way.
 
-Closing it needs UPI Autopay, which `docs/RAIL_CAPABILITIES.md` records as
-blocked — it requires explicit account approval and a specific
-subscription `auth_type`, neither of which this account has.
+The spec table itself is untouched. A decision table that bends to
+whichever account happens to be configured is not a decision table, so the
+capability filter sits on top of `select_instrument()` rather than inside
+it -- on an approved account, `UNAVAILABLE_ON_THIS_ACCOUNT` would be empty
+and nothing would be substituted.
+
+**What is still a real limitation:** this code cannot pin the
+authentication method. Live-probed 2026-09-01, Razorpay rejects
+`auth_type` on subscription create for this account for every value tried
+(`netbanking`, `debitcard`, `aadhaar`, `nach`, `emandate`, `upi`):
+`auth_type is/are not required and should not be sent`. The debtor chooses
+their method on Razorpay's hosted authorization page. So "netbanking
+e-mandate" names the instrument class this account issues, not a channel
+this code selects -- and the two are easy to conflate.
+
+**Previously** this diverged silently: the demo reported
+`upi_block_reserve_pay` while creating an e-mandate. Reporting an
+instrument you are not creating is a small dishonesty that makes
+everything else in a demo suspect, which is why it is fixed rather than
+footnoted.

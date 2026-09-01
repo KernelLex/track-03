@@ -380,6 +380,19 @@ once.
 The grouping key is `payable_paise`, not `amount_paise`, and that
 distinction is a bug this nearly shipped: see WHAT_BROKE #13.
 
+**It is a netbanking/eNACH mandate, and the plan says so.** §12.2's table
+recommends `upi_block_reserve_pay` for a single large payment, and this
+account has no UPI Autopay approval, so `agent/mandate/rail_capability.py`
+substitutes an e-mandate and reports **both** -- the recommendation and
+what was issued, with the reason. The spec table is not rewritten; the
+filter sits on top of it, and on an approved account nothing would be
+substituted. Before this existed the demo reported an instrument it was
+not creating.
+
+The authentication method itself is the debtor's choice on Razorpay's
+hosted page. `auth_type` is rejected on subscription create for this
+account for every value tried -- see `docs/RAIL_CAPABILITIES.md`.
+
 **Nothing here charges anyone.** A `created` subscription is an
 authorization *request*. The debtor opens the link and completes
 authentication before a rupee moves, and this module never calls a charge

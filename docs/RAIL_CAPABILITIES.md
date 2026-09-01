@@ -54,3 +54,32 @@ Three properties this pins down, each of which shaped the code:
 `status=created` is an authorization *request*. No money moves until the
 debtor completes authentication themselves, which is what makes it safe to
 send the link alongside a proposal.
+
+### The auth method cannot be pinned from the API (probed 2026-09-01)
+
+Razorpay's docs describe an `auth_type` on subscription create (netbanking,
+debitcard, aadhaar, ...). On this account it is rejected outright. Every
+value tried returned the same `BadRequestError`:
+
+```
+[netbanking ] FAIL  auth_type is/are not required and should not be sent
+[debitcard  ] FAIL  auth_type is/are not required and should not be sent
+[aadhaar    ] FAIL  auth_type is/are not required and should not be sent
+[emandate   ] FAIL  auth_type is/are not required and should not be sent
+[nach       ] FAIL  auth_type is/are not required and should not be sent
+[upi        ] FAIL  auth_type is/are not required and should not be sent
+[omitted    ] OK    sub_TWrAHtjw67klmf  status=created  short_url=https://rzp.io/rzp/FBDmpE1p
+```
+
+Only the request with no `auth_type` at all succeeds. The debtor chooses
+their authentication method on the hosted page the `short_url` opens.
+
+This is the reason `agent/mandate/rail_capability.py` describes its output
+as a *netbanking/eNACH e-mandate* -- the instrument class this account can
+issue -- rather than claiming the code selects the netbanking channel. It
+does not, and this probe is why that distinction is drawn explicitly
+rather than glossed.
+
+The same finding is what makes UPI Autopay's `blocked` row above concrete:
+its enablement needs "a specific subscription auth_type" that this account
+cannot send at all.

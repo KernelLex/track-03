@@ -43,6 +43,7 @@ from datetime import date
 
 from agent.mandate.early_payment import DEFAULT_DISCOUNT_RATE, DEFAULT_WINDOW_DAYS, compute_early_payment_offer
 from agent.mandate.instrument import InstrumentSpec, Promise, select_instrument
+from agent.mandate.rail_capability import DeployableInstrument, deployable_instrument
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +74,17 @@ class PaymentPlan:
     split -- this module does not decide instruments, it asks."""
 
     @property
+    def deployment(self) -> DeployableInstrument:
+        """What this account can actually issue for `instrument`.
+
+        Kept separate from `instrument` rather than replacing it: the §12.2
+        recommendation and the artifact this rail can create are two
+        different facts, and collapsing them hid a real gap once already
+        (the demo reported UPI block-and-reserve while issuing an e-mandate).
+        Both are reported."""
+        return deployable_instrument(self.instrument)
+
+    @property
     def total_payable_paise(self) -> int:
         return sum(leg.payable_paise for leg in self.legs)
 
@@ -82,7 +94,10 @@ class PaymentPlan:
 
     @property
     def requires_afa_per_debit(self) -> bool:
-        return self.instrument.requires_afa
+        # From the deployable instrument, not the recommendation: what the
+        # debtor is actually asked to authenticate is what the mandate
+        # created for them requires.
+        return self.deployment.requires_afa
 
 
 class PlanRejected(Exception):
@@ -179,8 +194,14 @@ def describe_plan(plan: PaymentPlan) -> str:
             line += (f" -- Rs {leg.payable_paise / 100:,.0f} if paid by "
                      f"{leg.discount_valid_until.isoformat()} (saves Rs {leg.savings_paise / 100:,.0f})")
         lines.append(line)
-    lines.append(f"  Instrument: {plan.instrument.instrument.value} "
+    deployment = plan.deployment
+    lines.append(f"  Instrument: {deployment.deployable.value} "
                  f"({'AFA required per debit' if plan.requires_afa_per_debit else 'no per-debit AFA'})")
+    if deployment.substituted:
+        # Named, not hidden. A reader comparing this to §12.2's table should
+        # be able to see both what it says and why this differs.
+        lines.append(f"  (§12.2 recommends {deployment.recommended.value}; "
+                     "not available on this account, so a netbanking/eNACH e-mandate is issued)")
     if not plan.requires_afa_per_debit and len(plan.legs) > 1:
         lines.append("  Each instalment is at or under the AFA-free ceiling, so one "
                      "authorization covers the whole plan.")

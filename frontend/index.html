@@ -915,6 +915,8 @@ function caseDetail(kind, d){
       return inr(l.payable_paise) + ' on ' + l.due_date + (l.proposed_by === 'system' ? ' (our proposal)' : '');
     });
     return legs.join(' → ') + ' · ' + d.instrument
+         + (d.instrument_substituted ? ' (§12.2 recommends ' + d.recommended_instrument
+             + ', not approved on this account)' : '')
          + (d.requires_afa_per_debit ? ' · AFA per debit' : ' · one authorization covers it');
   }
   if (kind === 'mandate_issued'){

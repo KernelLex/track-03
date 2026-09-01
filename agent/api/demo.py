@@ -557,7 +557,13 @@ def _plan_from_promise(extraction, scenario: dict[str, object]) -> dict[str, obj
             }
             for leg in plan.legs
         ],
-        "instrument": plan.instrument.instrument.value,
+        # Both, deliberately: what §12.2 recommends and what this account
+        # can actually issue. Reporting only the recommendation is what let
+        # the demo claim UPI block-and-reserve while creating an e-mandate.
+        "instrument": plan.deployment.deployable.value,
+        "recommended_instrument": plan.deployment.recommended.value,
+        "instrument_substituted": plan.deployment.substituted,
+        "instrument_note": plan.deployment.reason,
         "requires_afa_per_debit": plan.requires_afa_per_debit,
         "total_payable_paise": plan.total_payable_paise,
         "total_savings_paise": plan.total_savings_paise,

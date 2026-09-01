@@ -26,18 +26,18 @@ authentication before a single rupee moves, and this module never calls a
 charge API at all. That distinction is why creating these links on a
 *proposal* is safe: it hands them the means to say yes, not a debit.
 
-**A known divergence, stated rather than hidden.** `select_instrument()`
-picks the instrument a plan *should* use, and for a single Rs 42,500 leg
-that is `upi_block_reserve_pay`, not an e-mandate. This module issues a
-mandate anyway, because a mandate is the only primitive this account has
-that can debit on a *future date the debtor named* -- a UPI block is
-created at pay time, and there is no rail call here that schedules one. So
-the instrument decision is a recommendation this module cannot always
-honour, and `PaymentPlan.instrument` is still reported truthfully
-alongside the mandate rather than being rewritten to match it. Closing
-this properly means a UPI Autopay path (`docs/RAIL_CAPABILITIES.md` lists
-it as blocked: it needs explicit account approval), not pretending the
-recommendation and the artifact agree.
+**Which kind of mandate.** A netbanking/eNACH e-mandate -- Plan +
+Subscription is this account's only approved recurring primitive, and UPI
+Autopay is not approved on it. `agent/mandate/rail_capability.py` is what
+makes that explicit: §12.2's recommendation and the artifact this rail can
+actually issue are reported as two separate facts, so a UPI-shaped
+recommendation shows up as a *substitution* rather than as a claim the
+system quietly failed to honour.
+
+The authentication method itself is the debtor's choice on Razorpay's
+hosted page, not this code's: `auth_type` is rejected on subscription
+create for this account (live-probed 2026-09-01, every value including
+`netbanking` and `nach`). See `rail_capability.py` for the finding.
 """
 
 from __future__ import annotations
