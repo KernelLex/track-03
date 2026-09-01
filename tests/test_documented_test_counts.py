@@ -44,24 +44,49 @@ def collected_total() -> int:
 
 
 def test_readme_test_count_matches_a_real_collection(collected_total):
+    """The README now states the *collected* total directly, rather than
+    two numbers a reader has to add up.
+
+    That phrasing exists because "984 tests" beside a run that reports 995
+    collected makes a reader stop and wonder which is wrong -- and the
+    answer, that 11 need live Razorpay credentials, was a click away
+    instead of on the line. Asserting the collected figure directly also
+    makes this check stricter: the old form passed as long as the two
+    numbers summed, so a wrong split could hide inside a right total.
+    """
     text = README.read_text(encoding="utf-8")
-    claimed = re.search(r"uv run pytest\s+#\s*([\d,]+) tests.*?\((\d+) more run live", text)
+    claimed = re.search(
+        r"uv run pytest\s+#\s*([\d,]+) collected:\s*([\d,]+) run without credentials,\s*(\d+) skipped",
+        text,
+    )
     assert claimed is not None, "README no longer states its test count in the expected form"
-    default_run = int(claimed.group(1).replace(",", ""))
-    live = int(claimed.group(2))
-    assert default_run + live == collected_total, (
-        f"README claims {default_run} tests + {live} live = {default_run + live}; "
-        f"a real collection finds {collected_total}. Update the README."
+    collected = int(claimed.group(1).replace(",", ""))
+    run = int(claimed.group(2).replace(",", ""))
+    skipped = int(claimed.group(3))
+
+    assert collected == collected_total, (
+        f"README claims {collected} collected; a real collection finds "
+        f"{collected_total}. Update the README."
+    )
+    assert run + skipped == collected_total, (
+        f"README's split ({run} run + {skipped} skipped = {run + skipped}) does not "
+        f"add up to the {collected_total} it collects."
     )
 
 
 def test_limitations_test_count_matches_a_real_collection(collected_total):
     text = LIMITATIONS.read_text(encoding="utf-8")
-    claimed = re.search(r"\*\*([\d,]+) tests passing / (\d+) skipped", text)
+    claimed = re.search(r"\*\*([\d,]+) collected / ([\d,]+) passing / (\d+) skipped", text)
     assert claimed is not None, "docs/LIMITATIONS.md no longer states its test count in the expected form"
-    passing = int(claimed.group(1).replace(",", ""))
-    skipped = int(claimed.group(2))
+    collected = int(claimed.group(1).replace(",", ""))
+    passing = int(claimed.group(2).replace(",", ""))
+    skipped = int(claimed.group(3))
+
+    assert collected == collected_total, (
+        f"docs/LIMITATIONS.md claims {collected} collected; a real collection finds "
+        f"{collected_total}. Update it."
+    )
     assert passing + skipped == collected_total, (
-        f"docs/LIMITATIONS.md claims {passing} passing + {skipped} skipped = {passing + skipped}; "
-        f"a real collection finds {collected_total}. Update it."
+        f"docs/LIMITATIONS.md's split ({passing} passing + {skipped} skipped) does not "
+        f"add up to the {collected_total} it collects."
     )

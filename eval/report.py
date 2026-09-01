@@ -15,6 +15,7 @@ population, that's the whole point of §17.6) — it is not a fresh draw each ti
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
 from agent.decide.ev import Prior, decision_flips_under_perturbation
@@ -118,6 +119,20 @@ alone doesn't carry an absolute rupee scale on its own."""
 
 
 def main() -> None:
+    """Regenerate docs/RESULTS.md, or with --check, verify it is current.
+
+    `--check` exists because RESULTS.md drifted from this generator and
+    nothing noticed: #12, #14 and #17 changed escalation and attribution
+    behaviour, the eval moved under the doc, and the committed numbers went
+    stale. `tools/gen_docs.py --check` gates BOUNDS.md, REGULATORY_MAP.md
+    and LEDGER.md -- and explicitly excludes this file, which is the one
+    the README's headline invites a reader to reproduce. So the exact bug
+    class fixed twice elsewhere stayed live on the most important generated
+    document in the repo.
+
+    Verified deterministic: two consecutive runs are byte-identical, which
+    is what makes gating it meaningful rather than flaky."""
+    check_only = "--check" in sys.argv
     commit_hash = _preregistration_commit_hash()
 
     # ---- Primary comparison ----
@@ -171,6 +186,19 @@ def main() -> None:
         flip_rate_primary=flip_rate_primary, flip_rate_stress=flip_rate_stress,
         economics=economics,
     )
+    if check_only:
+        existing = OUTPUT_PATH.read_text(encoding="utf-8") if OUTPUT_PATH.exists() else None
+        if existing != markdown:
+            print(
+                f"STALE: {OUTPUT_PATH.name} does not match what eval/report.py produces. "
+                f"Run 'uv run python eval/report.py' and commit the result -- the README "
+                f"invites a reader to reproduce this file.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        print(f"{OUTPUT_PATH.name} is current.")
+        return
+
     OUTPUT_PATH.write_text(markdown, encoding="utf-8")
     # Not printing the full markdown here: on Windows, stdout can be a
     # cp1252 console that can't encode this doc's own unicode (tau, plus-

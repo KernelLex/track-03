@@ -18,7 +18,7 @@ I locked this *because* it needs no assumed behavioural uplift to be interesting
 |---|---|---|---|---|---|---|---|---|
 | A | 500 | 77.6% | 77.2% | 5.4 | 0.0% | 8.0% | 2.18 | **399** |
 | B2 | 500 | 96.2% | 96.4% | 7.1 | 0.0% | 3.2% | 1.89 | **250** |
-| C | 500 | 98.4% | 98.4% | 6.7 | 9.6% | 0.4% | 1.78 | **0** |
+| C | 500 | 98.4% | 98.4% | 6.8 | 8.0% | 0.6% | 1.80 | **0** |
 
 **Result**: Arm C recovers 98.4% vs Arm A's 77.6% and Arm B2's 96.2% — the highest of the three, **and it does this with 0 real bounds-rule violations against 399 for Arm A and 250 for Arm B2** — every one of those a real, triggerable `DISPUTE_FREEZE` refusal (a plain collection touch against a genuinely disputed persona), not a hypothetical. My harness's Arm B2 is not a fully unbounded chaser (it already respects each persona's own contact-tolerance opt-out threshold, same as Arm A) — a literally unbounded bot would likely out-recover Arm C on raw rupees the way DEVDOC_v6 §17.4 anticipates; my harness's more conservative B2 does not, and I report that honestly rather than adjust it to match the anticipated shape.
 
@@ -30,7 +30,7 @@ The administrative-blocker (`Blocker.ADMINISTRATIVE`) subpopulation only. **Cave
 |---|---|---|---|---|---|---|---|---|
 | A | 2 | 0.0% | 0.0% | n/a | 0.0% | 0.0% | 4.00 | **0** |
 | B2 | 2 | 100.0% | 100.0% | 10.5 | 0.0% | 0.0% | 2.50 | **0** |
-| C | 2 | 100.0% | 100.0% | 10.5 | 50.0% | 0.0% | 2.50 | **0** |
+| C | 2 | 100.0% | 100.0% | 3.0 | 0.0% | 0.0% | 1.00 | **0** |
 
 **Low-power warning, stated rather than hidden**: only 2 of the 500 locked personas landed in the administrative-blocker subpopulation — a direct, honest consequence of the fitted `p_base` model's own high base rate (§17.7/`docs/LIMITATIONS.md`: ~97.9% resolve on their own in the underlying Kaggle data, so few personas ever reach the 'won't resolve without a specific blocker' branch that gets split across blocker types at all). At n=2 I don't treat this table as a reliable estimate of anything — I report it for completeness, per §17.7's own instruction to break Family B out, not as a finding. A population large enough for a statistically meaningful Family-B-only comparison (likely n=5,000+, given how thin this slice is) is future work for me, not something the locked n=500 primary run can retroactively provide without re-locking the pre-registration.
 
@@ -53,14 +53,14 @@ The administrative-blocker (`Blocker.ADMINISTRATIVE`) subpopulation only. **Cave
 
 | lift | A recovered | C recovered | C mean touches |
 |---|---|---|---|
-| 0.5 | 77.6% | 79.4% | 1.28 |
-| 0.673 | 77.6% | 93.7% | 1.61 |
-| 0.906 | 77.6% | 96.9% | 1.72 |
-| 1.219 | 77.6% | 97.6% | 1.74 |
-| 1.641 | 77.6% | 98.3% | 1.77 |
-| 2.208 | 77.6% | 98.4% | 1.78 |
-| 2.972 | 77.6% | 98.4% | 1.78 |
-| 4.0 | 77.6% | 98.4% | 1.78 |
+| 0.5 | 77.6% | 80.2% | 1.25 |
+| 0.673 | 77.6% | 94.2% | 1.61 |
+| 0.906 | 77.6% | 97.3% | 1.70 |
+| 1.219 | 77.6% | 97.5% | 1.74 |
+| 1.641 | 77.6% | 98.1% | 1.77 |
+| 2.208 | 77.6% | 98.4% | 1.80 |
+| 2.972 | 77.6% | 98.4% | 1.80 |
+| 4.0 | 77.6% | 98.4% | 1.80 |
 
 ## Decision flip rate under ±50% perturbation (§17.5)
 
@@ -81,11 +81,11 @@ At the primary cost, a 0% flip rate is the same finding as the lift-sweep table 
 |---|---|---|---|
 | A | 100.0% | Rs 0.0003 | 0.00 |
 | B2 | 100.0% | Rs 0.0002 | 0.00 |
-| C | 90.4% | Rs 0.0002 | 0.78 |
+| C | 92.0% | Rs 0.0002 | 0.65 |
 
 `human_minutes_per_recovery` rests on a declared, named assumption I make (`ASSUMED_MINUTES_PER_ESCALATION = 8` minutes per escalated case — no dataset gives me a real human-agent handling time for this, same honesty standard as every other `ASSUMED_*` constant I use in `eval/personas/generator.py`). `cost_per_rupee_recovered` uses the same `touch_cost_paise` (Rs 5) I already name throughout this report and the Rs 50,000 median-invoice scale I already assume in `eval/personas/generator.py` for absolute rupee amounts.
 
-**Arm C's autonomy rate (90.4%) is deliberately lower than the two ungated arms' (100%), and I don't consider that a flaw**: those two arms have no mechanism to escalate anything, ever — their 100% autonomy is the absence of a safety net, not evidence of a more capable system. Arm C's escalations are exactly the disputed-invoice cases §14.4/§24.2's own design says must reach a human; a lower autonomy rate here is the gate working as specified, the same point the violations column makes from a different angle.
+**Arm C's autonomy rate (92.0%) is deliberately lower than the two ungated arms' (100%), and I don't consider that a flaw**: those two arms have no mechanism to escalate anything, ever — their 100% autonomy is the absence of a safety net, not evidence of a more capable system. Arm C's escalations are exactly the disputed-invoice cases §14.4/§24.2's own design says must reach a human; a lower autonomy rate here is the gate working as specified, the same point the violations column makes from a different angle.
 
 ## What this is not (repeating docs/LIMITATIONS.md, on purpose)
 
