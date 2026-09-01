@@ -105,6 +105,16 @@ platform's actual function signature — not something I could share as one
 file, since the two platforms' handler contracts are genuinely different,
 not just differently named.
 
+**Live-caught deploying to Vercel**: its zero-config framework detection
+scans the whole repo, not just `frontend/`/`api/` — found `pyproject.toml`
+and `agent/api/app.py`'s FastAPI `app`, and tried to deploy that as a
+Python/FastAPI project instead of the static-plus-Node-functions setup
+actually intended (that backend is already live on Render; Vercel
+redeploying it too would be redundant at best). Fixed with
+`"framework": null` in `vercel.json` — the documented way to force
+Vercel's "Other" preset and disable auto-detection entirely, not
+something guessed from the error message alone.
+
 - **Render** replaced the laptop-plus-tunnel: a real, permanently-running
   deployment (see `docs/SETUP.md`'s webhook section for how the
   `payment.failed` -> live-orchestration path was proven against it) with
