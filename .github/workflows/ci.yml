@@ -14,6 +14,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history, not the default one-commit shallow clone.
+          # docs/RESULTS.md cites the commit that last touched
+          # eval/PREREGISTRATION.md, and in a shallow clone every file looks
+          # newly added at HEAD -- so `git log -1 -- <path>` returned the
+          # HEAD sha, the generated doc differed from the committed one, and
+          # the --check gate failed on every push. See docs/WHAT_BROKE.md #22.
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -74,6 +82,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history, not the default one-commit shallow clone.
+          # docs/RESULTS.md cites the commit that last touched
+          # eval/PREREGISTRATION.md, and in a shallow clone every file looks
+          # newly added at HEAD -- so `git log -1 -- <path>` returned the
+          # HEAD sha, the generated doc differed from the committed one, and
+          # the --check gate failed on every push. See docs/WHAT_BROKE.md #22.
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5

@@ -47,13 +47,28 @@ threshold."""
 
 
 def _preregistration_commit_hash() -> str:
+    """Raises on a shallow clone rather than citing the wrong commit.
+
+    Same trap as eval/report.py: with one commit fetched, every file looks
+    newly added at HEAD, so git answers with the HEAD sha -- a
+    plausible-looking wrong hash, regenerated differently on every push.
+    See docs/WHAT_BROKE.md #22."""
+    repo_root = OUTPUT_PATH.parent.parent
+    shallow = subprocess.run(["git", "rev-parse", "--is-shallow-repository"],
+                             capture_output=True, text=True, cwd=repo_root)
+    if shallow.stdout.strip() == "true":
+        raise SystemExit(
+            "This is a shallow clone, so the commit that last touched "
+            "eval/PREREGISTRATION_FAMILY_B.md cannot be determined. Run "
+            "`git fetch --unshallow` (or check out with fetch-depth: 0) first."
+        )
     try:
         out = subprocess.run(
             ["git", "log", "-1", "--format=%H", "--", str(PREREGISTRATION)],
-            capture_output=True, text=True, cwd=OUTPUT_PATH.parent.parent, check=True,
+            capture_output=True, text=True, cwd=repo_root, check=True,
         )
         return (out.stdout.strip() or "unknown")[:12]
-    except Exception:  # pragma: no cover -- no git, or a fresh clone with no history
+    except Exception:  # pragma: no cover -- no git at all
         return "unknown"
 
 

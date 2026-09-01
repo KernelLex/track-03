@@ -46,10 +46,32 @@ human cost to be reportable at all; this is that cost, and I name it as an
 assumption rather than smuggle it in as if it were fitted."""
 
 
+def _repository_is_shallow(repo_root) -> bool:
+    """A shallow clone cannot answer "which commit last touched this file".
+
+    It answers anyway, and wrongly: with one commit fetched, every file
+    looks newly added at HEAD, so `git log -1 -- <path>` returns the HEAD
+    sha. That is a plausible-looking wrong answer, which is worse than an
+    error -- it regenerated a different hash on every push and left CI red
+    for eleven consecutive runs (docs/WHAT_BROKE.md #22).
+    """
+    out = subprocess.run(["git", "rev-parse", "--is-shallow-repository"],
+                         capture_output=True, text=True, cwd=repo_root)
+    return out.stdout.strip() == "true"
+
+
 def _preregistration_commit_hash() -> str:
+    repo_root = Path(__file__).resolve().parents[1]
+    if _repository_is_shallow(repo_root):
+        raise SystemExit(
+            "This is a shallow clone, so the commit that last touched "
+            "eval/PREREGISTRATION.md cannot be determined -- git would return the "
+            "HEAD sha instead, and docs/RESULTS.md would cite the wrong commit. "
+            "Run `git fetch --unshallow` (or check out with fetch-depth: 0) first."
+        )
     return subprocess.run(
         ["git", "log", "-1", "--format=%H", "--", "eval/PREREGISTRATION.md"],
-        capture_output=True, text=True, check=True, cwd=Path(__file__).resolve().parents[1],
+        capture_output=True, text=True, check=True, cwd=repo_root,
     ).stdout.strip()
 
 

@@ -791,6 +791,60 @@ hardcoded context field is a quiet way to lie to your own gate.
 credential set and asserts the tag matches the channel object actually
 constructed. The WhatsApp case fails against the old hardcoding.
 
+## 22. Eleven consecutive red CI runs, reported as green
+
+**Symptom.** CI failed on every push from #16 to #26 — eleven runs — while
+I reported the suite as passing each time. Both statements were true and
+that is the problem: the suite passes locally, and I was reading the local
+result and never opening the CI page. Nobody caught it because the person
+who introduced it was also the person confirming it.
+
+**Root cause.** `docs/RESULTS.md` cites the commit that last touched
+`eval/PREREGISTRATION.md`, obtained with:
+
+```python
+subprocess.run(["git", "log", "-1", "--format=%H", "--", "eval/PREREGISTRATION.md"], ...)
+```
+
+`actions/checkout@v4` defaults to `fetch-depth: 1`. In a one-commit clone
+**every file looks newly added at HEAD**, so that command does not fail and
+does not return empty — it returns the HEAD sha. A plausible-looking wrong
+answer, and a different one on every push.
+
+So the gate I added in #16 to catch RESULTS.md drift (WHAT_BROKE #18)
+compared a doc citing `1f3b503…` against a regeneration citing whatever
+had just been pushed, and failed forever. The gate was working perfectly;
+it was reporting a difference that CI itself was creating.
+
+**Two fixes, because one was not enough.**
+
+`fetch-depth: 0` on both checkout steps, so git can actually answer.
+
+And the generators now refuse to answer when they cannot know: both check
+`git rev-parse --is-shallow-repository` and exit with an explanation rather
+than emitting a hash derived from a history that isn't there. Depending on
+CI configuration alone would leave the same trap for anyone cloning
+shallowly, and the failure mode is a *silently wrong citation* — the worst
+kind, because the document still looks authoritative.
+
+**What this actually cost**, stated plainly: nothing in the product, and a
+great deal in credibility. Eleven commits went out with a red CI badge on a
+repository whose central argument is that its claims are checkable. A judge
+who opened the Actions tab before reading anything else would have seen
+that first.
+
+**The process failure is the real entry here.** "The suite passes" and "CI
+passes" are different claims, and I substituted the cheap one for the one
+that mattered while writing "green CI" in commit messages. The mechanical
+fix is above; the discipline is to read the CI result rather than infer it
+from a local run, which is exactly the "verify, don't assume" rule this
+list already contains four other instances of.
+
+**Verification.** Reproduced by cloning this repository with `--depth 1`
+and observing `git log -1 -- eval/PREREGISTRATION.md` return the HEAD sha
+rather than `1f3b503…`; confirmed a full clone returns the correct hash;
+confirmed the hardened generator exits with its message under `--depth 1`.
+
 ## What this list is for
 
 I found every one of these by actually building against DEVDOC_v6, not by
