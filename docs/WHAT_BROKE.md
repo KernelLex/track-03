@@ -256,6 +256,54 @@ exact command that regenerates the results.
 **Verification.** `uv run trucommit demo` re-run; its closing block now
 points at both files.
 
+## 11. The rate limiter refused the first request after every restart
+
+**Symptom.** CI, on its very first red run, failed exactly three tests on
+ubuntu-latest — `test_ivr_can_call_a_caller_supplied_number`,
+`test_whatsapp_can_message_a_caller_supplied_number`, and
+`test_the_same_supplied_number_has_its_own_cooldown` — each with
+`assert 429 == 200` on its *first* request. The same three an external
+audit had reported. They had never failed on my machine, at any commit, in
+any order, on a clean clone.
+
+**Root cause.** Not a fixture leak, and not a test problem at all — a real
+defect in `agent/api/demo.py`:
+
+```python
+last = _last_triggered_at_by_number.get(to, 0.0)
+if now - last < PER_NUMBER_COOLDOWN_SECONDS:   # 300
+```
+
+`time.monotonic()` counts from an arbitrary origin, and on Linux that
+origin is machine boot. The `0.0` default therefore doesn't mean "never
+contacted", it means "contacted at boot" — so on a freshly-started machine
+`now` is small (a CI runner is seconds old), `now - 0.0` is smaller than
+the window, and **the first request to any number is refused**. My dev box
+had been up for days, so `now` was enormous and the branch could never be
+reached. Same bug in the per-channel limiter with its 20-second window.
+
+This is a production defect, not a test artifact: Render's free tier
+cold-starts constantly, and every one of those restarts would have refused
+real traffic for up to five minutes.
+
+**Fix.** `None` for "never contacted", checked explicitly, in both
+limiters — an absent key no longer pretends to be a timestamp.
+
+**Verification.** Two regression tests pin `time.monotonic()` low to
+reproduce a seconds-old machine deterministically on any OS, which is the
+only way this is testable on the machine where it could never occur
+naturally. Both were observed failing against the old logic and passing
+against the fix.
+
+**What this cost, and what it bought.** I told the auditor I could not
+reproduce their three failures and reported that honestly — four commits,
+a clean clone, four random seeds, no project env vars. All of that was
+true and none of it mattered, because the variable I could not vary was my
+own machine's uptime. The audit's central point was never really about
+those three tests: it was that a project selling gates that refuse had no
+gate on itself. CI found this on its first run, which is the argument for
+CI in one line.
+
 ## What this list is for
 
 I found every one of these by actually building against DEVDOC_v6, not by

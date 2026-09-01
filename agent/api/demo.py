@@ -106,9 +106,12 @@ def _validate_e164(to: str) -> None:
 
 
 def _check_per_number_rate_limit(to: str) -> None:
+    # Same "never contacted is None, not 0.0" reasoning as
+    # _check_rate_limit above -- and with a 5-minute window this one was the
+    # more damaging of the two.
     now = time.monotonic()
-    last = _last_triggered_at_by_number.get(to, 0.0)
-    if now - last < PER_NUMBER_COOLDOWN_SECONDS:
+    last = _last_triggered_at_by_number.get(to)
+    if last is not None and now - last < PER_NUMBER_COOLDOWN_SECONDS:
         wait = PER_NUMBER_COOLDOWN_SECONDS - (now - last)
         raise HTTPException(status_code=429, detail=f"this number was contacted too recently -- wait {wait:.0f}s")
     _last_triggered_at_by_number[to] = now
@@ -212,9 +215,16 @@ def _require_secret(secret: str) -> None:
 
 
 def _check_rate_limit(channel: str) -> None:
+    # `None` for "never triggered", not 0.0. time.monotonic() counts from an
+    # arbitrary origin -- on Linux, machine boot -- so a 0.0 default means
+    # "triggered at boot", and on a freshly-started machine that reads as
+    # *recent*. This rejected the first request after every restart for the
+    # length of the window. Found by CI on Linux (a runner is seconds old);
+    # invisible on a dev box that has been up for days. See
+    # docs/WHAT_BROKE.md #11.
     now = time.monotonic()
-    last = _last_triggered_at.get(channel, 0.0)
-    if now - last < MIN_SECONDS_BETWEEN_TRIGGERS:
+    last = _last_triggered_at.get(channel)
+    if last is not None and now - last < MIN_SECONDS_BETWEEN_TRIGGERS:
         wait = MIN_SECONDS_BETWEEN_TRIGGERS - (now - last)
         raise HTTPException(status_code=429, detail=f"triggered too recently -- wait {wait:.0f}s")
     _last_triggered_at[channel] = now

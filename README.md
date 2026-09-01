@@ -2,11 +2,71 @@
 
 Razorpay AI Buildathon 2026, Track 03 (AI Revenue Recovery). Full spec: [`DEVDOC_v6.md`](DEVDOC_v6.md).
 
-## Headline
+## What this is
 
-**Rs 91,72,435 in upcoming debits was structurally guaranteed to fail — and the system catches every one of them, with zero model and zero persona involved.** Pure arithmetic on a mandate's own object shape (undersized headroom, an expiry preceding the next debit) — not a prediction about anyone's behaviour. See [`docs/evidence/AT_RISK_HEADLINE.md`](docs/evidence/AT_RISK_HEADLINE.md) for the full breakdown, including what's synthetic about the batch and what isn't (the detection is real; the batch's defect rate is a declared demonstration parameter, stated as such).
+A bounded autonomous agent for Indian B2B and subscription revenue
+recovery. The part worth judging is not that it acts — it's what it
+refuses to do, and that the refusals are checkable by someone who doesn't
+trust me.
 
-The comparative claim, honestly nuanced rather than forced into a single number: at a **neutral** assumption (`lift_prior=1.0`, no assumed behavioural uplift), the gated pipeline (Arm C) recovers more than both an ungated fixed schedule and an ungated policy-aware chaser **while committing zero real `check_bounds()` violations against hundreds for the two ungated arms**. At realistic messaging costs, the one parameter with no empirical source (`lift_prior`) turns out not to decide the outcome at all — a stress-tested elevated cost does produce a genuine break-even τ≈0.49, near the low end of the declared sweep range. Full numbers, methodology, and what this is and isn't a claim about: [`docs/RESULTS.md`](docs/RESULTS.md).
+**Three things that are unusual, in the order I'd want them checked:**
+
+1. **A pre-registration, locked before the run.**
+   [`eval/PREREGISTRATION.md`](eval/PREREGISTRATION.md) fixes
+   n=500/seed=42/window=30d/lift=1.0 at its own commit *before*
+   `eval/report.py` produced [`docs/RESULTS.md`](docs/RESULTS.md) from
+   exactly that configuration. The one parameter with no empirical source
+   (`lift_prior`) turned out not to decide the outcome — which is a result
+   I could only report honestly *because* the analysis was fixed in
+   advance.
+2. **A bounds gate that two independent implementations agree on.** 19
+   rules in YAML, plus `human_twin.py` — a second implementation of the
+   same intent, written by hand, deliberately not sharing code — and a
+   Hypothesis differential test driving 5,000 generated cases through both
+   to prove they agree. `no_action` is a logged, first-class decision, not
+   silence.
+3. **Every action goes through one chokepoint.** `check_bounds()` before
+   any rail call, claim-then-act idempotency in the database rather than in
+   application logic, and a hash-chained ledger that `verify_chain()` can
+   re-derive. `dry_run=True` runs the identical judgment against 500
+   invoices with zero rupees able to move
+   ([`docs/evidence/DRY_RUN_BATCH.md`](docs/evidence/DRY_RUN_BATCH.md)).
+
+## The at-risk number, stated precisely
+
+**₹91,72,435 of upcoming debits in a 1,000-mandate batch are structurally
+unpayable** — the mandate's own headroom is smaller than the debit it must
+cover, or it expires before that debit falls due. `check_mandate_health()`
+finds 191 of 191, with no model and no persona involved.
+
+Being precise about what that does and doesn't show: **the detection is
+arithmetic, not prediction** — `max_amount_paise < upcoming_debit_paise`
+is a comparison, and it is exactly right by construction, which is the
+point (a defect you can prove from the object's own shape needs no
+behavioural assumption at all). It is *not* evidence of a clever detector:
+I generated that batch with a declared 12% headroom-breach and 8%
+expiry-breach rate, so the rupee figure is a direct consequence of
+parameters I chose. What it demonstrates is that this class of failure is
+visible *before* the debit is presented rather than after it fails. Full
+construction and caveats:
+[`docs/evidence/AT_RISK_HEADLINE.md`](docs/evidence/AT_RISK_HEADLINE.md).
+
+## The comparative claim
+
+At a **neutral** assumption (`lift_prior=1.0`, no assumed behavioural
+uplift), the gated pipeline (Arm C) recovers more than both an ungated
+fixed schedule and an ungated policy-aware chaser, **while committing zero
+real `check_bounds()` violations against hundreds for the two ungated
+arms**. A stress-tested elevated touch cost does produce a genuine
+break-even τ≈0.49, near the low end of the declared sweep range.
+
+**What this is not:** recovery here is scored against the simulator's own
+ground truth — a modelling convention, not Law 7's rail-confirmed-capture
+standard. `docs/RESULTS.md` says so in its own words, and the honest
+summary is that the *bounded execution* is measured and the *money* is
+not yet. Closing that is the work in progress: the SETTLE path is now
+wired to the live webhook (`docs/ORCHESTRATION.md`), tested, and waiting
+on a real paid invoice to flow through it.
 
 | Real / simulated | What's true right now |
 |---|---|
@@ -45,7 +105,7 @@ regime, not sending another message.
 ```
 uv sync
 uv run trucommit demo     # a small, real, end-to-end walk of one debtor
-uv run pytest             # 854 tests, no credentials needed (11 more run live with Razorpay test keys set)
+uv run pytest             # 856 tests, no credentials needed (11 more run live with Razorpay test keys set)
 ```
 
 CI runs that same suite on every push (`.github/workflows/ci.yml`), on

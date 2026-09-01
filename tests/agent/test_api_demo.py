@@ -337,6 +337,44 @@ def test_a_caller_supplied_number_must_be_e164(client):
     assert _FakeChannel.sent == []
 
 
+def test_a_freshly_booted_machine_does_not_refuse_the_first_trigger(client, monkeypatch):
+    """Regression, found by CI on Linux and invisible on a dev box.
+
+    time.monotonic() counts from an arbitrary origin -- machine boot on
+    Linux -- so the old `.get(key, 0.0)` default meant "last contacted at
+    boot", which on a freshly-started machine reads as *recent*. Every
+    first request after a restart was refused with 429 for the length of
+    the window, and Render's free tier cold-starts constantly.
+
+    Pinning monotonic() low reproduces a seconds-old machine deterministically
+    on any OS, which is the only reason this test is meaningful on the
+    Windows box where the bug could never show up naturally.
+    """
+    monkeypatch.setattr(demo_module.time, "monotonic", lambda: 3.0)
+
+    response = client.post(
+        "/demo/trigger", json={"secret": SECRET, "channel": "ivr", "scenario": "b2b", "to": "+919876500011"},
+    )
+    assert response.status_code == 200, "a just-booted server refused its first trigger"
+
+
+def test_a_freshly_booted_machine_still_enforces_the_cooldown_after_a_real_send(client, monkeypatch):
+    """The fix must not turn the limiter off -- only stop it firing before
+    anything has been sent."""
+    monkeypatch.setattr(demo_module.time, "monotonic", lambda: 3.0)
+
+    first = client.post(
+        "/demo/trigger", json={"secret": SECRET, "channel": "ivr", "scenario": "b2b", "to": "+919876500022"},
+    )
+    assert first.status_code == 200
+
+    demo_module._last_triggered_at.clear()  # isolate from the per-channel limiter
+    second = client.post(
+        "/demo/trigger", json={"secret": SECRET, "channel": "ivr", "scenario": "b2b", "to": "+919876500022"},
+    )
+    assert second.status_code == 429
+
+
 def test_the_same_supplied_number_has_its_own_cooldown(client):
     first = client.post(
         "/demo/trigger", json={"secret": SECRET, "channel": "ivr", "scenario": "b2b", "to": "+911234567890"},
