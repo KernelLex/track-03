@@ -76,6 +76,13 @@ value for a message that's ambiguous, off-topic, or where you're guessing betwee
 fields null if none was stated. Never infer a date or amount that wasn't actually written. \
 date MUST be ISO8601 (YYYY-MM-DD) -- convert whatever form the debtor used ("October 1st", \
 "next Friday", "15/09") into that format yourself; never pass through the original wording.
+- promise.schedule: if the debtor named MORE THAN ONE payment, list every one of them here, in \
+the order they said them, each with its own amount and date. "21,000 today and the rest on the \
+5th" is two legs: {"amount_paise": 2100000, "date": "<today>"} then {"amount_paise": null, \
+"date": "<the 5th>"}. A leg whose amount they did not restate ("the rest", "the balance", "the \
+remainder") gets "amount_paise": null -- do NOT work out the remainder yourself; the caller \
+knows the invoice total and does that arithmetic. Leave schedule as [] for a single payment. \
+When schedule is filled, also set promise.amount_paise and promise.date from the FIRST leg.
 - dispute: fill in only if the debtor is contesting something specific about the debt.
 - entities: pull out a UTR, PO number, GSTIN, contact person, or stated pay date only if \
 literally present in the text. Do not fabricate a plausible-looking value.

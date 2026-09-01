@@ -620,6 +620,65 @@ skipped", and the gate asserts the collected figure directly rather than
 only that the parts sum, which the old form allowed a wrong split to hide
 inside.
 
+## 19. The same message, extracted two different ways
+
+**Symptom.** A live regression run, twice, with the identical message: "I
+can pay 21000 today and rest on 5 th".
+
+```
+run 1:  promise={'date': '2026-09-01', 'amount_paise': 2100000}
+run 2:  promise={'date': '2026-09-05', 'amount_paise': None}
+```
+
+On run 2 the missing amount hit the "a date with no amount means the full
+balance" rule, so the system offered **Rs 41,650 on the 5th** -- a single
+payment of the whole invoice -- to a debtor who had just proposed splitting
+it. The composed reply then contradicted itself, because the model could
+see the raw message in the user turn while the computed plan in the context
+block said something else:
+
+> "Noting your proposal of Rs 21,000 today and the remaining Rs 21,500 on
+> the 5th -- to confirm, we have a plan of Rs 41,650 on 2026-09-05"
+
+**Root cause.** `PromiseFields` held exactly one `(amount_paise, date)`
+pair. A two-payment offer has nowhere to go in that schema, so the
+extractor had to collapse it into one slot -- and with no rule saying which
+half to keep, it kept a different half each time. The instability was not
+the model being unreliable; it was the schema forcing a lossy choice and
+leaving which loss unspecified.
+
+The "assume the full balance" rule made it worse rather than causing it.
+That rule is right for "I'll pay on the 5th", where no amount was ever
+stated. Applied to a message where the debtor *did* state an amount and the
+schema dropped it, it turns a lost field into a confident misreading.
+
+**Fix.** `PromiseFields.schedule: list[PromiseLeg]` -- every payment they
+named, in order. A leg with `amount_paise: None` means "the rest", which is
+a real thing people say; the remainder is arithmetic this side does,
+because the model is explicitly told not to compute it. Inventing an amount
+the debtor did not say is what `Promise` refuses everywhere else.
+
+`_legs_from_schedule()` refuses rather than repairs: named amounts over the
+invoice total, more than one unnamed "rest", a leg with no date, or fully
+specified legs that don't sum. Each of those is a real disagreement about
+what was offered, and guessing would put words in their mouth. The new
+`stated` plan shape marks every leg `proposed_by: "debtor"`, because
+nothing in it is ours.
+
+Additive by construction: `amount_paise` and `date` still carry the
+single-payment case, and a schedule with fewer than two legs takes the
+original path untouched.
+
+**Verification.** `TestTheDebtorsOwnScheduleIsHonoured` covers both dates
+being used, "the rest" resolving to the remainder, no leg being marked as
+our proposal, and each refusal case. `test_a_single_leg_schedule_takes_the_ordinary_path`
+holds the additive property.
+
+**Still open:** the extractor's *stability* is improved by giving it
+somewhere to put the second leg, but not proven. Two runs of one message is
+not a measurement, and nothing here establishes how often the schedule is
+populated correctly on real replies.
+
 ## What this list is for
 
 I found every one of these by actually building against DEVDOC_v6, not by

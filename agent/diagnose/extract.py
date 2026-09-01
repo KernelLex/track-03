@@ -109,30 +109,68 @@ set includes anything that closes an account or marks it settled without a
 rail-confirmed payment (§24.1)."""
 
 
+def _validate_promise_date(value: str | None) -> str | None:
+    """Shared by `PromiseFields.date` and every `PromiseLeg.date`, so a leg
+    inside a schedule cannot smuggle past a horizon check the top-level
+    field enforces."""
+    if value is None:
+        return value
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"promise.date {value!r} is not a valid ISO8601 date") from exc
+    today = date.today()
+    if parsed < today - timedelta(days=30) or parsed > today + timedelta(days=MAX_PROMISE_DATE_HORIZON_DAYS):
+        raise ValueError(
+            f"promise.date {value!r} is outside a plausible horizon "
+            f"(30 days in the past to {MAX_PROMISE_DATE_HORIZON_DAYS} days out) -- "
+            "rejecting rather than passing a decades-out date downstream"
+        )
+    return value
+
+
+class PromiseLeg(BaseModel):
+    """One instalment the debtor actually named.
+
+    `amount_paise=None` inside a multi-leg schedule means "the rest" -- the
+    debtor said "21,000 today and the balance on the 5th" and named a date
+    without repeating an amount. That is a real thing people say, and the
+    remainder is arithmetic the caller can do (total minus what was named),
+    not a number the model should be inventing."""
+
+    amount_paise: int | None = Field(default=None, gt=0)
+    date: str | None = None
+
+    @field_validator("date")
+    @classmethod
+    def _leg_date_is_valid_and_plausible(cls, value: str | None) -> str | None:
+        return _validate_promise_date(value)
+
+
 class PromiseFields(BaseModel):
     amount_paise: int | None = Field(default=None, gt=0)
     """A promise of exactly Rs 0 isn't a payment commitment -- must be positive
     when present (§24.1's schema-poisoning class names amount_paise=0 directly)."""
     date: str | None = None
     installments: int | None = Field(default=None, gt=0)
+    schedule: list[PromiseLeg] = Field(default_factory=list)
+    """Every instalment the debtor named, in the order they said them.
+
+    Added because a single (amount, date) pair structurally cannot hold
+    "21,000 today and the rest on the 5th", and the extractor was collapsing
+    such offers into one slot -- differently on different runs. The same
+    message produced `{date: 2026-09-01, amount: 2100000}` once and
+    `{date: 2026-09-05, amount: None}` the next time, and the second reading
+    made the system offer a plan for the full balance on the 5th, which is
+    not what was said.
+
+    `amount_paise` and `date` above stay populated for the single-payment
+    case and for every existing caller; this is additive."""
 
     @field_validator("date")
     @classmethod
     def _date_is_valid_and_plausible(cls, value: str | None) -> str | None:
-        if value is None:
-            return value
-        try:
-            parsed = date.fromisoformat(value)
-        except ValueError as exc:
-            raise ValueError(f"promise.date {value!r} is not a valid ISO8601 date") from exc
-        today = date.today()
-        if parsed < today - timedelta(days=30) or parsed > today + timedelta(days=MAX_PROMISE_DATE_HORIZON_DAYS):
-            raise ValueError(
-                f"promise.date {value!r} is outside a plausible horizon "
-                f"(30 days in the past to {MAX_PROMISE_DATE_HORIZON_DAYS} days out) -- "
-                "rejecting rather than passing a decades-out date downstream"
-            )
-        return value
+        return _validate_promise_date(value)
 
 
 class DisputeFields(BaseModel):

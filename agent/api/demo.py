@@ -494,6 +494,54 @@ def _diagnosis_dict(extraction) -> dict[str, object]:
     return d
 
 
+def _legs_from_schedule(promise, total: int) -> list[tuple[int, date]] | None:
+    """The debtor's own multi-leg schedule, with "the rest" resolved.
+
+    Returns None unless they genuinely named two or more dated payments, so
+    every existing single-payment path is untouched.
+
+    A leg with no amount is "the rest" -- "21,000 today and the balance on
+    the 5th" is a real sentence, and the remainder is arithmetic this side
+    owns (the model is told not to compute it, because inventing an amount
+    the debtor did not say is exactly what `Promise` refuses elsewhere).
+
+    Refuses rather than repairs when the numbers do not work: named amounts
+    over the invoice total, more than one unnamed "rest", or a leg without a
+    date. `build_plan` would reject the result anyway, and guessing at what
+    they meant would put words in their mouth.
+    """
+    schedule = list(getattr(promise, "schedule", None) or [])
+    if len(schedule) < 2:
+        return None
+
+    dated = [leg for leg in schedule if leg.date]
+    if len(dated) != len(schedule):
+        return None  # a leg with no date can't be scheduled against anything
+
+    unnamed = [leg for leg in schedule if not leg.amount_paise]
+    if len(unnamed) > 1:
+        return None  # "some now and some later" is not a schedule
+
+    named_total = sum(int(leg.amount_paise) for leg in schedule if leg.amount_paise)
+    if named_total > total:
+        return None  # they are describing a different debt than the invoice
+    if not unnamed and named_total != total:
+        return None  # fully-specified legs that don't sum are a real disagreement
+
+    remainder = total - named_total
+    if unnamed and remainder <= 0:
+        return None  # nothing left for "the rest" to mean
+
+    legs: list[tuple[int, date]] = []
+    for leg in schedule:
+        try:
+            due = date.fromisoformat(str(leg.date))
+        except ValueError:  # pragma: no cover -- PromiseLeg validates ISO8601 upstream
+            return None
+        legs.append((int(leg.amount_paise) if leg.amount_paise else remainder, due))
+    return legs
+
+
 def _plan_from_promise(extraction, scenario: dict[str, object],
                       terms: DebtorTerms | None = None) -> dict[str, object] | None:
     """A debtor who proposes a split gets a real, priced plan back.
@@ -519,6 +567,11 @@ def _plan_from_promise(extraction, scenario: dict[str, object],
         balance when they didn't name one is the conservative reading, and
         the date is quoted straight back from what they said.
 
+      - **stated** -- they named the whole schedule themselves ("21,000
+        today and the rest on the 5th"). Every leg is theirs; nothing is
+        proposed. This is the shape that should happen most often and was
+        impossible before `promise.schedule` existed.
+
     A promise with no date at all is not a plan -- there is nothing to
     schedule a debit against -- and gets the ordinary path.
     """
@@ -533,20 +586,33 @@ def _plan_from_promise(extraction, scenario: dict[str, object],
         return None
 
     terms = terms or terms_for([])
-    stated = int(promise.amount_paise) if promise.amount_paise else total
-    if stated >= total:
-        shape, legs = "full", [(total, first_date)]
-    elif not terms.offers_instalment_plan:
-        # A debtor in the strict band is not offered a split. Their own
-        # record is the reason, and the reply says so rather than going
-        # quiet: the full amount on their date is still a plan, and still
-        # earns a real mandate.
-        shape, legs = "full", [(total, first_date)]
+
+    # What the debtor actually said, if they said more than one thing.
+    stated_legs = _legs_from_schedule(promise, total)
+    if stated_legs is not None and len(stated_legs) > terms.max_instalments:
+        # Their record does not stretch to that many instalments. Falling
+        # through rather than silently truncating their schedule: dropping a
+        # leg they named would misrepresent the offer back to them.
+        _log.info("demo: %d stated legs exceeds the %s band's %d -- not offering their schedule",
+                  len(stated_legs), terms.band, terms.max_instalments)
+        stated_legs = None
+    if stated_legs is not None and terms.offers_instalment_plan:
+        shape, legs = "stated", stated_legs
     else:
-        # The debtor named one leg and a date. The remainder is theirs to
-        # place; absent a second stated date, this proposes the balance a
-        # fortnight on.
-        shape, legs = "split", [(stated, first_date), (total - stated, first_date + timedelta(days=14))]
+        stated = int(promise.amount_paise) if promise.amount_paise else total
+        if stated >= total:
+            shape, legs = "full", [(total, first_date)]
+        elif not terms.offers_instalment_plan:
+            # A debtor in the strict band is not offered a split. Their own
+            # record is the reason, and the reply says so rather than going
+            # quiet: the full amount on their date is still a plan, and still
+            # earns a real mandate.
+            shape, legs = "full", [(total, first_date)]
+        else:
+            # The debtor named one leg and a date. The remainder is theirs to
+            # place; absent a second stated date, this proposes the balance a
+            # fortnight on.
+            shape, legs = "split", [(stated, first_date), (total - stated, first_date + timedelta(days=14))]
 
     try:
         plan = build_plan(invoice_id=str(scenario["invoice_id"]), total_amount_paise=total,
@@ -567,7 +633,7 @@ def _plan_from_promise(extraction, scenario: dict[str, object],
                 "due_date": leg.due_date.isoformat(),
                 "payable_paise": leg.payable_paise,
                 "savings_paise": leg.savings_paise,
-                "proposed_by": "debtor" if shape == "full" or leg.sequence == 1 else "system",
+                "proposed_by": "debtor" if shape in ("full", "stated") or leg.sequence == 1 else "system",
             }
             for leg in plan.legs
         ],

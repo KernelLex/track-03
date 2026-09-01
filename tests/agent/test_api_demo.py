@@ -860,3 +860,108 @@ class TestInstalmentNegotiation:
         body, _ = self._reply(client, monkeypatch, "I'll pay soon",
                               amount_paise=None, promise_date=None)
         assert "payment_plan" not in body
+
+
+class TestTheDebtorsOwnScheduleIsHonoured:
+    """From a live run. The debtor sent "I can pay 21000 today and rest on
+    5 th" -- twice, identically -- and the extractor returned a different
+    reading each time:
+
+        run 1: {date: 2026-09-01, amount_paise: 2100000}
+        run 2: {date: 2026-09-05, amount_paise: None}
+
+    `PromiseFields` held one (amount, date) pair, so a two-payment offer had
+    nowhere to go and got collapsed into one slot, differently on different
+    runs. On run 2 the missing amount triggered the "assume the full
+    balance" rule, so the system offered Rs 41,650 on the 5th -- and the
+    reply contradicted itself, acknowledging the split it had just been told
+    about while proposing a plan that wasn't it.
+    """
+
+    def _reply(self, client, monkeypatch, text, *, schedule, amount_paise=None, promise_date=None):
+        from agent.diagnose.extract import (
+            DiagnosisClass, ExtractionResult, Family, PromiseFields, PromiseLeg,
+        )
+
+        captured = {}
+        monkeypatch.setattr(demo_module, "compose_reply",
+                            lambda reply_text, **kw: captured.update(kw) or "ok")
+        monkeypatch.setattr(
+            demo_module, "extract_from_reply",
+            lambda t, **kw: ExtractionResult(
+                family=Family.C, class_=DiagnosisClass.PROMISE_STATED, confidence=0.85,
+                promise=PromiseFields(
+                    amount_paise=amount_paise, date=promise_date,
+                    schedule=[PromiseLeg(**leg) for leg in schedule],
+                ),
+            ),
+        )
+        _FakeChannel.updates = [{"update_id": 960, "message": {"chat": {"id": "999888777"}, "text": text}}]
+        return client.post("/demo/check-reply", json={"secret": SECRET, "diagnose": True}).json(), captured
+
+    def test_both_dates_they_named_are_used(self, client, monkeypatch):
+        body, _ = self._reply(
+            client, monkeypatch, "I can pay 21000 today and rest on 5th",
+            schedule=[{"amount_paise": 21_000_00, "date": "2026-09-02"},
+                      {"amount_paise": None, "date": "2026-09-05"}],
+            amount_paise=21_000_00, promise_date="2026-09-02",
+        )
+        plan = body["payment_plan"]
+        assert plan["shape"] == "stated"
+        assert [leg["due_date"] for leg in plan["legs"]] == ["2026-09-02", "2026-09-05"]
+
+    def test_the_rest_is_resolved_as_arithmetic_not_invented(self, client, monkeypatch):
+        """"the rest" is a real thing people say. The remainder is this
+        side's arithmetic -- the model is told not to compute it, because
+        inventing an amount the debtor didn't say is what Promise refuses
+        everywhere else."""
+        body, _ = self._reply(
+            client, monkeypatch, "21000 today and rest on 5th",
+            schedule=[{"amount_paise": 21_000_00, "date": "2026-09-02"},
+                      {"amount_paise": None, "date": "2026-09-05"}],
+            amount_paise=21_000_00, promise_date="2026-09-02",
+        )
+        amounts = [leg["amount_paise"] for leg in body["payment_plan"]["legs"]]
+        assert amounts == [21_000_00, 42_500_00 - 21_000_00]
+
+    def test_no_leg_is_marked_as_our_proposal(self, client, monkeypatch):
+        """They named the whole schedule, so nothing here is ours to
+        propose -- and saying otherwise would understate their commitment."""
+        body, _ = self._reply(
+            client, monkeypatch, "21000 today and rest on 5th",
+            schedule=[{"amount_paise": 21_000_00, "date": "2026-09-02"},
+                      {"amount_paise": None, "date": "2026-09-05"}],
+            amount_paise=21_000_00, promise_date="2026-09-02",
+        )
+        assert {leg["proposed_by"] for leg in body["payment_plan"]["legs"]} == {"debtor"}
+
+    def test_a_schedule_that_overshoots_the_invoice_is_refused(self, client, monkeypatch):
+        """They are describing a different debt. Repairing it silently would
+        misstate what they offered -- the same reason PlanRejected exists."""
+        body, _ = self._reply(
+            client, monkeypatch, "50000 today and 20000 on the 5th",
+            schedule=[{"amount_paise": 50_000_00, "date": "2026-09-02"},
+                      {"amount_paise": 20_000_00, "date": "2026-09-05"}],
+            amount_paise=50_000_00, promise_date="2026-09-02",
+        )
+        assert body["payment_plan"]["shape"] != "stated"
+
+    def test_two_unnamed_amounts_are_not_a_schedule(self, client, monkeypatch):
+        """"some now and some later" names no amount at all, so there is no
+        arithmetic that recovers what they meant."""
+        body, _ = self._reply(
+            client, monkeypatch, "some now and some later",
+            schedule=[{"amount_paise": None, "date": "2026-09-02"},
+                      {"amount_paise": None, "date": "2026-09-05"}],
+            promise_date="2026-09-02",
+        )
+        assert body["payment_plan"]["shape"] != "stated"
+
+    def test_a_single_leg_schedule_takes_the_ordinary_path(self, client, monkeypatch):
+        """Additive by construction: one payment behaves exactly as before."""
+        body, _ = self._reply(
+            client, monkeypatch, "I'll pay the whole thing on the 5th",
+            schedule=[{"amount_paise": 42_500_00, "date": "2026-09-05"}],
+            amount_paise=42_500_00, promise_date="2026-09-05",
+        )
+        assert body["payment_plan"]["shape"] == "full"
