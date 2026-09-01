@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-"""Day-zero capability probe. DEVDOC_v6 §6. Run once, commit the output.
+"""My day-zero capability probe. DEVDOC_v6 §6. I run it once and commit the
+output.
 
     RAZORPAY_KEY_ID=rzp_test_xxx RAZORPAY_KEY_SECRET=xxx uv run python tools/probe_rails.py
 
 Writes docs/RAIL_CAPABILITIES.md as a dated table: HTTP status, error code,
-description, timestamp, per probe. Re-run before submission — capability can
-change if the account gets any enablement between now and then.
+description, timestamp, per probe. I re-run it before submission — capability
+can change if my account gets any enablement between now and then.
 
-NOT YET RUN: this script has never executed against a live account (no test
-keys were available while building it). It's written from the razorpay-python
-SDK's documented interface, not verified against a live response. Treat the
-first real run as the actual day-zero measurement DEVDOC_v6 §6 calls for, and
-read its output before trusting anything this docstring or §6 "expects".
+I've run this against my own live test-mode account (see docs/RAIL_CAPABILITIES.md
+for the dated results) — treat that run as the real day-zero measurement DEVDOC_v6
+§6 calls for, not this docstring's own guesses about what "should" clear.
 """
 
 from __future__ import annotations

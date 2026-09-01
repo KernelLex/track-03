@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-08-31T22:01:26.748706+00:00",
+  "generated_at": "2026-09-01T08:36:11.844799+00:00",
   "ledger_chain_verified": true,
   "results": [
     {
       "scenario": "b2b_insufficient_funds",
-      "debtor_id": "real_b2b_20260831220126",
-      "invoice_id": "INV-20260831220126-1",
+      "debtor_id": "real_b2b_20260901083611",
+      "invoice_id": "INV-20260901083611-1",
       "amount_paise": 4250000,
       "disputed_paise": 0,
       "diagnosis": {
@@ -23,8 +23,8 @@
     },
     {
       "scenario": "subscription_mandate_setup",
-      "debtor_id": "real_sub_20260831220126",
-      "invoice_id": "SUB-20260831220126-2",
+      "debtor_id": "real_sub_20260901083611",
+      "invoice_id": "SUB-20260901083611-2",
       "amount_paise": 99900,
       "disputed_paise": 0,
       "diagnosis": {
@@ -37,18 +37,18 @@
       "attempted_action": "create_mandate",
       "bounds_passed": true,
       "rail_error": null,
-      "external_ref": "sub_TWXBzimHnZIJoy",
-      "short_url": "https://rzp.io/rzp/8dvHx1H3",
+      "external_ref": "sub_TWi0Xb2L4S63NQ",
+      "short_url": "https://rzp.io/rzp/wsF5hw7S",
       "detail": {
         "status": "created",
         "max_amount_paise": 99900,
-        "short_url": "https://rzp.io/rzp/8dvHx1H3"
+        "short_url": "https://rzp.io/rzp/wsF5hw7S"
       }
     },
     {
       "scenario": "gst_defect_reissue",
-      "debtor_id": "real_gst_20260831220126",
-      "invoice_id": "INV-20260831220126-3",
+      "debtor_id": "real_gst_20260901083611",
+      "invoice_id": "INV-20260901083611-3",
       "amount_paise": 1875000,
       "disputed_paise": 0,
       "diagnosis": {
@@ -61,18 +61,18 @@
       "attempted_action": "reissue_artifact",
       "bounds_passed": true,
       "rail_error": null,
-      "external_ref": "inv_TWXC0xc50Sv3np",
-      "short_url": "https://rzp.io/rzp/CcQ1mAdc",
+      "external_ref": "inv_TWi0YsVWU7Tg3B",
+      "short_url": "https://rzp.io/rzp/XI16JK7",
       "detail": {
         "amount_paise": 1875000,
         "status": "issued",
-        "short_url": "https://rzp.io/rzp/CcQ1mAdc"
+        "short_url": "https://rzp.io/rzp/XI16JK7"
       }
     },
     {
       "scenario": "disputed_invoice_mandate_refused",
-      "debtor_id": "real_dispute_20260831220126",
-      "invoice_id": "INV-20260831220126-4",
+      "debtor_id": "real_dispute_20260901083611",
+      "invoice_id": "INV-20260901083611-4",
       "amount_paise": 8800000,
       "disputed_paise": 3000000,
       "diagnosis": {

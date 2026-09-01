@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Generates docs/RESULTS.md from the locked pre-registration
+"""I generate docs/RESULTS.md from my locked pre-registration
 (eval/PREREGISTRATION.md, committed before this script's first real run —
-DEVDOC_v6 §17.6). Not hand-typed: every number in the output doc comes
-from actually running the harness at the committed parameters, the same
-"generated docs can't drift from source" discipline tools/gen_docs.py
-already applies to BOUNDS.md/REGULATORY_MAP.md/LEDGER.md.
+DEVDOC_v6 §17.6). I don't hand-type it: every number in the output doc comes
+from actually running my harness at the committed parameters, the same
+"generated docs can't drift from source" discipline I already apply in
+tools/gen_docs.py to BOUNDS.md/REGULATORY_MAP.md/LEDGER.md.
 
     uv run python eval/report.py
 
-Re-running this script reproduces the identical numbers (the population is
-seeded, §17.6's whole point) — it is not a fresh draw each time.
+Re-running this script reproduces the identical numbers (I seed the
+population, that's the whole point of §17.6) — it is not a fresh draw each time.
 """
 
 from __future__ import annotations
@@ -30,19 +30,19 @@ PRIMARY_TOUCH_COST_PAISE = DEFAULT_TOUCH_COST_PAISE  # Rs 5
 STRESS_TOUCH_COST_PAISE = 20_000_00  # Rs 20,000 -- see PREREGISTRATION.md's own note
 
 LIFT_SWEEP = [round(0.5 * (4.0 / 0.5) ** (i / 7), 3) for i in range(8)]
-"""8 points, log-spaced 0.5x-4.0x -- exactly the range eval/PREREGISTRATION.md
-already declares for this parameter (§17.2), not a new range invented here."""
+"""8 points, log-spaced 0.5x-4.0x -- exactly the range I already declared for
+this parameter in eval/PREREGISTRATION.md (§17.2), not a new range I invented here."""
 
 PERTURBATION_FACTORS = (0.5, 1.5)  # +/-50%, §17.5
 
 ASSUMED_MINUTES_PER_ESCALATION = 8.0
-"""No dataset gives a real human-agent handling time for an escalated AR
-case -- a declared prior, same status as every other ASSUMED_* constant in
-eval/personas/generator.py, not a measured figure. A round, defensible
-guess (a person reads the case history, the diagnosis, and the bounds
+"""No dataset gives me a real human-agent handling time for an escalated AR
+case -- I declare it as a prior, same status as every other ASSUMED_* constant I
+use in eval/personas/generator.py, not a measured figure. It's a round, defensible
+guess I made (a person reads the case history, the diagnosis, and the bounds
 refusal reason, then acts) -- §25.2's own metric needs *some* per-touch
-human cost to be reportable at all; this is that cost, named as an
-assumption rather than smuggled in as if it were fitted."""
+human cost to be reportable at all; this is that cost, and I name it as an
+assumption rather than smuggle it in as if it were fitted."""
 
 
 def _preregistration_commit_hash() -> str:
@@ -54,7 +54,7 @@ def _preregistration_commit_hash() -> str:
 
 class BreakEven:
     """Three distinct, honestly-different outcomes of the sweep -- collapsing
-    them into a single "τ or None" was the actual bug found while building
+    them into a single "τ or None" was the actual bug I found while building
     this: at the primary touch cost, C exceeds A at *every* grid point
     (C doesn't depend on lift there at all), and a naive "first point where
     C >= A" search reported that lowest grid point as "the break-even",
@@ -66,9 +66,9 @@ class BreakEven:
 
 
 def _find_break_even(*, touch_cost_paise: int, outcomes_by_lift_fn) -> BreakEven:
-    """Fine grid search (step 0.01) over the declared 0.10-4.00 range for
-    where Arm C's recovered_fraction crosses Arm A's. Not a root-finder on
-    a continuous function -- this harness's output is itself a stochastic
+    """I run a fine grid search (step 0.01) over the declared 0.10-4.00 range for
+    where Arm C's recovered_fraction crosses Arm A's. It's not a root-finder on
+    a continuous function -- my harness's output is itself a stochastic
     simulation, so "the exact crossing" is only ever meaningful to about
     this grid's resolution anyway."""
     grid = [round(0.10 + 0.01 * i, 2) for i in range(0, 391)]  # 0.10 .. 4.00
@@ -86,13 +86,13 @@ def _find_break_even(*, touch_cost_paise: int, outcomes_by_lift_fn) -> BreakEven
 
 
 def compute_economics(summaries: dict, touch_cost_paise: int) -> dict[str, dict]:
-    """§25.1's autonomy rate and §25.2's unit economics, computed from the
+    """I compute §25.1's autonomy rate and §25.2's unit economics from the
     same ArmSummary data the primary comparison table already has -- no
     second simulation run needed. `cost_per_rupee_recovered` and
     `human_minutes_per_recovery` both rest on a per-touch/per-escalation
     cost that has to come from somewhere; touch_cost_paise is already a
     named, declared constant (DEFAULT_TOUCH_COST_PAISE), and
-    ASSUMED_MINUTES_PER_ESCALATION is a new one, declared the same way."""
+    ASSUMED_MINUTES_PER_ESCALATION is a new one I declared the same way."""
     economics = {}
     for arm, s in summaries.items():
         total_touch_cost_paise = s.mean_touches * touch_cost_paise * s.n
@@ -111,10 +111,10 @@ def compute_economics(summaries: dict, touch_cost_paise: int) -> dict[str, dict]
 
 
 MEDIAN_INVOICE_FOR_ECONOMICS_PAISE = 50_000_00
-"""Same Rs 50,000 population-scale assumption eval/personas/generator.py
-already uses (ASSUMED_MEDIAN_INVOICE_PAISE) -- reused here, not a second,
-inconsistent number, since recovered_fraction alone doesn't carry an
-absolute rupee scale on its own."""
+"""Same Rs 50,000 population-scale assumption I already use in
+eval/personas/generator.py (ASSUMED_MEDIAN_INVOICE_PAISE) -- I reuse it here
+rather than introduce a second, inconsistent number, since recovered_fraction
+alone doesn't carry an absolute rupee scale on its own."""
 
 
 def main() -> None:
@@ -205,27 +205,27 @@ def render_markdown(
     lines: list[str] = []
     lines.append("# Results — the synthetic Monte Carlo comparison (DEVDOC_v6 §17)")
     lines.append("")
-    lines.append(f"Generated by `eval/report.py`, run against parameters locked in "
+    lines.append(f"I generate this with `eval/report.py`, run against parameters I locked in "
                   f"`eval/PREREGISTRATION.md` at commit `{commit_hash}` — every number below "
                   f"comes from that exact, committed-before-running configuration, not a "
-                  f"draw picked after seeing an outcome.")
+                  f"draw I picked after seeing an outcome.")
     lines.append("")
 
     # Section 0
     lines.append("## Section 0 — what this is, and what it is not (§16, §17.1)")
     lines.append("")
     lines.append(
-        "This is a **synthetic Monte Carlo comparison**: a reproducible population of "
+        "I built this as a **synthetic Monte Carlo comparison**: a reproducible population of "
         f"{N_PERSONAS} personas (`eval/personas/generator.py`, seed={SEED}), with a real, "
         "fitted `p_base` per persona and a known (synthetic) ground-truth blocker, run "
         "through three arms. Arm C is the only arm that calls the *actual* project code "
         "(`agent.decide.ev.compute_ev`, `agent.bounds.engine.check_bounds`) rather than a "
-        "hand-rolled stand-in — this measures whether the real pipeline's logic helps a "
+        "hand-rolled stand-in — I use this to measure whether my real pipeline's logic helps a "
         "population with known ground truth, not whether real extraction is accurate "
-        "(that needs a real golden set, not built yet — see `docs/LIMITATIONS.md`) and not "
+        "(that needs a real golden set, which I haven't built yet — see `docs/LIMITATIONS.md`) and not "
         "whether real debtors respond the way this population's declared-prior resolution "
-        "probabilities assume. A rupee here is 'recovered' if a persona's synthetic "
-        "resolution draw succeeded within the window — a modelling convention for this "
+        "probabilities assume. I count a rupee here as 'recovered' if a persona's synthetic "
+        "resolution draw succeeded within the window — a modelling convention for my "
         "harness, not Law 7's real rail-confirmed-capture standard, which governs actual "
         "money in `agent/ledger/recovery.py`."
     )
@@ -236,7 +236,7 @@ def render_markdown(
                   f"window={WINDOW_DAYS}d, touch_cost=Rs 5, lift_prior=1.0 neutral)")
     lines.append("")
     lines.append(
-        "Locked *because* it needs no assumed behavioural uplift to be interesting: at "
+        "I locked this *because* it needs no assumed behavioural uplift to be interesting: at "
         "`lift_prior=1.0`, any Arm C advantage comes from correct diagnosis routing and "
         "bounds discipline alone, never from a favourable guess about the one parameter "
         "with no empirical source (§17.1)."
@@ -248,14 +248,14 @@ def render_markdown(
     lines.append(
         f"**Result**: Arm C recovers {_fmt_pct(c_r)} vs Arm A's {_fmt_pct(a_r)} and Arm B2's "
         f"{_fmt_pct(b2_r)} — {'the highest of the three' if c_r >= max(a_r, b2_r) else 'not the highest of the three, see below'}, "
-        f"**and does it with {primary['C'].total_bounds_violations} real bounds-rule violations against "
+        f"**and it does this with {primary['C'].total_bounds_violations} real bounds-rule violations against "
         f"{primary['A'].total_bounds_violations} for Arm A and {primary['B2'].total_bounds_violations} for Arm B2** — "
         "every one of those a real, triggerable `DISPUTE_FREEZE` refusal (a plain collection "
-        "touch against a genuinely disputed persona), not a hypothetical. This harness's Arm B2 "
+        "touch against a genuinely disputed persona), not a hypothetical. My harness's Arm B2 "
         "is not a fully unbounded chaser (it already respects each persona's own contact-tolerance "
         "opt-out threshold, same as Arm A) — a literally unbounded bot would likely out-recover "
-        "Arm C on raw rupees the way DEVDOC_v6 §17.4 anticipates; this harness's more conservative "
-        "B2 does not, and that is reported honestly rather than adjusted to match the anticipated shape."
+        "Arm C on raw rupees the way DEVDOC_v6 §17.4 anticipates; my harness's more conservative "
+        "B2 does not, and I report that honestly rather than adjust it to match the anticipated shape."
     )
     lines.append("")
 
@@ -264,10 +264,10 @@ def render_markdown(
     lines.append("")
     lines.append(
         "The administrative-blocker (`Blocker.ADMINISTRATIVE`) subpopulation only. **Caveat, "
-        "stated plainly**: this harness models the Family-B advantage through differential "
+        "stated plainly**: I model the Family-B advantage in my harness through differential "
         "diagnostic-accuracy/matching rates (Arm A always 'mismatched' since it never diagnoses; "
         "Arm B2/C match at the same declared `DIAGNOSTIC_ACCURACY`), not through literally distinct "
-        "artifact-repair action mechanics — it does **not** yet fully model DEVDOC_v6 §26.1's "
+        "artifact-repair action mechanics — I do **not** yet fully model DEVDOC_v6 §26.1's "
         "stronger claim that the control arm's action *set* structurally lacks a repair action. "
         "What's below is a real, honest cut of the real simulation output; it is a weaker form of "
         "the identification argument than §26.1 describes, not the full version."
@@ -283,11 +283,11 @@ def render_markdown(
             f"— a direct, honest consequence of the fitted `p_base` model's own high base rate "
             f"(§17.7/`docs/LIMITATIONS.md`: ~97.9% resolve on their own in the underlying Kaggle "
             f"data, so few personas ever reach the 'won't resolve without a specific blocker' "
-            f"branch that gets split across blocker types at all). At n={family_b_n} this table "
-            f"is not a reliable estimate of anything — it's reported for completeness, per "
-            f"§17.7's own instruction to break Family B out, not presented as a finding. A "
+            f"branch that gets split across blocker types at all). At n={family_b_n} I don't "
+            f"treat this table as a reliable estimate of anything — I report it for completeness, per "
+            f"§17.7's own instruction to break Family B out, not as a finding. A "
             f"population large enough for a statistically meaningful Family-B-only comparison "
-            f"(likely n=5,000+, given how thin this slice is) is future work, not something "
+            f"(likely n=5,000+, given how thin this slice is) is future work for me, not something "
             f"the locked n=500 primary run can retroactively provide without re-locking the "
             f"pre-registration."
         )
@@ -301,7 +301,7 @@ def render_markdown(
         if be.kind == "dominates_throughout":
             return (f"**No break-even τ exists within the declared 0.5x-4.0x range**: Arm C's "
                     f"recovered fraction meets or exceeds Arm A's at *every* swept point, including "
-                    f"the lowest ({LIFT_SWEEP[0]}x) — the honest reading is that **`lift_prior` is not "
+                    f"the lowest ({LIFT_SWEEP[0]}x) — my honest reading is that **`lift_prior` is not "
                     f"load-bearing** for this comparison {context}; the outcome is driven by diagnosis "
                     f"routing and bounds discipline, not by the swept parameter.")
         if be.kind == "never_catches_up":
@@ -324,7 +324,7 @@ def render_markdown(
     lines.append("")
 
     lines.append(
-        "**Stress test at an elevated touch cost (Rs 20,000)** — deliberately raised so `EV_FLOOR` "
+        "**Stress test at an elevated touch cost (Rs 20,000)** — I deliberately raised this so `EV_FLOOR` "
         "actually binds, to show where the prior *would* become load-bearing: "
         + _describe_break_even(break_even_stress, context="under this artificially harsh cost assumption")
     )
@@ -340,7 +340,7 @@ def render_markdown(
     lines.append("## Decision flip rate under ±50% perturbation (§17.5)")
     lines.append("")
     lines.append(
-        f"Per-persona `EV_FLOOR` pass/refuse, recomputed with `lift_prior` perturbed ±50%, over "
+        f"I recompute per-persona `EV_FLOOR` pass/refuse, with `lift_prior` perturbed ±50%, over "
         f"the full real population (n={N_PERSONAS})."
     )
     lines.append("")
@@ -353,7 +353,7 @@ def render_markdown(
         "At the primary cost, a 0% flip rate is the same finding as the lift-sweep table above, "
         "from an independent angle: `lift_prior` doesn't decide anything at realistic messaging "
         "costs. At the stress cost, a nonzero flip rate is expected — this is close to the break-even "
-        "region found above, exactly where a ±50% swing in an unsourced parameter should matter most."
+        "region I found above, exactly where a ±50% swing in an unsourced parameter should matter most."
     )
     lines.append("")
 
@@ -361,7 +361,7 @@ def render_markdown(
     lines.append("## Autonomy rate and unit economics (§25)")
     lines.append("")
     lines.append(
-        "§25.1's own concern, stated directly: **\"bounded\" must not become a euphemism for "
+        "§25.1's own concern, which I state directly here: **\"bounded\" must not become a euphemism for "
         "\"punts everything to a human.\"** At the primary comparison's parameters:"
     )
     lines.append("")
@@ -374,18 +374,18 @@ def render_markdown(
         lines.append(f"| {arm} | {_fmt_pct(economics[arm]['autonomy_rate'])} | {cost_str} | {mins_str} |")
     lines.append("")
     lines.append(
-        f"`human_minutes_per_recovery` rests on a declared, named assumption "
+        f"`human_minutes_per_recovery` rests on a declared, named assumption I make "
         f"(`ASSUMED_MINUTES_PER_ESCALATION = {ASSUMED_MINUTES_PER_ESCALATION:.0f}` minutes per "
-        f"escalated case — no dataset gives a real human-agent handling time for this, same "
-        f"honesty standard as every other `ASSUMED_*` constant in `eval/personas/generator.py`). "
-        f"`cost_per_rupee_recovered` uses the same `touch_cost_paise` (Rs 5) already named "
+        f"escalated case — no dataset gives me a real human-agent handling time for this, same "
+        f"honesty standard as every other `ASSUMED_*` constant I use in `eval/personas/generator.py`). "
+        f"`cost_per_rupee_recovered` uses the same `touch_cost_paise` (Rs 5) I already name "
         f"throughout this report and the Rs 50,000 median-invoice scale "
-        f"`eval/personas/generator.py` already assumes for absolute rupee amounts."
+        f"I already assume in `eval/personas/generator.py` for absolute rupee amounts."
     )
     lines.append("")
     lines.append(
         f"**Arm C's autonomy rate ({_fmt_pct(economics['C']['autonomy_rate'])}) is deliberately "
-        f"lower than the two ungated arms' (100%), not a flaw**: those two arms have no "
+        f"lower than the two ungated arms' (100%), and I don't consider that a flaw**: those two arms have no "
         f"mechanism to escalate anything, ever — their 100% autonomy is the absence of a safety "
         f"net, not evidence of a more capable system. Arm C's escalations are exactly the "
         f"disputed-invoice cases §14.4/§24.2's own design says must reach a human; a lower "
@@ -397,11 +397,11 @@ def render_markdown(
     lines.append("## What this is not (repeating docs/LIMITATIONS.md, on purpose)")
     lines.append("")
     lines.append(
-        "Not a real-debtor result. Not extraction accuracy (no golden set exists yet). Not a claim "
+        "Not a real-debtor result. Not extraction accuracy (I haven't built a golden set yet). Not a claim "
         "about real Indian B2B response rates to any channel or instrument — `lift_prior` and "
-        "the resolution-probability tables in `eval/simulate.py` are declared priors with no "
-        "empirical source (§17.1), exactly the parameter this report's own sensitivity analysis "
-        "exists to interrogate rather than assume."
+        "the resolution-probability tables in `eval/simulate.py` are priors I declare with no "
+        "empirical source (§17.1), exactly the parameter I built this report's own sensitivity analysis "
+        "to interrogate rather than assume."
     )
     lines.append("")
 

@@ -1,11 +1,11 @@
 # The Monte Carlo simulation harness
 
-`eval/personas/generator.py` + `eval/simulate.py`. Compares Arms A / B2 / C
+`eval/personas/generator.py` + `eval/simulate.py`. I compare Arms A / B2 / C
 over a synthetic population, with zero real model calls — this measures
 what the deterministic pipeline (`compute_ev()`, `check_bounds()`) does in
-aggregate, which needs no LLM, the same principle
-`tests/agent/test_injection_resistance.py` already uses elsewhere in this
-codebase. See `eval/PREREGISTRATION.md` for how this fits DEVDOC_v6 §17's
+aggregate, which needs no LLM, the same principle I already use elsewhere
+in this codebase in `tests/agent/test_injection_resistance.py`. See
+`eval/PREREGISTRATION.md` for how this fits DEVDOC_v6 §17's
 pre-registration discipline, and each module's own docstring for the full
 FITTED-vs-ASSUMED breakdown of every constant.
 
@@ -44,14 +44,14 @@ that true, on purpose:
 
 1. **Diagnose is simulated, not real.** There's no free text to extract
    from a synthetic persona, so a `DIAGNOSTIC_ACCURACY` draw (0.85, a
-   declared prior) stands in for a real extractor's accuracy. A real
-   extractor's actual accuracy is unmeasured — no golden set exists yet
-   (§17.8).
+   declared prior) stands in for a real extractor's accuracy. I haven't
+   measured a real extractor's actual accuracy — no golden set exists
+   yet (§17.8).
 2. **The outcome-probability constants are declared priors, not fitted
    values** (`ASSUMED_RESOLUTION_PROB_MATCHED`/`_MISMATCHED` in
    `eval/simulate.py`). DEVDOC_v6 §17.1 is explicit that no dataset gives
-   real intervention-response data for Indian B2B AR — these numbers are
-   chosen to be plausible and internally consistent (matched ≥ mismatched
+   real intervention-response data for Indian B2B AR — I chose these
+   numbers to be plausible and internally consistent (matched ≥ mismatched
    for every real blocker type), not fitted or tuned to produce a
    particular headline gap.
 3. **Population size, window length, and the primary comparison metric are
@@ -69,10 +69,11 @@ declared `lift_prior` sweep range (0.5x–4.0x, §17.2) — the recoverable
 amount dwarfs a five-rupee touch cost regardless of lift. `--lift` alone
 will look like it does nothing at default settings. That's a real property
 of this population (money at stake is large relative to the cost of
-sending a message), not a bug — confirmed by raising `--touch-cost-paise`
-into the tens of thousands, where `--lift` starts changing Arm C's outcome
-dramatically (down to under 1% recovered at low lift and high cost, since
-`EV_FLOOR` correctly refuses almost every touch):
+sending a message), not a bug — I confirmed this by raising
+`--touch-cost-paise` into the tens of thousands, where `--lift` starts
+changing Arm C's outcome dramatically (down to under 1% recovered at low
+lift and high cost, since `EV_FLOOR` correctly refuses almost every
+touch):
 
 ```
 uv run trucommit simulate --n 500 --lift 0.5 --touch-cost-paise 4500000   # ~0% recovered -- EV_FLOOR refuses almost everything
@@ -80,8 +81,8 @@ uv run trucommit simulate --n 500 --lift 4.0 --touch-cost-paise 4500000   # ~98%
 ```
 
 `tests/eval/test_simulate.py::test_ev_floor_actually_refuses_when_cost_dominates_recoverable_amount`
-is a regression test for exactly this, so a future change can't silently
-make the gate stop mattering without a test noticing.
+is a regression test I wrote for exactly this, so a future change can't
+silently make the gate stop mattering without a test noticing.
 
 ## What's next
 

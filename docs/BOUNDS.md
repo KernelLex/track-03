@@ -91,7 +91,7 @@ Sourced from Razorpay's public error pages — see docs/SIMULATOR_PROVENANCE.md 
 | **This document** | Coverage — which clauses are implemented, which are stubbed, honestly listed | That the implementation reads each clause correctly |
 | **Per-clause tests** (`tests/regulatory/`) | Not yet built — every `test:` path above is a target, not yet a file | — |
 
-**Compliance requires external review, which this project does not have.** See docs/LIMITATIONS.md.
+**Compliance requires external review, which I don't have.** See docs/LIMITATIONS.md.
 
 ## Refusal log
 

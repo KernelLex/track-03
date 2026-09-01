@@ -1,23 +1,23 @@
 # Messaging channels
 
 How a message-only action (`SEND_REMINDER`, `SEND_PREDEBIT_NOTICE`, ...)
-actually reaches a debtor, once `check_bounds()` has approved it. This is a
-separate concern from `agent.rails` — a `Rail` creates and mutates Razorpay
-payment objects; a `MessageChannel` (`agent/notify/`) only ever sends text.
-Neither protocol satisfies the other, and ACT (`agent/act/executor.py`)
-takes an optional `channel` argument precisely so a message-only action
-still passes through the *same* `check_bounds()` call, the same
-claim-then-act idempotency, and the same ledger write as every other
-action — there is no lighter-touch path for messages.
+actually reaches a debtor, once `check_bounds()` has approved it. I treat
+this as a separate concern from `agent.rails` — a `Rail` creates and
+mutates Razorpay payment objects; a `MessageChannel` (`agent/notify/`) only
+ever sends text. Neither protocol satisfies the other, and I gave ACT
+(`agent/act/executor.py`) an optional `channel` argument precisely so a
+message-only action still passes through the *same* `check_bounds()` call,
+the same claim-then-act idempotency, and the same ledger write as every
+other action — there is no lighter-touch path for messages.
 
 ## Why Telegram, not SMS/WhatsApp
 
 Both cost money per message through Razorpay/Twilio/a WhatsApp BSP. A
 Telegram bot is free to message, with no per-send cost and no approval
-wait — `agent.bounds.context.ALL_CHANNELS` now includes `"telegram"`
+wait — I added `"telegram"` to `agent.bounds.context.ALL_CHANNELS`
 alongside the DEVDOC_v6-original `sms`/`email`/`whatsapp`/`ivr`, and every
-rule that iterates `ALL_CHANNELS` (`OPTOUT`, `CHANNEL_EXHAUSTION`) picked it
-up automatically because both the machine rule and the independently
+rule that iterates `ALL_CHANNELS` (`OPTOUT`, `CHANNEL_EXHAUSTION`) picked
+it up automatically because both the machine rule and the independently
 hand-written `human_twin.py` reference the same constant rather than a
 hardcoded list (see `docs/WHAT_BROKE.md` #6 for the fixture bug this
 constant discipline caught).
@@ -25,26 +25,26 @@ constant discipline caught).
 **The real constraint this creates**: unlike SMS, a bot cannot cold-message
 an arbitrary phone number. The recipient has to have messaged the bot first
 (or been added to a group it's in) before a `chat_id` exists to send to.
-For a demo this means: message the bot from your own account before the
+For a demo this means: I message the bot from my own account before the
 live run, and use `tools/telegram_get_chat_id.py` to find the `chat_id` to
 use as `payload["to"]`. This is a real limitation of the free channel, not
-a bug — documented rather than worked around, same policy as every other
-honestly-scoped gap in `docs/LIMITATIONS.md`.
+a bug — I've documented it rather than worked around it, the same policy I
+apply to every other honestly-scoped gap in `docs/LIMITATIONS.md`.
 
 ## Why Twilio only for voice, not messaging
 
 Twilio SMS/WhatsApp cost per message with no meaningfully free tier;
 Telegram covers free messaging instead. Voice calls (the `"ivr"` channel)
-have no free equivalent, so Twilio is used there and *only* there —
+have no free equivalent, so I use Twilio there and *only* there —
 `agent/notify/twilio_voice.py`'s `TwilioVoiceChannel` implements the same
 `MessageChannel.send(to, text)` shape as Telegram, speaking `text` via
 Twilio's `<Say>` text-to-speech rather than requiring a hosted TwiML URL,
 so a call needs nothing but account credentials and a phone number.
 
-Implemented as raw REST over `httpx` (already a project dependency)
+I implemented it as raw REST over `httpx` (already a project dependency)
 instead of the `twilio` SDK — the surface needed is one endpoint
-(`POST .../Calls.json` with inline TwiML), and the project's stated
-environment policy (`docs/SETUP.md`) is already "no dependency beyond
+(`POST .../Calls.json` with inline TwiML), and my stated environment
+policy for this project (`docs/SETUP.md`) is already "no dependency beyond
 what's actually exercised."
 
 ## Status
@@ -54,13 +54,13 @@ what's actually exercised."
 | Telegram | `agent/notify/telegram.py` | ✅ mocked (`tests/agent/test_notify_channels.py`) | ✅ 2026-08-31 — real send confirmed, see below |
 | Twilio voice (`ivr`) | `agent/notify/twilio_voice.py` | ✅ mocked | 🔶 2026-08-31 — credentials confirmed; real call cleanly refused by Twilio's own trial-account limits, see below |
 | Simulated | `agent/notify/simulated.py` | ✅ | n/a — never touches the network by design |
-| SMS / email / WhatsApp | not implemented | — | — (a Twilio WhatsApp sandbox number is sitting unused in `.env` — not built, see note below) |
+| SMS / email / WhatsApp | not implemented | — | — (a Twilio WhatsApp sandbox number is sitting unused in `.env` — I haven't built this, see note below) |
 
-"Tested" means the request shape (URL, body, form/JSON encoding) and every
-response path (success, a clean API-level rejection, a network failure) are
-asserted against `httpx.MockTransport` — no real network call happens in
-the default test run, matching this project's existing policy for
-`RazorpayRail` (`tests/agent/test_razorpay_rail_live.py` is opt-in only).
+"Tested" means I assert the request shape (URL, body, form/JSON encoding)
+and every response path (success, a clean API-level rejection, a network
+failure) against `httpx.MockTransport` — no real network call happens in
+the default test run, matching my existing policy for `RazorpayRail`
+(`tests/agent/test_razorpay_rail_live.py` is opt-in only).
 
 ## Live verification, 2026-08-31
 
@@ -68,37 +68,37 @@ Run via `uv run python tools/verify_credentials.py` (never prints a secret
 value):
 
 - **Telegram — fully confirmed, including a real send.** `get_me()`
-  returned the bot's identity; once the demo owner messaged the bot,
-  `tools/telegram_get_chat_id.py` recovered a real `chat_id`, and a real
-  message was sent through `/demo/trigger` — `status: "sent"`, a real
+  returned the bot's identity; once I messaged the bot,
+  `tools/telegram_get_chat_id.py` recovered a real `chat_id`, and I sent a
+  real message through `/demo/trigger` — `status: "sent"`, a real
   Telegram `message_id` back as `external_ref`, checked against all 19
   bounds rules first. This is the actual send path, not the identity-only
   check.
 - **Twilio — credentials confirmed; the real call was cleanly refused by
-  Twilio itself.** Authenticated via a Twilio **API Key**
+  Twilio itself.** I authenticated via a Twilio **API Key**
   (`TWILIO_API_KEY_SID`/`TWILIO_API_KEY_SECRET`), not the classic Account
-  Auth Token, which wasn't provided — this required a real fix, not a
+  Auth Token, which I hadn't provided — this required a real fix, not a
   workaround: `TwilioVoiceChannel` now takes an `auth_username` parameter
   (the API Key SID goes in the HTTP Basic Auth *username*, its Secret in
   the password; `account_sid` still identifies the account in the URL path
-  regardless of which auth scheme is used). A real call was then attempted
+  regardless of which auth scheme is used). I then attempted a real call
   to a real number and Twilio's API answered with a clean, specific
   rejection rather than a network/auth error:
   `"Invalid or disallowed parameters provided -- trial accounts have
   limited parameter access, upgrade your account to unlock full
   functionality."` Most likely cause: Twilio trial accounts can normally
   only call numbers verified in the Console (Phone Numbers -> Verified
-  Caller IDs), or the inline `Twiml` parameter this project uses
-  specifically is trial-restricted. `TwilioVoiceChannel.send()` handled
-  this exactly as designed — a clean `status="failed"` result with the
-  real reason in `detail`, not an exception, not a silent false success.
-  Finding this live also caught a real gap in `/demo/trigger`'s response
-  (it dropped `detail` entirely) and in the dashboard's own JS (it checked
-  HTTP status, not the actual send status, so this exact failure would
-  have shown as a false "sent" in the UI) — both fixed, see `docs/DEMO_UI.md`.
+  Caller IDs), or the inline `Twiml` parameter I use specifically is
+  trial-restricted. `TwilioVoiceChannel.send()` handled this exactly as I
+  designed it — a clean `status="failed"` result with the real reason in
+  `detail`, not an exception, not a silent false success. Finding this
+  live also caught a real gap in `/demo/trigger`'s response (it dropped
+  `detail` entirely) and in the dashboard's own JS (it checked HTTP
+  status, not the actual send status, so this exact failure would have
+  shown as a false "sent" in the UI) — I fixed both, see `docs/DEMO_UI.md`.
 
-**A second, newly-generated API Key was tried and rejected outright** —
-`401`, Twilio error code
+**I tried a second, newly-generated API Key and it was rejected
+outright** — `401`, Twilio error code
 [70051](https://www.twilio.com/docs/errors/70051), `"Authorization Error:
 actor doesn't have any assertions"`. This is a *different* failure mode
 than the trial-account limit above: it means the key itself has no
@@ -106,28 +106,29 @@ permissions granted, before Twilio even gets to evaluate the call —
 consistent with the key having been generated from a restricted-scope
 section of the Console (e.g. a Voice/Video SDK access-token page) rather
 than the general-purpose Account -> API keys & tokens page that issues
-"Standard" keys with REST API access. Reverted `.env` to the
+"Standard" keys with REST API access. I reverted `.env` to the
 previously-working key (`SK4c10bb...`) rather than keep a key that fails
-even the read-only `verify_credentials()` check. If a working replacement
-key is wanted, it needs to come from Twilio Console's **API keys & tokens**
-page specifically, type **Standard**.
+even the read-only `verify_credentials()` check. If I want a working
+replacement key later, it needs to come from Twilio Console's **API keys &
+tokens** page specifically, type **Standard**.
 
-**A third Twilio credential change, 2026-08-31: switched accounts entirely.**
-A different Twilio account's classic Account SID + Auth Token were supplied
-(not an API Key this time). Authenticates cleanly (`GET .../Accounts/{sid}.json`
-→ `200`, `status: active`) — but a check of
+**A third Twilio credential change, 2026-08-31: I switched accounts
+entirely.** I supplied a different Twilio account's classic Account SID +
+Auth Token (not an API Key this time). It authenticates cleanly
+(`GET .../Accounts/{sid}.json` → `200`, `status: active`) — but a check of
 `GET .../Accounts/{sid}/IncomingPhoneNumbers.json` came back empty: this
 account owns zero phone numbers, so there's nothing yet to set
-`TWILIO_FROM_NUMBER` to. Not something to fix in code — needs a real number
-claimed in the Twilio Console (Phone Numbers -> Buy a Number; trial
-accounts usually get one free). Deliberately not purchased programmatically
-here even though the API supports it, since claiming a number is a real
-account/billing action, not a read-only check.
+`TWILIO_FROM_NUMBER` to. Not something to fix in code — I need a real
+number claimed in the Twilio Console (Phone Numbers -> Buy a Number; trial
+accounts usually get one free). I deliberately didn't purchase one
+programmatically here even though the API supports it, since claiming a
+number is a real account/billing action, not a read-only check.
 
-A Twilio WhatsApp sandbox number (`TWILIO_WHATSAPP_FROM`) was included with
-the credentials but is intentionally unused — the agreed channel split is
-Telegram for messaging, Twilio for voice only. Noted here rather than
-silently ignored; ask before a WhatsApp channel gets built on it.
+I included a Twilio WhatsApp sandbox number (`TWILIO_WHATSAPP_FROM`) with
+the credentials but am intentionally leaving it unused — my channel split
+is Telegram for messaging, Twilio for voice only. Noting it here rather
+than silently ignoring it; I'll decide later before building a WhatsApp
+channel on it.
 
 ## Wiring a live send
 

@@ -71,12 +71,12 @@ itemized list of what's cut and why.
 
 ## What's still open
 
-Blocked on things outside this codebase, not on more code: a real Twilio
-phone number, real WhatsApp Business credentials (the channel is
-code-complete and tested — see [`docs/WHATSAPP.md`](docs/WHATSAPP.md)),
-and this Razorpay test account's own live-rail ceiling on `present_debit`/
+I'm blocked on things outside my own code, not on more of it: a real
+Twilio phone number, real WhatsApp Business credentials (I've built and
+tested the channel already — see [`docs/WHATSAPP.md`](docs/WHATSAPP.md)),
+and my Razorpay test account's own live-rail ceiling on `present_debit`/
 `modify_mandate`. See `docs/LIMITATIONS.md` for the complete list,
-including what was deliberately scoped out (the 25-respondent vignette
+including what I deliberately scoped out (the 25-respondent vignette
 study, §27) rather than left undone by accident.
 
 Full positioning, architecture, the bounds register, regulatory mapping,
