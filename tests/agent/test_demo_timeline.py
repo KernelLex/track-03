@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+from agent.clock import business_today
+
 import agent.api.demo as demo_module
 import pytest
 from fastapi.testclient import TestClient
@@ -198,7 +200,7 @@ class TestARefusedActionIsNeverReportedAsAllowed:
 
     @staticmethod
     def _soon():
-        return (date.today() + timedelta(days=200)).isoformat()
+        return (business_today() + timedelta(days=200)).isoformat()
 
     def _decide(self, monkeypatch, **kw):
         from agent.diagnose.extract import ExtractionResult
@@ -353,7 +355,7 @@ class TestTheGateVerdictIsRenderable:
         decision = self._decide(
             family=Family.C, class_=DiagnosisClass.PROMISE_STATED, confidence=0.9,
             promise=PromiseFields(amount_paise=21_000_00,
-                                  date=(date.today() + timedelta(days=5)).isoformat()),
+                                  date=(business_today() + timedelta(days=5)).isoformat()),
         )
         assert decision["refusals"] == ["PROMISE_COOLDOWN"]
         detail = decision["refusal_detail"]
@@ -367,7 +369,7 @@ class TestTheGateVerdictIsRenderable:
         decision = self._decide(
             family=Family.C, class_=DiagnosisClass.PROMISE_STATED, confidence=0.9,
             promise=PromiseFields(amount_paise=21_000_00,
-                                  date=(date.today() + timedelta(days=5)).isoformat()),
+                                  date=(business_today() + timedelta(days=5)).isoformat()),
         )
         # 20 since WHATSAPP_SESSION_WINDOW was added. Asserted against the
         # register rather than a literal, so adding a rule updates this
@@ -391,7 +393,7 @@ class TestTheGateVerdictIsRenderable:
         decision = self._decide(
             family=Family.C, class_=DiagnosisClass.PROMISE_STATED, confidence=0.9,
             promise=PromiseFields(amount_paise=21_000_00,
-                                  date=(date.today() + timedelta(days=5)).isoformat()),
+                                  date=(business_today() + timedelta(days=5)).isoformat()),
         )
         assert decision["action"] in ("no_action", "escalate_human")
         assert decision["allowed"] is False

@@ -845,6 +845,25 @@ and observing `git log -1 -- eval/PREREGISTRATION.md` return the HEAD sha
 rather than `1f3b503…`; confirmed a full clone returns the correct hash;
 confirmed the hardened generator exits with its message under `--depth 1`.
 
+**A second failure was hiding behind the first.** With the shallow-clone
+bug fixed, CI failed again — on the suite itself this time, because the
+earlier step had been failing first and masking it.
+
+`agent/clock.py` made every relative date resolve against IST rather than
+the server's clock (WHAT_BROKE #20). Three test files still measured
+against `date.today()`. On a machine set to IST those are the same date; on
+a UTC runner they differ for five and a half hours a day. So the tests
+passed locally, always, and failed in CI for part of every day —
+the same shape as #22 itself: a check that could not distinguish the
+passing case from the failing one, because the environment made the
+distinction invisible.
+
+Fixed by having the tests use `business_today()`, the same clock the code
+does. Verified by running the whole suite at four timezone offsets
+(`TRUECOMMIT_TIMEZONE_OFFSET_MINUTES` of local, −1400, +780 and 0) and
+confirming it is now genuinely timezone-independent rather than
+accidentally aligned.
+
 ## What this list is for
 
 I found every one of these by actually building against DEVDOC_v6, not by

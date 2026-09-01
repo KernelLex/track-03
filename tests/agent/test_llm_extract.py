@@ -9,6 +9,8 @@ counted against) docs/evidence/api_spend.jsonl, the real record.
 from __future__ import annotations
 
 from datetime import date
+
+from agent.clock import business_today
 from unittest.mock import MagicMock
 
 import anthropic
@@ -120,7 +122,12 @@ class TestExtractFromReply:
         client = _fake_client(parsed_output=_valid_result())
         extract_from_reply("ok", client=client, spend_ledger=ledger)
         _, kwargs = client.messages.parse.call_args
-        assert date.today().isoformat() in kwargs["system"][1]["text"]
+        # business_today(), not date.today(): the prompt resolves relative
+        # dates against the debtor's calendar, not the server's. The two
+        # agree on a machine set to IST and diverge on a UTC runner, which
+        # is exactly how this passed locally and failed in CI for a full
+        # day (docs/WHAT_BROKE.md #22).
+        assert business_today().isoformat() in kwargs["system"][1]["text"]
 
     def test_long_reply_is_truncated_before_being_sent(self, ledger):
         client = _fake_client(parsed_output=_valid_result())

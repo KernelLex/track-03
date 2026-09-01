@@ -86,8 +86,16 @@ def test_promise_date_malformed_string_is_rejected():
 
 
 def test_promise_date_within_a_plausible_near_term_horizon_is_accepted():
-    from datetime import date, timedelta
-    near_future = (date.today() + timedelta(days=30)).isoformat()
+    from datetime import timedelta
+
+    from agent.clock import business_today
+
+    # The same clock the horizon validator uses. A 30-day margin means a
+    # one-day divergence would not actually break this, but a test that
+    # measures against a different clock than the code is a latent failure
+    # waiting for the margin to be tightened -- and this exact mismatch
+    # elsewhere left CI red for a day (docs/WHAT_BROKE.md #22).
+    near_future = (business_today() + timedelta(days=30)).isoformat()
     result = ExtractionResult.model_validate({
         "family": "C", "class": "PROMISE_STATED", "confidence": 0.9,
         "promise": {"date": near_future},
