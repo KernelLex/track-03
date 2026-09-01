@@ -169,6 +169,93 @@ passes against the five-channel set; I re-ran the full suite (561 tests at
 time of writing) afterward specifically to catch any other place a
 channel list had been copied instead of imported — I found none.
 
+## 8. No CI — and an outside reviewer, not me, found the suite red
+
+**Symptom.** An external audit cloned the repo, ran `uv run pytest`, and
+reported **3 failed, 842 passed, 11 skipped** on a clean clone. They
+bisected it to a specific commit and noted two further commits had shipped
+on top of a red suite.
+
+**Root cause, in two parts.** The first is the one that matters: **there
+was no CI at all — no `.github/` in the repo.** A project whose entire
+pitch is bounded execution and gates that refuse had no gate on itself,
+which is exactly why three tests could sit red across three commits
+without anyone noticing. That isn't an oversight to fix quietly; it's a
+contradiction of the thesis.
+
+The second part I could not reproduce, and I want to be precise rather
+than agreeable about it. I ran the full suite on a clean clone at four
+commits (`2682128`, `45d72fe`, `5dd89e1`, `5caf3f1`) with no project env
+vars exported: green every time, 0 failed. Their run collected 856 tests
+(matching my HEAD) with 842 passing; my HEAD passes 845 — and 842 + 3 =
+845, so the same three tests pass here and fail there. That points at
+order- or platform-dependence (they are likely on Linux; I am on Windows),
+not a bad commit. Their diagnosis named a fixture leak on
+`agent.api.demo`'s process-global cooldown dicts.
+
+**Fix.** Three things, none of which wait on reproducing it:
+
+1. `.github/workflows/ci.yml` — the suite now runs on **ubuntu-latest**
+   (their platform, the difference I could not rule out) on every push and
+   PR, with no credentials in the environment.
+2. A second CI job runs the suite under **randomised order**
+   (`pytest-randomly`), hunting this class of bug deliberately instead of
+   waiting to be told about it again.
+3. `tests/conftest.py` — the reset of `agent.api.demo`'s global state moved
+   out of `tests/agent/test_api_demo.py` and up to suite scope. Their
+   diagnosis was structurally right even where I couldn't reproduce the
+   symptom: that state was protected only by a fixture living in the one
+   module that happened to touch it, which holds exactly until a second
+   module does. The module-level fixture now owns only its own fakes, so
+   there aren't two resets to drift apart.
+
+**Verification.** Green on a clean clone, and green under four different
+random seeds (1, 42, 1337, 90210) locally. CI is the real verification and
+it now exists — if their three failures are platform-specific, the Ubuntu
+job will show it rather than leaving it as a disagreement between two
+machines.
+
+## 9. Three different wrong test counts in the docs
+
+**Symptom.** The same audit found the README claiming 789 tests,
+`docs/LIMITATIONS.md` claiming 771, and the suite actually collecting 856.
+
+**Root cause.** Both numbers were hand-written and neither had any reason
+to stay true. The real damage isn't the stale figure — it's that in a
+project whose whole register is "every number here was checked against a
+real run", a reader who catches one unchecked number reasonably starts
+discounting the others.
+
+**Fix.** Corrected both, but hand-fixing alone would have left the same
+hole open, so the numbers are now *gated*:
+`tests/test_documented_test_counts.py` collects the suite in a subprocess
+and asserts both documents' stated counts sum to it. A stale count is now
+a failing test rather than something an auditor finds.
+
+**Verification.** The guard was written first and observed failing against
+the stale numbers (`README claims 789 tests + 11 live = 800; a real
+collection finds 858`), then passing once both docs were corrected.
+
+## 10. The demo told every judge the best artifact in the repo didn't exist
+
+**Symptom.** `uv run trucommit demo` — the first command in the README —
+closed by printing that the four-arm eval "needs personas and a
+pre-registration commit that don't exist yet." Both exist:
+`eval/PREREGISTRATION.md` is locked at its own commit and
+`docs/RESULTS.md` is generated from it.
+
+**Root cause.** The line was true when written and quietly stopped being
+true when the pre-registration was built. Nothing pointed the two at each
+other, so the stalest possible claim sat in the highest-traffic place in
+the project — the closing lines of the first command a reviewer runs.
+
+**Fix.** `agent/cli.py`'s closing message and module docstring now name
+`eval/PREREGISTRATION.md` and `docs/RESULTS.md` directly, including the
+exact command that regenerates the results.
+
+**Verification.** `uv run trucommit demo` re-run; its closing block now
+points at both files.
+
 ## What this list is for
 
 I found every one of these by actually building against DEVDOC_v6, not by

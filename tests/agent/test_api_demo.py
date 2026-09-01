@@ -44,20 +44,15 @@ class _FakeChannel:
 
 
 @pytest.fixture(autouse=True)
-def _reset_rate_limit():
-    demo_module._last_triggered_at.clear()
-    demo_module._last_triggered_at_by_number.clear()
-    demo_module._last_followed_up_update_id = 0
-    demo_module._last_followed_up_whatsapp_sid = None
+def _reset_fake_channel():
+    """Only this file's own fakes. agent.api.demo's process-global state is
+    reset suite-wide by tests/conftest.py instead -- two fixtures resetting
+    the same globals is exactly how one of them silently stops matching."""
     _FakeChannel.sent = []
     _FakeChannel.updates = []
     _FakeChannel.last_offset = None
     _FakeChannel.messages = []
     yield
-    demo_module._last_triggered_at.clear()
-    demo_module._last_triggered_at_by_number.clear()
-    demo_module._last_followed_up_update_id = 0
-    demo_module._last_followed_up_whatsapp_sid = None
 
 
 @pytest.fixture
@@ -198,7 +193,6 @@ def _reset_razorpay_fake():
     _FakeRazorpayRail.created_invoice_specs = []
     _FakeRazorpayRail.raises = False
     _FakeRazorpayRail.invoice_raises = False
-    demo_module._last_payment_link_url = None
     yield
 
 

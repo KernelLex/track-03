@@ -1,12 +1,20 @@
 """The `trucommit` CLI. DEVDOC_v6 §19: `uv run trucommit demo` is the ten-minute
 promise — if this doesn't work from a clean clone, SETUP.md is lying.
 
-`demo` here is honestly scoped to what's actually built so far (see
-docs/LIMITATIONS.md for what isn't yet): the ledger, the bounds gate, the
-debtor state machine, instrument selection, and SimulatedRail, wired
-together end to end on one synthetic invoice. It is not the four-arm eval
-(§17) — that needs personas and pre-registration that don't exist yet — and
-this command says so rather than implying otherwise.
+`demo` here is honestly scoped (see docs/LIMITATIONS.md for what isn't
+built): the ledger, the bounds gate, the debtor state machine, instrument
+selection, and SimulatedRail, wired together end to end on one synthetic
+invoice.
+
+It is deliberately *not* the evaluation. That is a separate, larger
+artifact and it does exist -- `eval/PREREGISTRATION.md` locks
+n=500/seed=42/window=30d/lift=1.0 at its own commit, before
+`eval/report.py` generated `docs/RESULTS.md` from exactly that
+configuration. This docstring and this command's closing message both used
+to say the personas and pre-registration "don't exist yet", which stopped
+being true once they were built and went unnoticed for long enough that an
+external reviewer running the first command in the README was told the
+strongest artifact in the repo was missing. Pointing at it instead.
 """
 
 from __future__ import annotations
@@ -94,9 +102,11 @@ def _demo() -> int:
             print(f"[ledger] {entry_count} entr{'y' if entry_count == 1 else 'ies'} recorded, hash chain verified")
 
     print("\n" + "=" * 72)
-    print("Demo complete. This is NOT the four-arm eval (DEVDOC_v6 Section 17) -- that needs")
-    print("personas and a pre-registration commit that don't exist yet.")
-    print("See DEVDOC_v6.md and docs/LIMITATIONS.md for what's built vs pending.")
+    print("Demo complete -- this is one debtor through the real pipeline, not the evaluation.")
+    print("The evaluation is a separate artifact and it exists:")
+    print("  eval/PREREGISTRATION.md  -- n=500/seed=42/window=30d/lift=1.0, locked before the run")
+    print("  docs/RESULTS.md          -- generated from exactly that config: uv run python eval/report.py")
+    print("See docs/LIMITATIONS.md for what is genuinely still cut, and why.")
     print("=" * 72)
     return 0
 

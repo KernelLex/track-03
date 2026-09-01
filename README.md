@@ -45,8 +45,14 @@ regime, not sending another message.
 ```
 uv sync
 uv run trucommit demo     # a small, real, end-to-end walk of one debtor
-uv run pytest             # 789 tests, no credentials needed (11 more run live with Razorpay test keys set)
+uv run pytest             # 847 tests, no credentials needed (11 more run live with Razorpay test keys set)
 ```
+
+CI runs that same suite on every push (`.github/workflows/ci.yml`), on
+Linux, with no credentials in the environment — plus a second job that runs
+it in randomised order to catch order-dependent tests. An external audit
+caught this repo with no CI at all, which for a project about gates that
+refuse was a contradiction worth naming: `docs/WHAT_BROKE.md` #8.
 
 Reproduce the evaluation and evidence exactly:
 

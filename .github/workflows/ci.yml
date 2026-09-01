@@ -1,0 +1,63 @@
+name: CI
+
+# The project's whole claim is bounded execution and gates that refuse.
+# Not having a gate on the repo itself was a thesis-level contradiction --
+# and it's precisely why an external audit, not me, was the one to report a
+# red suite. See docs/WHAT_BROKE.md.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install the pinned Python
+        run: uv python install
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Run the suite
+        run: uv run pytest -q
+        env:
+          # Deliberately empty: the default suite must pass with no
+          # credentials at all (tests/agent/test_llm_extract.py's own stated
+          # policy). A test that needs a real key belongs behind an opt-in
+          # marker, not behind a secret this workflow quietly provides.
+          ANTHROPIC_API_KEY: ""
+
+  # A separate job, not a flag on the one above: an order-dependent failure
+  # should be attributable to ordering rather than blamed on whatever else
+  # changed. An external audit reported three failures at a commit that ran
+  # green for me on a clean clone at the same SHA -- order dependence is the
+  # most likely explanation I couldn't rule out, so this hunts it directly
+  # instead of waiting to be told again.
+  random-order:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install the pinned Python
+        run: uv python install
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Run the suite in randomised order
+        run: uv run --with pytest-randomly pytest -q -p randomly
+        env:
+          ANTHROPIC_API_KEY: ""

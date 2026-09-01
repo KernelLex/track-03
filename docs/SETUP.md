@@ -15,8 +15,10 @@ scratch directory and timing it (2026-08-30): `uv sync` completed in
 under 2 seconds with a warm local package cache (expect longer — still
 well under ten minutes — on a fully cold cache, since it's ~35 small
 pure-Python packages), `uv run trucommit demo` ran and printed real
-output in under a second, and `uv run pytest` passed all 334 tests in
-about 27 seconds.
+output in under a second, and `uv run pytest` passed the whole suite in
+about 27 seconds. (The suite has grown a long way past that run's 334
+tests since — see the README for the current figure, which is now checked
+by `tests/test_documented_test_counts.py` rather than hand-written.)
 
 If `uv` isn't already on your machine:
 
@@ -33,9 +35,12 @@ step.
 
 ## What `trucommit demo` actually does
 
-It is **not** the four-arm evaluation from DEVDOC_v6 §17 — that needs
-persona definitions and a committed pre-registration I haven't written yet
-(see `docs/LIMITATIONS.md`). It's a small, real, honestly-scoped walk of
+It is **not** the evaluation — that's a separate artifact, and it exists:
+`eval/PREREGISTRATION.md` locks n=500/seed=42/window=30d/lift=1.0 at its
+own commit, and `docs/RESULTS.md` is generated from exactly that config by
+`uv run python eval/report.py`. This paragraph used to say the
+pre-registration hadn't been written yet, which stopped being true and sat
+uncorrected (`docs/WHAT_BROKE.md` #10). It's a small, real, honestly-scoped walk of
 one synthetic debtor through the pieces I've built: the debtor state
 machine, `select_instrument()`, `check_bounds()`, `SimulatedRail`, and the
 `recovery_ledger`'s attribution, ending with a verified hash-chained ledger.
@@ -45,7 +50,7 @@ hand-typed transcript.
 ## Running the test suite
 
 ```
-uv run pytest                    # all 334 tests
+uv run pytest                    # the whole suite
 uv run pytest tests/agent/test_bounds_differential.py   # the 5,000-example differential test alone (~13s)
 uv run pytest -k "not differential"                     # skip the slowest test if iterating quickly
 ```
@@ -163,6 +168,20 @@ a list — passing a list produces the unhelpful `BadRequestError: Invalid
 event name/names: 1, 2, 3, 4` (Razorpay's API read the list's indices as
 the "event names"). I confirmed the registration via `client.webhook.all()`
 afterward.
+
+## CI
+
+`.github/workflows/ci.yml` runs `uv run pytest` on ubuntu-latest for every
+push and pull request, with `ANTHROPIC_API_KEY` explicitly empty — the
+default suite has to pass with no credentials at all, which is the same
+policy `tests/agent/test_llm_extract.py` states for itself. A second job
+re-runs the suite under `pytest-randomly` to surface order-dependent
+tests deliberately.
+
+This exists because an external audit reported three failures on a clean
+clone that I could not reproduce on mine at any of four commits. Two
+machines disagreeing with no CI between them is not a resolvable argument;
+the Ubuntu job is what settles it. See `docs/WHAT_BROKE.md` #8.
 
 ## Running the Monte Carlo simulation harness
 

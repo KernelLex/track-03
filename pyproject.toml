@@ -27,6 +27,7 @@ dev = [
     "pandas>=3.0.5",
     "numpy>=2.5.2",
     "scikit-learn>=1.9.0",
+    "pytest-randomly>=4.1.0",
 ]
 
 [tool.uv]
