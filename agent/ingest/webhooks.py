@@ -105,6 +105,7 @@ def verify_and_ingest(
     body: bytes,
     signature: str,
     secret: str,
+    event_id_header: str | None = None,
 ) -> IngestResult:
     """The one path every rail's webhooks go through (§9.2, §10's INGEST row).
 
@@ -112,13 +113,19 @@ def verify_and_ingest(
     2. Parse the envelope.
     3. Record (source, event_id) — the database, not application logic, decides
        whether this is a redelivery.
+
+    `event_id_header` is Razorpay's real delivery shape: the event id arrives
+    only as the `x-razorpay-event-id` header, never as a body field (verified
+    against Razorpay's own webhook docs) — takes priority over any body
+    `event_id` when given. Falls back to the body field for
+    `SimulatedRail._emit()`'s synthetic envelope, which has no such header.
     """
     if not verify(body, signature, secret):
         raise SignatureInvalid(f"webhook signature verification failed for source={source!r}")
 
     try:
         envelope = json.loads(body)
-        event_id = envelope["event_id"]
+        event_id = event_id_header or envelope["event_id"]
         event_type = envelope["event"]
         payload = envelope.get("payload", {})
     except (json.JSONDecodeError, KeyError, TypeError) as exc:

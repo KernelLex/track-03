@@ -23,6 +23,32 @@ def make_body(event: str = "payment.captured", event_id: str = "evt_1", payload:
     return json.dumps(envelope, sort_keys=True).encode("utf-8")
 
 
+def test_real_razorpay_shaped_body_with_no_event_id_field_uses_the_header_instead(store):
+    """Razorpay's real webhook body has no top-level `event_id` -- only
+    `event`/`payload` (verified against Razorpay's own webhook docs). The
+    real event id arrives solely via the `x-razorpay-event-id` header,
+    which the route must pass through as `event_id_header`."""
+    envelope = {"entity": "event", "account_id": "acc_1", "event": "payment.failed", "payload": {"payment": {"entity": {"id": "pay_1"}}}}
+    body = json.dumps(envelope, sort_keys=True).encode("utf-8")
+    signature = sign(body, SECRET)
+
+    result = verify_and_ingest(
+        store=store, source="razorpay", body=body, signature=signature, secret=SECRET,
+        event_id_header="evt_from_header",
+    )
+
+    assert result.event_id == "evt_from_header"
+    assert result.event_type == "payment.failed"
+
+
+def test_no_header_and_no_body_event_id_still_raises_malformed(store):
+    envelope = {"event": "payment.failed", "payload": {}}
+    body = json.dumps(envelope, sort_keys=True).encode("utf-8")
+    signature = sign(body, SECRET)
+    with pytest.raises(MalformedWebhook):
+        verify_and_ingest(store=store, source="razorpay", body=body, signature=signature, secret=SECRET)
+
+
 def test_valid_signature_is_ingested(store):
     body = make_body()
     signature = sign(body, SECRET)

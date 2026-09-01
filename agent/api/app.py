@@ -253,6 +253,7 @@ async def receive_webhook(source: str, request: Request) -> dict[str, object]:
     try:
         result = verify_and_ingest(
             store=request.app.state.event_store, source=source, body=body, signature=signature, secret=secret,
+            event_id_header=request.headers.get("x-razorpay-event-id"),
         )
     except SignatureInvalid as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
