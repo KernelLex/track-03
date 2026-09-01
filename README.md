@@ -2,12 +2,19 @@
 
 Razorpay AI Buildathon 2026, Track 03 (AI Revenue Recovery). Full spec: [`DEVDOC_v6.md`](DEVDOC_v6.md).
 
-**This README does not yet have the headline numbers DEVDOC_v6 §20 asks
-for** (the break-even τ, the persona-free ₹-at-risk figure) **because the
-eval harness that would produce them honestly doesn't exist yet.** See
-"Status" below. Everything stated here is either a design description or a
-number produced by code that actually runs, tagged as such — nothing here
-is a placeholder dressed up as a result.
+## Headline
+
+**Rs 91,72,435 in upcoming debits was structurally guaranteed to fail — and the system catches every one of them, with zero model and zero persona involved.** Pure arithmetic on a mandate's own object shape (undersized headroom, an expiry preceding the next debit) — not a prediction about anyone's behaviour. See [`docs/evidence/AT_RISK_HEADLINE.md`](docs/evidence/AT_RISK_HEADLINE.md) for the full breakdown, including what's synthetic about the batch and what isn't (the detection is real; the batch's defect rate is a declared demonstration parameter, stated as such).
+
+The comparative claim, honestly nuanced rather than forced into a single number: at a **neutral** assumption (`lift_prior=1.0`, no assumed behavioural uplift), the gated pipeline (Arm C) recovers more than both an ungated fixed schedule and an ungated policy-aware chaser **while committing zero real `check_bounds()` violations against hundreds for the two ungated arms**. At realistic messaging costs, the one parameter with no empirical source (`lift_prior`) turns out not to decide the outcome at all — a stress-tested elevated cost does produce a genuine break-even τ≈0.49, near the low end of the declared sweep range. Full numbers, methodology, and what this is and isn't a claim about: [`docs/RESULTS.md`](docs/RESULTS.md).
+
+| Real / simulated | What's true right now |
+|---|---|
+| **rail-confirmed** | `orders`, `payment_links`, `invoices`, `plans`+`subscriptions` (create and revoke), and `settlements` are live-verified against a real Razorpay test-mode account. A real e-mandate (Subscription) with its real customer-facing authentication link, a real reissued invoice, and a real `check_bounds()` refusal of a mandate on a disputed invoice are all in [`docs/evidence/REAL_SCENARIOS.md`](docs/evidence/REAL_SCENARIOS.md). `present_debit`/`modify_mandate` honestly raise "not verified" against the live rail rather than guess — see `docs/LIMITATIONS.md` for the real structural finding (a Subscription bills a fixed amount on its own schedule, not a variable eNACH/UPI-Autopay-style mandate) |
+| **simulated-rail** | The ledger, bounds gate, debtor state machine, instrument selection, mandate health + full repair-notify-present-capture lifecycle, MSMED statutory module + early-payment discount, reversal path, and the Auditor's three jobs are all built and tested against `SimulatedRail` and pure logic |
+| **simulated-response** | The synthetic Monte Carlo comparison (`docs/RESULTS.md`) and the three adversarial-persona exploits (`docs/evidence/ADVERSARIAL_PERSONAS.md`, 0 cases permanently stalled across 300 runs) both measure the real pipeline's logic against known, synthetic ground truth — not real debtor behaviour |
+
+**A real, live pipeline runs unattended.** A `payment.failed` webhook triggers DIAGNOSE → DECIDE → BOUNDS → ACT automatically — no manual call, no dashboard click — live-verified against the actual running server: a real Razorpay payment link created, a real Telegram message sent with it. `dry_run=True` proves the identical real pipeline's judgment against a batch of invoices with zero rupees able to move — see [`docs/ORCHESTRATION.md`](docs/ORCHESTRATION.md) and [`docs/evidence/DRY_RUN_BATCH.md`](docs/evidence/DRY_RUN_BATCH.md) (500 decisions, spanning all 29 real diagnosis classes, 0 rail calls).
 
 ## Thesis
 
@@ -17,8 +24,9 @@ even the right action?"** Most overdue B2B money isn't a willingness
 problem — it's stuck behind a wrong GSTIN, a PO mismatch, or a payment
 already made and never reconciled — and no amount of retrying or
 reminding fixes any of that. When it *is* a willingness problem, the fix
-is choosing the right payment instrument (mandate, block, link) for the
-amount and authentication regime, not sending another message.
+is choosing the right payment instrument (mandate, block, link, or a
+voluntary early-payment discount) for the amount and authentication
+regime, not sending another message.
 
 ## What makes this different from a dunning bot
 
@@ -26,26 +34,27 @@ amount and authentication regime, not sending another message.
    failure, administrative blocker, and liquidity/willingness get
    different actions, not the same reminder.
 2. **Instrument conversion**: a stated intent becomes a mandate, a block,
-   or a link — the correct one for the amount, chosen by a pure,
-   ₹15,000-boundary-tested function (`agent/mandate/instrument.py`).
+   a link, or a discount offer — the correct one for the amount, chosen by
+   a pure, ₹15,000-boundary-tested function (`agent/mandate/instrument.py`).
 3. **`no_action` is a logged, first-class decision**, not silence — the
    bounds gate's `EV_FLOOR` rule exists specifically so "doing nothing" is
    an auditable choice, not an omission.
 
-## Status (2026-08-30)
-
-| Real/simulated | What's true right now |
-|---|---|
-| **rail-confirmed** | `orders`, `payment_links`, `invoices`, `plans`+`subscriptions` (create and revoke), and `settlements` are **live-verified** against a real Razorpay test-mode account (`docs/RAIL_CAPABILITIES.md`, generated from an actual run, not a prediction) — `agent/rails/razorpay_rail.py`, tested in `tests/agent/test_razorpay_rail_live.py`. `present_debit` and `modify_mandate` honestly raise "not verified" rather than guess — see `docs/LIMITATIONS.md` for the real structural finding (Subscriptions bill a fixed amount on their own schedule; they are not a variable eNACH/UPI-Autopay-style mandate) |
-| **simulated-rail** | The ledger, bounds gate, debtor state machine, instrument selection, mandate health, MSMED statutory module, reversal path, ACT executor, and LISTEN stage are built and tested against `SimulatedRail` and pure logic — see `docs/ARCHITECTURE.md` for exactly what's built vs. pending, module by module |
-| **simulated-response** | No persona model or eval harness exists yet (DEVDOC_v6 §17) — there is no ₹ recovery figure to report, real or simulated, honest or otherwise |
-
-Run it yourself:
+## Run it yourself
 
 ```
 uv sync
 uv run trucommit demo     # a small, real, end-to-end walk of one debtor
-uv run pytest             # ~490 tests, no credentials needed (10 more run live with Razorpay test keys set)
+uv run pytest             # 789 tests, no credentials needed (11 more run live with Razorpay test keys set)
+```
+
+Reproduce the evaluation and evidence exactly:
+
+```
+uv run python eval/report.py                      # docs/RESULTS.md, from the locked pre-registration
+uv run python tools/compute_at_risk_headline.py    # docs/evidence/AT_RISK_HEADLINE.md
+uv run python tools/run_adversarial_personas.py    # docs/evidence/ADVERSARIAL_PERSONAS.md
+uv run python tools/run_dry_run_batch.py           # docs/evidence/DRY_RUN_BATCH.md
 ```
 
 See [`docs/SETUP.md`](docs/SETUP.md) for the verified clean-clone timing
@@ -59,6 +68,16 @@ itemized list of what's cut and why.
 | Smart retries on failed recurring charges | Operates on the payment object — can't fix a wrong GSTIN, because the blocker lives in the invoice artifact, not the payment |
 | Subscription dunning emails | One-way — no view of the reply thread where the buyer says "PO mismatch" |
 | Payment link reminders | A reminder doesn't convert a stated commitment into an instrument |
+
+## What's still open
+
+Blocked on things outside this codebase, not on more code: a real Twilio
+phone number, real WhatsApp Business credentials (the channel is
+code-complete and tested — see [`docs/WHATSAPP.md`](docs/WHATSAPP.md)),
+and this Razorpay test account's own live-rail ceiling on `present_debit`/
+`modify_mandate`. See `docs/LIMITATIONS.md` for the complete list,
+including what was deliberately scoped out (the 25-respondent vignette
+study, §27) rather than left undone by accident.
 
 Full positioning, architecture, the bounds register, regulatory mapping,
 and every other Tier-1 document: see [`docs/`](docs/).
