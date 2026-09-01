@@ -49,6 +49,14 @@ _LIST_PATTERNS = (
     r"\bhow\s+much\s+do\s+i\s+owe\b",
     r"\b(outstanding|pending)\s+(invoice|invoices|amount|balance|dues?)\b",
     r"^\s*(invoices?|dues?|balance|status|statement)\s*[?.!]*\s*$",
+    # Real typing, from probing the router against how people actually
+    # write. "what all is pending" is Indian English and among the most
+    # likely phrasings this will meet. Anchored to the whole message so
+    # none of them can match inside a sentence.
+    r"^\s*(invoice|invoices|bill|bills)\s*(pls|please|plz)\s*[?.!]*\s*$",
+    r"^\s*(invoice|bill|payment|account)\s+status\s*[?.!]*\s*$",
+    r"^\s*what\s+all\s+is\s+(pending|outstanding|due)\s*[?.!]*\s*$",
+    r"^\s*(pending|outstanding|due)\s*[?.!]*\s*$",
 )
 
 _HELP_PATTERNS = (r"^\s*(help|menu|options|what can you do)\s*[?.!]*\s*$",)
@@ -62,16 +70,47 @@ _DISPUTE_PATTERNS = (
     r"^\s*(dispute|raise\s+a?\s*dispute|contest|disputed)\b",
     r"\b(raise|open|file)\s+a\s+dispute\b",
     r"\bi\s+(dispute|contest)\s+(this|it)\b",
+    # The worst miss found while probing: an explicit request to dispute
+    # that fell through, so the debtor did not get the freeze they asked
+    # for. The length cap still keeps "I dispute the quantity on this
+    # invoice, we received 40 of 50 units" with the extractor, where it
+    # belongs -- that is a dispute *with a reason*, and the reason matters.
+    r"^\s*i\s+(want|need|would\s+like)\s+to\s+(dispute|contest)\b",
+    r"^\s*(want|need)\s+to\s+(dispute|contest)\b",
 )
 
 _PROBLEM_PATTERNS = (
     r"^\s*(problem|issue|help me|i have a problem|something.s wrong)\b",
     r"\bi\s+have\s+(a\s+)?(problem|issue)\b",
     r"\b(talk|speak)\s+to\s+(a\s+)?(person|human|someone|agent)\b",
+    r"^\s*(need|want)\s+(some\s+)?help\s*[?.!]*\s*$",
+    r"^\s*call\s+me\s*[?.!]*\s*$",
+    r"\b(connect|put)\s+me\s+(to|through|with)\s+(a\s+)?(person|human|someone|agent|team)\b",
 )
 
 _INVOICE_ID = re.compile(r"\b((?:INV|SUB)[-\s]?\d{3,})\b", re.I)
-_BARE_NUMBER = re.compile(r"^\s*#?\s*([1-9]\d?)\s*[.)]?\s*$")
+_BARE_NUMBER = re.compile(
+    r"^\s*(?:no\.?|number|option|invoice)?\s*#?\s*([1-9]\d?)\s*[.)]?\s*$", re.I)
+"""Anchored to the whole message on purpose. A number inside a sentence is
+an amount or a date -- "2 units were damaged", "no 2 units arrived", "I'll
+pay 2 lakh next week" -- and reading any of those as a menu choice is the
+misfire this guards against."""
+
+_ORDINAL = re.compile(
+    r"^\s*(?:the\s+(first|second|third|fourth)(?:\s+one)?"
+    r"|(first|second|third|fourth)\s+one"
+    r"|(1st|2nd|3rd|4th))\s*[?.!]*\s*$", re.I)
+"""Whole-message, and a bare ordinal is deliberately *not* enough.
+
+"the first", "first one" and "2nd" are selections. Bare "first" or
+"second" are not: they are ordinary words, and matching them made an
+unrelated test's message text ("first", "second") route into the menu.
+That was the widening risk showing up for real -- a keyword router earns
+its place by what it refuses, so the ambiguous form stays with the
+extractor."""
+
+_ORDINAL_POSITION = {"first": "1", "1st": "1", "second": "2", "2nd": "2",
+                     "third": "3", "3rd": "3", "fourth": "4", "4th": "4"}
 
 
 def _matches(text: str, patterns: tuple[str, ...]) -> bool:
@@ -118,6 +157,10 @@ def detect_intent(text: str) -> Intent | None:
     bare = _BARE_NUMBER.match(stripped)
     if bare:
         return Intent("select", bare.group(1))
+    ordinal = _ORDINAL.match(stripped)
+    if ordinal:
+        word = next(g for g in ordinal.groups() if g)
+        return Intent("select", _ORDINAL_POSITION[word.lower()])
     if invoice_ref and _INVOICE_ID.sub("", stripped).strip(" .?!#:") == "":
         return Intent("select", invoice_ref)
 

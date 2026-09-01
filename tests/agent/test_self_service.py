@@ -225,3 +225,62 @@ class TestStatusIsAFactNotAClaim:
             assert store.get("debtor_live", "INV-2201").status == PAID
         finally:
             store.close()
+
+
+class TestRealTyping:
+    """Widened after probing the router against how people actually write.
+
+    The first version handled the phrasings I had thought of and missed
+    "invoice pls", "what all is pending" (Indian English, and among the most
+    likely phrasings this will meet), "no 2", "the first one", and -- worst
+    -- "i want to dispute", an explicit request that fell through, so the
+    debtor did not get the freeze they had asked for.
+    """
+
+    @pytest.mark.parametrize("text,kind", [
+        ("invoice pls", "list"), ("what all is pending", "list"),
+        ("bill status", "list"), ("pending", "list"), ("statement", "list"),
+        ("no 2", "select"), ("option 3", "select"), ("1.", "select"),
+        ("the first one", "select"), ("second one", "select"),
+        ("i want to dispute", "dispute"), ("need to contest", "dispute"),
+        ("need help", "problem"), ("call me", "problem"),
+        ("connect me to someone", "problem"),
+        ("set up autopay", "schedule"), ("emandate", "schedule"),
+    ])
+    def test_realistic_phrasings_are_understood(self, text, kind):
+        intent = detect_intent(text)
+        assert intent is not None, f"{text!r} was not recognised"
+        assert intent.kind == kind
+
+    @pytest.mark.parametrize("text", [
+        "2 units were damaged",
+        "no 2 units arrived",
+        "the first one was damaged",
+        "pending approval from our finance head",
+        "call me tomorrow after I speak to my accountant",
+        "I'll pay 2 lakh next week",
+        "I dispute the quantity on this invoice, we received 40 of 50 units",
+    ])
+    def test_widening_did_not_start_swallowing_prose(self, text):
+        """Each of these is a near-miss of a command it must not match.
+        Widening a keyword router is exactly where this goes wrong, so the
+        pairs are tested together: "pending" is a command and "pending
+        approval from our finance head" is a sentence about a blocker."""
+        assert detect_intent(text) is None
+
+    def test_an_ordinal_selects_by_list_position(self, wired):
+        _say("invoices", external_id="1")
+        result, _ = _say("the first one", external_id="2")
+        assert "INV-2201" in result["agent_reply"]
+
+    def test_a_dispute_request_actually_freezes_the_invoice(self, wired):
+        """The miss that mattered: recognising the phrasing is only useful
+        if it reaches the same freeze a bare "dispute" does."""
+        _say("1", external_id="1")
+        _say("i want to dispute", external_id="2")
+
+        store = InvoiceStore(str(wired / "debtors.db"))
+        try:
+            assert store.get("debtor_live", "INV-2201").status == DISPUTED
+        finally:
+            store.close()

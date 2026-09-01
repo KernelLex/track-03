@@ -314,10 +314,10 @@ class TestASilentFallbackIsRecorded:
 
         _extracts(monkeypatch, family=Family.C, class_=DiagnosisClass.STALLING, confidence=0.5)
         self._fails_to_compose(monkeypatch, ComposeFailed("transient"))
-        _inbound(client, "first", update_id=1)
+        _inbound(client, "sorry about the delay", update_id=1)
 
         monkeypatch.setattr(demo_module, "compose_reply", lambda reply_text, **kw: "composed reply")
-        _inbound(client, "second", update_id=2)
+        _inbound(client, "checking with accounts now", update_id=2)
 
         failed = [e for e in client.get("/demo/timeline").json()["events"]
                   if e["kind"] == "compose_failed"]
