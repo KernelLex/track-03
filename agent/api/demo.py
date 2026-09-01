@@ -543,7 +543,8 @@ def _legs_from_schedule(promise, total: int) -> list[tuple[int, date]] | None:
 
 
 def _plan_from_promise(extraction, scenario: dict[str, object],
-                      terms: DebtorTerms | None = None) -> dict[str, object] | None:
+                      terms: DebtorTerms | None = None,
+                      outstanding_plan: bool = False) -> dict[str, object] | None:
     """A debtor who proposes a split gets a real, priced plan back.
 
     "I can do 21,000 on the 5th and the rest on the 20th" is the most
@@ -588,7 +589,36 @@ def _plan_from_promise(extraction, scenario: dict[str, object],
     terms = terms or terms_for([])
 
     # What the debtor actually said, if they said more than one thing.
+    proposed_legs = len(getattr(promise, "schedule", None) or [])
     stated_legs = _legs_from_schedule(promise, total)
+
+    if stated_legs is None and proposed_legs >= 2:
+        # They proposed several payments and the schedule could not be made
+        # to add up -- "half now and half at month end" names no amounts,
+        # "50,000 on the 5th and 20,000 later" exceeds the invoice.
+        #
+        # Falling through from here is what turned a careful refusal into a
+        # confident misreading: `stated = amount or total` reads a missing
+        # amount as the full balance, so the system answered "half now and
+        # half at month end" by offering the entire Rs 42,500 today. Nobody
+        # said that. Building no plan leaves the composer to acknowledge
+        # what they proposed and ask for the missing numbers, which is the
+        # honest reply to an offer that doesn't yet add up.
+        _log.info("demo: %d proposed legs could not be reconciled -- not building a plan", proposed_legs)
+        return None
+
+    if (stated_legs is None and not promise.amount_paise
+            and outstanding_plan and proposed_legs == 0):
+        # A bare date with a plan already on the table is a *change* to that
+        # plan -- "make it the 7th instead of the 5th" -- not a new promise
+        # to pay everything on the 7th. Reading it as the latter offered the
+        # full balance to a debtor who was moving one instalment by two days.
+        #
+        # Deliberately no plan rather than a guessed re-date: which leg they
+        # meant is genuinely ambiguous, and the composer already receives the
+        # outstanding proposal and can put the question back to them.
+        _log.info("demo: a bare date against an outstanding plan is a change to it, not a new promise")
+        return None
     if stated_legs is not None and len(stated_legs) > terms.max_instalments:
         # Their record does not stretch to that many instalments. Falling
         # through rather than silently truncating their schedule: dropping a
@@ -1247,7 +1277,10 @@ def handle_inbound_message(
         result["decision"] = decision
         store.record_event(conversation_id, kind="decided", channel=channel, detail=decision)
 
-        plan = _plan_from_promise(extraction, scenario, terms)
+        plan = _plan_from_promise(
+            extraction, scenario, terms,
+            outstanding_plan=proposal is not None and proposal.kind == "payment_plan",
+        )
         if plan is not None:
             _record_stated_promise(debtor_id, plan, scenario)
             result["payment_plan"] = plan

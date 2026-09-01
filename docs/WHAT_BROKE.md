@@ -679,6 +679,68 @@ somewhere to put the second leg, but not proven. Two runs of one message is
 not a measurement, and nothing here establishes how often the schedule is
 populated correctly on real replies.
 
+## 20. A careful refusal falling through to a confident wrong assertion
+
+**Symptom.** Found by probing the real extractor with hard messages after
+#19 was fixed, rather than by waiting for a live run to hit one.
+
+| Debtor said | System offered |
+|---|---|
+| "half now and half at month end" | the entire Rs 42,500 **today** |
+| "make it the 7th instead of the 5th" | the entire Rs 42,500 on the **7th** |
+| "50000 on the 5th and 20000 later" | the entire Rs 42,500 on the **5th** |
+
+**Root cause.** `_legs_from_schedule()` refused all three correctly -- two
+legs with no amounts, a leg with no date, named amounts exceeding the
+invoice. The refusals were right. What happened next was not:
+
+```python
+stated = int(promise.amount_paise) if promise.amount_paise else total
+```
+
+A missing amount read as the full balance. So every careful refusal fell
+through into an assertion the debtor never made -- and worse, one that
+would have had a real e-mandate issued against it.
+
+This is #19 not fully fixed. I corrected the schema so a two-leg offer had
+somewhere to go, and left the fallback that fires when the offer still
+cannot be reconciled. The schema was the cause of the *instability*; this
+default was the cause of the *wrongness*, and fixing one made the other
+easier to see, not to go away.
+
+**Fix, in two parts.**
+
+A schedule with two or more legs that cannot be reconciled now builds no
+plan at all. "Half now and half at month end" names no amounts, and there
+is no arithmetic that recovers what they meant -- so the composer
+acknowledges the offer and asks for the numbers, which is the honest reply.
+
+A bare date with a plan already on the table is treated as a *change* to
+that plan rather than a new promise to pay everything. Deliberately no plan
+rather than a guessed re-date: which instalment they meant is genuinely
+ambiguous, and the composer already receives the outstanding proposal and
+can put the question back.
+
+**Verification.** Re-probed against the real extractor, not just the tests:
+"half now and half at month end" and "50000 on the 5th and 20000 later" now
+produce no plan; "make it the 7th instead of the 5th" produces no plan when
+a plan is outstanding and still produces an ordinary full-balance promise
+when nothing is on the table, which is the case the guard must not swallow.
+
+**What still fails, recorded rather than fixed.** "Either 21000 today or
+the whole thing on the 10th" is an alternative, not a schedule. The
+extractor returns the first branch (confidence 0.55) and the system builds
+a split with a system-proposed second date. It is labelled as a proposal,
+so nothing is misattributed to the debtor, but the reply does not address
+the choice they actually offered. Representing alternatives needs a schema
+change beyond `schedule`, and it is not made here.
+
+**Also open: the server resolves "today" in UTC.** `date.today()` on Render
+is UTC, so for an Indian debtor texting between 00:00 and 05:30 IST,
+"today" and "tomorrow" resolve one day early. This was visible in a live
+run -- "21000 today" extracted as 2026-09-01 while the debtor's date was
+2026-09-02.
+
 ## What this list is for
 
 I found every one of these by actually building against DEVDOC_v6, not by

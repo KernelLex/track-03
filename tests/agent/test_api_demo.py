@@ -935,27 +935,74 @@ class TestTheDebtorsOwnScheduleIsHonoured:
         )
         assert {leg["proposed_by"] for leg in body["payment_plan"]["legs"]} == {"debtor"}
 
-    def test_a_schedule_that_overshoots_the_invoice_is_refused(self, client, monkeypatch):
+    def test_a_schedule_that_overshoots_the_invoice_builds_no_plan(self, client, monkeypatch):
         """They are describing a different debt. Repairing it silently would
-        misstate what they offered -- the same reason PlanRejected exists."""
+        misstate what they offered -- the same reason PlanRejected exists.
+
+        And crucially it must not fall through to the full balance: that is
+        what turned a careful refusal into a confident wrong assertion."""
         body, _ = self._reply(
             client, monkeypatch, "50000 today and 20000 on the 5th",
             schedule=[{"amount_paise": 50_000_00, "date": "2026-09-02"},
                       {"amount_paise": 20_000_00, "date": "2026-09-05"}],
             amount_paise=50_000_00, promise_date="2026-09-02",
         )
-        assert body["payment_plan"]["shape"] != "stated"
+        assert "payment_plan" not in body
 
-    def test_two_unnamed_amounts_are_not_a_schedule(self, client, monkeypatch):
-        """"some now and some later" names no amount at all, so there is no
-        arithmetic that recovers what they meant."""
+    def test_two_unnamed_amounts_build_no_plan(self, client, monkeypatch):
+        """Observed live: "half now and half at month end" produced an offer
+        of the entire Rs 42,500 today. The schedule was correctly refused --
+        two legs, no amounts, nothing to compute -- and then the fallback
+        read the missing amount as the full balance.
+
+        Nobody said that. No plan is the honest answer to an offer that
+        doesn't yet add up."""
         body, _ = self._reply(
-            client, monkeypatch, "some now and some later",
+            client, monkeypatch, "half now and half at month end",
             schedule=[{"amount_paise": None, "date": "2026-09-02"},
-                      {"amount_paise": None, "date": "2026-09-05"}],
+                      {"amount_paise": None, "date": "2026-09-30"}],
             promise_date="2026-09-02",
         )
-        assert body["payment_plan"]["shape"] != "stated"
+        assert "payment_plan" not in body
+
+    def test_a_bare_date_against_an_outstanding_plan_is_not_a_new_promise(self, client, monkeypatch):
+        """"make it the 7th instead of the 5th" moves one instalment. Read as
+        a fresh promise it became an offer of the whole invoice on the 7th.
+
+        No plan rather than a guessed re-date: which leg they meant is
+        genuinely ambiguous, and the composer already has the outstanding
+        proposal and can put the question back to them."""
+        from agent.diagnose.extract import (
+            DiagnosisClass, ExtractionResult, Family, PromiseFields,
+        )
+
+        monkeypatch.setattr(
+            demo_module, "extract_from_reply",
+            lambda t, **kw: ExtractionResult(
+                family=Family.C, class_=DiagnosisClass.PROMISE_STATED, confidence=0.35,
+                promise=PromiseFields(amount_paise=None, date="2026-09-07"),
+            ),
+        )
+        plan = demo_module._plan_from_promise(
+            demo_module.extract_from_reply("make it the 7th instead of the 5th"),
+            demo_module.SCENARIOS["b2b"], outstanding_plan=True,
+        )
+        assert plan is None
+
+    def test_the_same_bare_date_with_nothing_on_the_table_is_still_a_promise(self, client, monkeypatch):
+        """The guard above must not swallow the ordinary case: with no plan
+        outstanding, "I'll pay on the 7th" is a real promise to pay in full."""
+        from agent.diagnose.extract import (
+            DiagnosisClass, ExtractionResult, Family, PromiseFields,
+        )
+
+        extraction = ExtractionResult(
+            family=Family.C, class_=DiagnosisClass.PROMISE_STATED, confidence=0.8,
+            promise=PromiseFields(amount_paise=None, date="2026-09-07"),
+        )
+        plan = demo_module._plan_from_promise(
+            extraction, demo_module.SCENARIOS["b2b"], outstanding_plan=False)
+        assert plan is not None and plan["shape"] == "full"
 
     def test_a_single_leg_schedule_takes_the_ordinary_path(self, client, monkeypatch):
         """Additive by construction: one payment behaves exactly as before."""
