@@ -155,7 +155,17 @@ def _create_real_payment_link(scenario: dict[str, object]) -> str | None:
     creates on a real payment.failed webhook -- not a second, fake-looking
     stand-in. Returns None (never raises) on any failure, so a missing link
     degrades the message rather than blocking the send entirely; the
-    failure is still logged, not silently dropped."""
+    failure is still logged, not silently dropped.
+
+    Reuses `_last_payment_link_url` if one already exists rather than
+    creating a fresh link on every single click -- caught live: Razorpay's
+    test-mode account has a hard 30-payment-link cap, and creating a new
+    one per trigger burns through it in well under 30 clicks. One real
+    link per demo run is enough to prove the capability; recreating it
+    repeatedly was never load-bearing for that."""
+    global _last_payment_link_url
+    if _last_payment_link_url:
+        return _last_payment_link_url
     key_id = os.environ.get("RAZORPAY_KEY_ID")
     key_secret = os.environ.get("RAZORPAY_KEY_SECRET")
     if not key_id or not key_secret:
@@ -169,7 +179,6 @@ def _create_real_payment_link(scenario: dict[str, object]) -> str | None:
     except Exception:
         _log.warning("demo: real payment link creation failed", exc_info=True)
         return None
-    global _last_payment_link_url
     _last_payment_link_url = link.short_url
     return link.short_url
 

@@ -149,6 +149,23 @@ def test_b2b_trigger_still_sends_if_link_creation_raises(client, monkeypatch):
     assert "rzp.io" not in _FakeChannel.sent[0]["text"]
 
 
+def test_second_b2b_trigger_reuses_the_first_links_url_not_a_fresh_one(client, monkeypatch):
+    """Razorpay test-mode caps payment links at 30 total -- creating a new
+    one per click burns through that fast. A second trigger should reuse
+    the first run's link, not call create_payment_link() again."""
+    monkeypatch.setenv("RAZORPAY_KEY_ID", "rzp_test_fake")
+    monkeypatch.setenv("RAZORPAY_KEY_SECRET", "fake_secret")
+    monkeypatch.setattr(demo_module, "RazorpayRail", _FakeRazorpayRail)
+
+    demo_module._last_triggered_at.clear()
+    client.post("/demo/trigger", json={"secret": SECRET, "channel": "telegram", "scenario": "b2b"})
+    demo_module._last_triggered_at.clear()
+    client.post("/demo/trigger", json={"secret": SECRET, "channel": "telegram", "scenario": "b2b"})
+
+    assert len(_FakeRazorpayRail.created_specs) == 1
+    assert _FakeChannel.sent[0]["text"] == _FakeChannel.sent[1]["text"]
+
+
 def test_subscription_scenario_never_gets_a_payment_link(client, monkeypatch):
     """Only b2b's message references a link at all -- the other scenarios
     shouldn't attempt real Razorpay calls they have no use for."""

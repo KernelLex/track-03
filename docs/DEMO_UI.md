@@ -36,6 +36,31 @@ end, 2026-09-01: a real Telegram message sent through this exact path,
 returning `status="sent"` with a real Telegram message id as
 `external_ref`.
 
+**A real payment link, and a real reply back.** The b2b scenario's live
+send now includes a real Razorpay payment link
+(`agent/api/demo.py::_create_real_payment_link`, the same `RazorpayRail`
+the actual orchestration path uses — test-mode, so no real money moves).
+Live-caught building this: Razorpay's test-mode account has a hard
+**30-payment-link cap**, and creating a fresh one per click burns through
+it fast — a session of routine testing had already exhausted it once,
+which surfaced as the message silently sending without a link (the
+intended best-effort degradation, working exactly as designed, just for
+an unexpected reason the first time). Fixed properly, not just tolerated:
+the trigger now creates **one** real link per demo run and reuses it on
+every subsequent b2b click, rather than minting a new one each time.
+
+Replying is no longer a dead end either — `/demo/check-reply` sends a
+real, family-level message back over the same channel after diagnosing a
+reply (`_agent_reply_for`), not just a diagnosis shown on the dashboard.
+A liquidity/willingness reply (Family C) gets the real link resent; a
+dispute (Family D) gets told it's being escalated to a human; and so on.
+**Guarded against sending twice**: diagnosing the same reply repeatedly is
+harmless, but the follow-up *send* isn't idempotent by nature, and this
+endpoint has no session concept to rely on a client's own tracked
+position — `_last_followed_up_update_id` is the actual guard, not the
+caller's good behavior (a page reload resetting the dashboard's state
+would otherwise re-trigger a real duplicate send for an old reply).
+
 ## The architecture, and why it changed
 
 The first version of this page was published only as a Claude Artifact,
@@ -143,6 +168,11 @@ one-liner, not a confident wrong guess.
 filters every update to `DEMO_CONTACT_TELEGRAM_CHAT_ID` before doing
 anything else — a stranger messaging the bot mid-demo can never surface as
 if they were the demo's own debtor.
+
+**Update, 2026-09-01: this no longer stops at the diagnosis.** A real
+follow-up message now goes back over Telegram after every new reply — see
+the "A real payment link, and a real reply back" section above for what
+it says and how it's guarded against sending twice.
 
 **What's still scripted with no live equivalent**: Twilio calls are
 one-way TTS in my build — there's no inbound response capture for a voice
