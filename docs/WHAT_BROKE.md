@@ -469,6 +469,102 @@ correct and useful, and the send itself was governed by a separate gate
 a real chokepoint, a decision record that says `allowed` about a refusal
 is the kind of small dishonesty that makes the whole claim unverifiable.
 
+## 15. A secret that was configured, and a secret that matched, are different things
+
+**Symptom.** The Telegram webhook was registered, the server was deployed,
+and a real reply got no answer. Nothing in the server logs, because nothing
+reached the server.
+
+**Root cause.** `getWebhookInfo` had it:
+
+```
+last_error_message: Wrong response from the webhook: 403 Forbidden
+```
+
+The trailing `-` of `TELEGRAM_WEBHOOK_SECRET` had been dropped while
+pasting the value into Render's environment UI. Telegram was sending
+`...ydu2EM5h-`; the server expected `...ydu2EM5h`. Every delivery was
+correctly rejected.
+
+**The reasoning error is the part worth recording.** Before triggering the
+run I *had* checked the endpoint, with a deliberately wrong token, and got
+a `403` instead of a `503`. I read that as "the secret is configured" and
+moved on. It does prove that -- and it proves nothing about whether the
+configured value is the *right* one. The endpoint returns `403` for a wrong
+secret and `403` for a different-but-present secret; those are the same
+response. I had built a test that could not distinguish the passing case
+from the failing one and then treated it as evidence.
+
+**Fix.** The registration now uses the value the server actually holds,
+established by probing candidate variants against the live endpoint with a
+`chat_id` that is not the demo contact -- a correct secret returns 200
+`not_the_demo_contact` (auth passed, nothing sent to anyone), a wrong one
+returns 403. That distinguishes the two cases without messaging a real
+person.
+
+**Prevention.** `docs/SETUP.md` now documents `getWebhookInfo` as the
+verification step, names this exact `last_error_message`, and says plainly
+that a 403 proves a secret is present rather than correct. The generated
+secret would be better without trailing punctuation, but the durable fix is
+checking the thing you actually care about instead of a proxy for it.
+
+## 16. Two debtors could share one channel, and the wrong one got the credit
+
+**Symptom.** A test asserted that a rail-confirmed capture keeps the
+debtor's open promise. It came back `pending`.
+
+**Root cause.** The test registered a debtor on the demo's Telegram chat
+id -- and the app already seeds `debtor_live` against that same
+`DEMO_CONTACT_TELEGRAM_CHAT_ID` at startup. `channel_ref` had no uniqueness
+constraint, so two debtors held the same address. `by_channel_ref()` does
+`WHERE channel_ref = ?` and takes the first row, so the promise was
+recorded against one debtor and settled against the other.
+
+In a test this is a confusing failure. In production it is worse: a real
+payment silently improves the wrong debtor's score, and the debtor who
+actually paid keeps a broken promise on their record and the stricter terms
+that come with it.
+
+**Fix.** `CREATE UNIQUE INDEX ... ON debtors(channel_ref)`, with `upsert()`
+raising `ChannelRefTaken` rather than swallowing the integrity error --
+a conversation attributed to the wrong person is exactly the thing that
+must not fail quietly.
+
+## 17. Whether a payment counted depended on whether we could message someone
+
+**Symptom.** Found by an end-to-end run against a locally started server,
+not by the unit tests -- which passed, because they all had a channel
+configured. With `TELEGRAM_BOT_TOKEN` unset: `promise_settled: false`, the
+promise still `pending`, and an empty timeline.
+
+**Root cause.** `_notify_payment_outcome()` returned early when no channel
+was configured:
+
+```python
+if not chat_id or not token:
+    return None
+```
+
+and the call that settles the promise lived *after* that guard. So a
+deployment with no Telegram token silently stopped scoring debtors
+altogether. Nothing errored; the score was simply never updated, which is
+invisible until someone asks why a debtor's terms look wrong.
+
+The design error is a layering one. Whether a payment counts toward a
+debtor's record is a fact about the *payment*. Whether anyone can be told
+about it is a fact about the *channel*. Putting the first inside the second
+made a bookkeeping guarantee depend on a delivery capability.
+
+**Fix.** Settling and recording happen first and unconditionally; only the
+send is conditional. The response reports `notified: false` with a reason
+rather than staying silent about it -- an operator needs to know the
+message did not go out, and claiming otherwise would be worse than the bug.
+
+**Verification.** `TestScoringDoesNotDependOnMessaging` runs the whole
+webhook path with no channel configured at all and asserts the capture
+still settles, the timeline still records it, and the response says
+honestly that nobody was told. All three fail against the old ordering.
+
 ## What this list is for
 
 I found every one of these by actually building against DEVDOC_v6, not by

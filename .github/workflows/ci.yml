@@ -26,6 +26,13 @@ jobs:
       - name: Sync dependencies
         run: uv sync --frozen
 
+      # The generated docs claim in their own headers to be derived from
+      # rules.yaml. This is the only thing that holds them to it -- the
+      # check existed for months and nothing ran it, so docs/BOUNDS.md
+      # published a superseded rule (docs/WHAT_BROKE.md #14).
+      - name: Check the generated docs are not stale
+        run: uv run python tools/gen_docs.py --check
+
       - name: Run the suite
         # Failures go into the job summary, not just the log: reading a
         # failing run shouldn't require API auth to fetch logs, which is

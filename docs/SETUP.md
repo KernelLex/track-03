@@ -264,3 +264,46 @@ results.
   under whatever Python `uv` resolves, but 3.12 is what DEVDOC_v6 §19 targets)
 - SQLite (bundled with Python — no server to stand up)
 - No Postgres, Redis, Celery, or Node.js required for anything I've built so far
+
+## Wiring the Telegram webhook (instant replies, no polling)
+
+Without this, a debtor's reply is only handled while a browser tab happens
+to be polling. With it, Telegram pushes the message the moment it is sent
+and the server answers on its own.
+
+Two halves, and **both must carry the same secret**:
+
+```bash
+# 1. On the server (Render -> Environment, or .env locally)
+TELEGRAM_WEBHOOK_SECRET=<a long random string>
+
+# 2. Tell Telegram where to push, with that same secret
+curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook"   -d "url=https://<your-host>/demo/telegram-webhook"   -d "secret_token=$TELEGRAM_WEBHOOK_SECRET"   -d 'allowed_updates=["message","edited_message"]'
+```
+
+Verify with `getWebhookInfo` -- it reports delivery failures that are
+otherwise completely silent:
+
+```bash
+curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getWebhookInfo"
+```
+
+`"last_error_message": "Wrong response from the webhook: 403 Forbidden"`
+means the two secrets differ. This is worth checking rather than assuming:
+a `403` proves the server holds *a* secret, not the *same* one, and a
+trailing character lost while pasting into a host's env-var UI produces
+exactly this (docs/WHAT_BROKE.md #15). `drop_pending_updates=true` on
+`setWebhook` discards anything queued from before the endpoint existed --
+use it on first registration so the agent doesn't answer hours-old messages
+as though they were live.
+
+## Environment variables added since the first release
+
+| Variable | Default | What it is |
+|---|---|---|
+| `TELEGRAM_WEBHOOK_SECRET` | *(unset)* | Shared with Telegram's `setWebhook`. Unset makes `/demo/telegram-webhook` return 503 rather than accept unverified deliveries. |
+| `TRUECOMMIT_CONVERSATION_DB` | `conversation.db` | Conversation turns, the outstanding proposal, the handled-message claim table, and the dashboard timeline. |
+| `TRUECOMMIT_DEBTORS_DB` | `debtors.db` | The debtor register and promise outcomes -- what `promise_credibility` is computed from. |
+
+Under Turso all three share one database and the paths are ignored
+(`agent/db.py`); the distinction is local-file only.

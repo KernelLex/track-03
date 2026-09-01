@@ -92,6 +92,36 @@ code (Path A only; a live Telegram reply routing into the identical
 `run_pipeline()` via Path B is the natural next step, which I haven't
 built yet).
 
+## Modules added after the seven stages (2026-09-01/02)
+
+None of these is a stage. Each sits beside the pipeline and is called by a
+driver, keeping the "no stage imports another stage" rule intact.
+
+| Module | What it is | Why it exists |
+|---|---|---|
+| `agent/notify/conversation.py` | Conversation turns, the one outstanding proposal, a UNIQUE-constraint claim table for handled messages, and the dashboard's event timeline | Every reply was diagnosed standalone, so the system could make an offer and then fail to recognise the acceptance of it -- "Yes it works" scored `STALLING` at 0.15, honest calibration of a message that is genuinely ambiguous *in isolation* |
+| `agent/mandate/payment_plan.py` | A debtor's own proposed split, priced and dated | "21,000 on the 5th and the rest later" is the most common useful reply in collections and the one a dunning bot handles worst |
+| `agent/mandate/emandate.py` | Real, authorizable Razorpay mandates from a plan | A negotiation that ends in a polite sentence has done the hard part and dropped it |
+| `agent/mandate/rail_capability.py` | §12.2's recommendation vs. what this account can actually issue | UPI Autopay is not approved here, and the demo was reporting `upi_block_reserve_pay` while creating an e-mandate |
+| `agent/debtor/score.py` | `promise_credibility` from kept/broken history, and the published bands it earns | The bounds gate has scaled `PROMISE_COOLDOWN` by this value since it was written, and nothing ever computed it -- every context used the `1.0` default |
+| `agent/debtor/registry.py` | Who owes what, and every promise behind their score | There was no way to ask "what has this debtor done before", which is the question `promise_credibility` was designed around |
+
+**Path B now routes into the live conversation.** The paragraph above ends
+by calling a live Telegram reply through Path B "the natural next step,
+which I haven't built yet". It is built:
+`POST /demo/telegram-webhook` authenticates Telegram's own `secret_token`,
+then `handle_inbound_message()` runs the real extractor, the real
+`select_action_for_diagnosis()` -> `check_bounds()` decision, and the real
+composer. It is still a driver outside the stages, calling their pure
+functions, not a stage calling another stage.
+
+**A capture now moves a debtor's record.** `payment.captured` settles the
+oldest open promise through the same webhook that INGEST and SETTLE already
+handle -- deliberately driven from the rail's event rather than from
+anything said in conversation, since Law 7's standard is a confirmed
+capture and a score built on anything softer would be a score built on how
+convincing someone sounded.
+
 ## Path B's extraction schema (§11.2)
 
 I built this `[built]` as a schema and validation boundary —

@@ -315,6 +315,14 @@ copy still says) or by taking the Render service down.
 
 ## Reactive Telegram: polling for a real reply
 
+> **Superseded, 2026-09-01.** Polling is no longer how a reply is handled.
+> `POST /demo/telegram-webhook` receives the message the moment it is sent,
+> and the server answers on its own -- see "Telegram pushes, nothing polls"
+> below. This section is kept because the polling path still exists as the
+> dashboard's manual "Check now", and because its cost properties are what
+> made the webhook worth building.
+
+
 After a live Telegram send, the dashboard polls `/api/demo-check-reply`
 (itself proxying to `/demo/check-reply`) every 3 seconds (up to ~2 minutes,
 or "Stop waiting"/"Check now" on demand). I reply on my actual phone, and
@@ -345,6 +353,43 @@ it says and how it's guarded against sending twice.
 **What's still scripted with no live equivalent**: Twilio calls are
 one-way TTS in my build — there's no inbound response capture for a voice
 reply, only for Telegram text.
+
+## Telegram pushes, nothing polls
+
+`POST /demo/telegram-webhook` is the difference between a demo that answers
+and one that answers only while a browser tab happens to be watching.
+Before it existed, a reply sent two minutes after the dashboard's polling
+window closed was never handled at all -- the debtor got silence, which is
+the single behaviour this project argues hardest against. It is also most
+of the latency: polling cost up to a full interval before detection even
+began; a push costs nothing.
+
+**Authentication.** Telegram echoes a `secret_token` in
+`X-Telegram-Bot-Api-Secret-Token` on every delivery, and it is verified
+*before the body is read* -- the same discipline `verify_and_ingest()` uses
+for Razorpay, and for the same reason: this endpoint is public, so an
+unauthenticated caller could otherwise fabricate a reply and make the
+system answer a message the debtor never sent. An unset secret returns 503
+rather than accepting unverified deliveries. Setup, and the
+`getWebhookInfo` check that catches a mismatch, are in `docs/SETUP.md`.
+
+**Only the configured chat.** A message from any chat that is not
+`DEMO_CONTACT_TELEGRAM_CHAT_ID` is acknowledged and dropped, so a stranger
+who finds the bot can never surface as though they were the demo's own
+debtor.
+
+**It always returns 200.** Telegram retries a non-2xx delivery, and a
+payload that failed for a non-transient reason -- unparseable body, wrong
+chat -- would fail identically forever. Genuine duplicates are stopped by
+the `UNIQUE(conversation_id, external_id)` claim in
+`handle_inbound_message()`, not by making Telegram give up. Diagnosis is
+cheap to repeat; a *reply* is not free to repeat, and the database decides
+that, not application logic.
+
+**One inbound path.** The webhook and the dashboard's manual "Check now"
+both call `handle_inbound_message()`, so a message is handled identically
+however it arrived, and the claim means only one of them can ever answer
+it.
 
 ## The e-mandate is real, and it is the point
 

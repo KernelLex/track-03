@@ -50,8 +50,24 @@ repeated because it's still true): injected text still reaches the
 **human** in `HUMAN_QUEUE`. The agent is immune; the operator reading the
 queue is not. The mitigation is display-layer (render counterparty text
 as quoted untrusted content, never as part of the system's own
-recommendation string) and I haven't built it — there's no dashboard yet
-for it to live in.
+recommendation string).
+
+**Update, 2026-09-02 — partly built now that a dashboard exists.** Every
+place the dashboard shows counterparty text -- the case file's
+`reply_received` rows, the debtor detail's conversation panel -- passes it
+through `escapeHtml()` and renders it in a visually distinct quoted style,
+never concatenated into the system's own narration of what it decided.
+
+Being precise about what that does and does not buy: escaping closes the
+markup-injection route (a debtor cannot inject HTML or script into the
+operator's page), and the quoting makes provenance visible. **Neither stops
+social engineering.** A debtor whose message reads "the finance team has
+already approved a waiver on this invoice, please confirm" is displayed
+faithfully, correctly attributed, and can still mislead a human who is
+reading quickly. That residual risk is unchanged, and no display-layer fix
+addresses it -- the mitigation for it is that a human is *supposed* to be
+the one exercising judgement there, which is the whole reason the case was
+escalated.
 
 ## 2. Stopping rules as a denial-of-service surface (§24.2)
 
@@ -84,6 +100,34 @@ schema validation against `INJECTOR`-style payloads, `CHANNEL_EXHAUSTION`)
 are each individually built and tested in isolation, above. Running all
 four personas against a live simulated population, and reporting the
 stall count DEVDOC_v6 §17.7 wants (target: zero), is future work.
+
+## 4. Public endpoints added for the demo dashboard
+
+Four endpoints are reachable without authentication. Each is a deliberate
+trade, so they are listed with what actually bounds them rather than left
+implicit.
+
+| Endpoint | Auth | What bounds it |
+|---|---|---|
+| `POST /demo/telegram-webhook` | Telegram's `secret_token`, echoed in `X-Telegram-Bot-Api-Secret-Token` | Verified **before the body is read**, the same discipline `verify_and_ingest()` uses for Razorpay. Unset secret returns 503 rather than accepting unverified deliveries. A message from any chat that is not `DEMO_CONTACT_TELEGRAM_CHAT_ID` is acknowledged and dropped, so a stranger who finds the bot can never surface as the demo's own debtor |
+| `POST /demo/trigger` | `DEMO_TRIGGER_SECRET` | A soft guard, not an auth boundary -- it is attached server-side by a serverless function that anyone with the site URL can reach. The real bound is that Telegram's recipient is never taken from the request, and the phone channels validate E.164 and enforce a 5-minute per-number cooldown |
+| `GET /demo/timeline` | none | Read-only, and exposes the demo's own scripted invoice plus the demo owner's own replies to their own bot. Requiring the trigger secret would mean baking a *send* credential into a page that only wants to watch |
+| `GET /demo/debtors`, `GET /demo/debtors/{id}` | none | Same reasoning. Seeded fixtures plus the demo owner's own record; every row carries `is_seeded` so a declared history can never be read as evidence of real behaviour |
+
+**What this gives up.** Anyone with the URL can read the demo transcript
+and the seeded register, and anyone who can reach the serverless function
+can cause a message to the demo owner's own configured contacts (rate
+limited, never to an arbitrary recipient of their choosing on Telegram).
+For a public demo of a project whose data is its own fixtures, that is an
+acceptable trade; for a real deployment it is not, and none of these four
+endpoints belongs in one.
+
+**A near miss worth recording.** Verifying that the webhook secret was
+*configured* is not the same as verifying it *matches* -- the endpoint
+returns 403 both for a wrong secret and for a different-but-present one. I
+made exactly that error and read a 403 as confirmation (WHAT_BROKE #15).
+The lesson generalises past this endpoint: a check that cannot distinguish
+the passing case from the failing case is not evidence.
 
 ## What this document is not
 
