@@ -304,6 +304,7 @@ as though they were live.
 | `TELEGRAM_WEBHOOK_SECRET` | *(unset)* | Shared with Telegram's `setWebhook`. Unset makes `/demo/telegram-webhook` return 503 rather than accept unverified deliveries. |
 | `TRUECOMMIT_CONVERSATION_DB` | `conversation.db` | Conversation turns, the outstanding proposal, the handled-message claim table, and the dashboard timeline. |
 | `TRUECOMMIT_DEBTORS_DB` | `debtors.db` | The debtor register and promise outcomes -- what `promise_credibility` is computed from. |
+| `TRUECOMMIT_TIMEZONE_OFFSET_MINUTES` | `330` (IST) | The business timezone every relative date resolves against (`agent/clock.py`). Only set this for a deployment serving another country -- the server's own clock is UTC on most hosts, which resolves "today" a day early for an Indian debtor texting between 00:00 and 05:30 IST. |
 
 Under Turso all three share one database and the paths are ignored
 (`agent/db.py`); the distinction is local-file only.

@@ -13,6 +13,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, time
 
+WHATSAPP_SESSION_WINDOW_DAYS = 1
+"""Meta's WhatsApp customer-service window: 24 hours from the debtor's own
+last message. Expressed in days because the rule language's `timedelta()`
+takes days, and 24 hours is exactly one.
+
+A platform rule, not law -- see WHATSAPP_SESSION_WINDOW in rules.yaml for
+why that distinction decides which register it lives in."""
+
 ALL_CHANNELS: frozenset[str] = frozenset({"sms", "email", "whatsapp", "ivr", "telegram"})
 
 
@@ -57,6 +65,11 @@ class ActionCtx:
     carries_legal_number: bool = False
     rail_tag: str | None = None
     is_regulatory_notice: bool = False
+    uses_approved_template: bool = False
+    """True when the send goes out as a pre-approved WhatsApp template
+    rather than free-form text. That is the only legal way to open a
+    conversation outside Meta's 24-hour customer-service window, so
+    WHATSAPP_SESSION_WINDOW exempts it -- see that rule."""
     presents_mandate_debit: bool = False
     """True only when ACT is about to call rail.present_debit(...). Deliberately not
     inferred from type == 'retry_charge' alone — §11.5 overloads that one type across
@@ -104,6 +117,12 @@ class BoundsContext:
     post_debit_notification_queued: bool = False
     interest_computed_from: float | None = None
     promise_date: datetime | None = None
+    last_inbound_at: datetime | None = None
+    """When the debtor last messaged us, for WHATSAPP_SESSION_WINDOW.
+
+    None means they never have -- which is the cold-outreach case, and the
+    one the rule refuses a free-form send for. Not a timestamp this system
+    chooses: it comes from the channel's own record of an inbound message."""
 
     def to_dict(self) -> dict[str, object]:
         """A JSON-safe snapshot, for storing inside a LedgerEntry's `action`
@@ -128,6 +147,7 @@ class BoundsContext:
                 "human_approval_id": self.action.human_approval_id, "carries_legal_number": self.action.carries_legal_number,
                 "rail_tag": self.action.rail_tag, "is_regulatory_notice": self.action.is_regulatory_notice,
                 "presents_mandate_debit": self.action.presents_mandate_debit,
+                "uses_approved_template": self.action.uses_approved_template,
                 "params": self.action.params, "debtor_stated_params": self.action.debtor_stated_params,
                 "clamp_direction": self.action.clamp_direction,
             },
@@ -147,6 +167,7 @@ class BoundsContext:
             "post_debit_notification_queued": self.post_debit_notification_queued,
             "interest_computed_from": self.interest_computed_from,
             "promise_date": self.promise_date.isoformat() if self.promise_date else None,
+            "last_inbound_at": self.last_inbound_at.isoformat() if self.last_inbound_at else None,
         }
 
     @staticmethod
@@ -170,7 +191,12 @@ class BoundsContext:
                 type=a["type"], channel=a["channel"], afa_reference=a["afa_reference"],
                 human_approval_id=a["human_approval_id"], carries_legal_number=a["carries_legal_number"],
                 rail_tag=a["rail_tag"], is_regulatory_notice=a["is_regulatory_notice"],
-                presents_mandate_debit=a["presents_mandate_debit"], params=a["params"],
+                presents_mandate_debit=a["presents_mandate_debit"],
+                # .get for the same reason as last_inbound_at: the Auditor
+                # recomputes check_bounds() from entries written before this
+                # field existed.
+                uses_approved_template=a.get("uses_approved_template", False),
+                params=a["params"],
                 debtor_stated_params=a["debtor_stated_params"], clamp_direction=a["clamp_direction"],
             ),
             decision=DecisionCtx(ev_paise=dec["ev_paise"]),
@@ -185,6 +211,11 @@ class BoundsContext:
             post_debit_notification_queued=data["post_debit_notification_queued"],
             interest_computed_from=data["interest_computed_from"],
             promise_date=datetime.fromisoformat(data["promise_date"]) if data["promise_date"] else None,
+            # .get, not [], so a ledger entry written before this field
+            # existed still reconstructs -- the Auditor recomputes
+            # check_bounds() from old entries and must not choke on them.
+            last_inbound_at=(datetime.fromisoformat(data["last_inbound_at"])
+                             if data.get("last_inbound_at") else None),
         )
 
     def to_namespace(self) -> dict[str, object]:
@@ -201,6 +232,8 @@ class BoundsContext:
             "post_debit_notification_queued": self.post_debit_notification_queued,
             "interest_computed_from": self.interest_computed_from,
             "promise_date": self.promise_date,
+            "last_inbound_at": self.last_inbound_at,
             "ALL_CHANNELS": ALL_CHANNELS,
             "REQUIRED_PREDEBIT_FIELDS": REQUIRED_PREDEBIT_FIELDS,
+            "WHATSAPP_SESSION_WINDOW_DAYS": WHATSAPP_SESSION_WINDOW_DAYS,
         }

@@ -348,6 +348,7 @@ def summarize(arm: str, outcomes: list[Outcome]) -> ArmSummary:
 def run_comparison_raw(
     *, n_personas: int, seed: int, window_days: int, lift: float,
     touch_cost_paise: int = DEFAULT_TOUCH_COST_PAISE,
+    blocker_mix: dict | None = None,
 ) -> tuple[list[Persona], dict[str, list[Outcome]]]:
     """Same as run_comparison, but returns the population and each arm's
     raw per-persona Outcomes rather than pre-aggregated summaries -- what
@@ -355,7 +356,8 @@ def run_comparison_raw(
     breakout, a decision-flip-rate calculation over the real population)
     without re-running the simulation from scratch."""
     p_base_model = load_fitted_p_base()
-    personas = generate_population(n_personas, seed=seed, p_base_model=p_base_model)
+    personas = generate_population(n_personas, seed=seed, p_base_model=p_base_model,
+                                  blocker_mix=blocker_mix)
     lift_prior = Prior(lift)
 
     return personas, {

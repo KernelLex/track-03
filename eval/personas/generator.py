@@ -111,10 +111,33 @@ def generate_population(
     *,
     seed: int,
     p_base_model: FittedPBaseModel | None = None,
+    blocker_mix: dict[Blocker, float] | None = None,
 ) -> list[Persona]:
     """Deterministic given `seed` — the same call always returns the same
     population, so an arm comparison is reproducible and re-runnable by
-    anyone, not just something that happened once in this session."""
+    anyone, not just something that happened once in this session.
+
+    `blocker_mix` declares the population's composition directly instead of
+    letting it fall out of the fitted `p_base`. **Omitted, this function
+    behaves exactly as it always has**, which is what keeps the first
+    pre-registration's results reproducible — `docs/RESULTS.md` regenerates
+    byte-for-byte, and a gate in CI fails if it stops doing so.
+
+    Why the option exists (`eval/PREREGISTRATION_FAMILY_B.md`): the default
+    path decides `true_blocker` downstream of `p_base`, which is fitted and
+    high, so most invoices land in `Blocker.NONE` and only the residual
+    splits across the real blocker types. At n=500 that residual put **two**
+    personas in the administrative subpopulation — the one Claim 1 is
+    about. Two. Correct for asking "what does a realistic portfolio look
+    like", useless for asking "does the intervention work on this blocker
+    type", and no seed change fixes it.
+
+    When given, `true_blocker` is drawn from the declared mix and the
+    fitted dispute rate no longer governs composition. `p_base` is still
+    computed per persona from the fitted model and still drives DECIDE's EV
+    — the model is not overridden, it just stops deciding who is blocked by
+    what.
+    """
     if n <= 0:
         raise ValueError("n must be positive")
 
@@ -128,17 +151,25 @@ def generate_population(
     for i in range(n):
         amount_paise = _sample_amount_paise(rng, median_paise)
         p_base = p_base_model.predict(amount_paise)
-        is_disputed = rng.random() < DISPUTE_BASE_RATE
-        resolves_on_its_own = (not is_disputed) and rng.random() < p_base
-
-        if is_disputed:
-            blocker = Blocker.DISPUTE
-        elif resolves_on_its_own:
-            blocker = Blocker.NONE
-        else:
+        if blocker_mix is not None:
+            # Declared composition. One draw, from the stated proportions,
+            # rather than three conditional draws whose net effect nobody
+            # can state without running it.
             blocker = rng.choices(
-                population=list(blocker_split.keys()), weights=list(blocker_split.values()), k=1,
+                population=list(blocker_mix.keys()), weights=list(blocker_mix.values()), k=1,
             )[0]
+        else:
+            is_disputed = rng.random() < DISPUTE_BASE_RATE
+            resolves_on_its_own = (not is_disputed) and rng.random() < p_base
+
+            if is_disputed:
+                blocker = Blocker.DISPUTE
+            elif resolves_on_its_own:
+                blocker = Blocker.NONE
+            else:
+                blocker = rng.choices(
+                    population=list(blocker_split.keys()), weights=list(blocker_split.values()), k=1,
+                )[0]
 
         personas.append(Persona(
             id=f"persona_{i:05d}",

@@ -90,3 +90,38 @@ def test_limitations_test_count_matches_a_real_collection(collected_total):
         f"docs/LIMITATIONS.md's split ({passing} passing + {skipped} skipped) does not "
         f"add up to the {collected_total} it collects."
     )
+
+
+def test_the_documented_rule_count_matches_the_register():
+    """The README states how many bounds rules exist. That number went stale
+    the moment a twentieth rule was added, along with three more in
+    docs/DEMO_UI.md and a hardcoded "/19" in the dashboard's own JS.
+
+    Same class as the test counts this file already gates, and the same
+    reasoning: a number a reader can check in ten seconds is worse than no
+    number if it is wrong, because it tells them the rest was not checked
+    either.
+    """
+    from agent.bounds.engine import load_rules
+
+    actual = len(load_rules())
+    readme = README.read_text(encoding="utf-8")
+
+    claimed = re.search(r"\*\*A bounds gate that two independent implementations agree on\.\*\*\s*(\d+)\s*\n?\s*rules in YAML", readme)
+    assert claimed is not None, "README no longer states its rule count in the expected form"
+    assert int(claimed.group(1)) == actual, (
+        f"README claims {claimed.group(1)} bounds rules; the register has {actual}."
+    )
+
+
+def test_no_document_hardcodes_a_stale_rule_denominator():
+    """"18/19 passed" in a doc is a rule count wearing a disguise."""
+    from agent.bounds.engine import load_rules
+
+    actual = len(load_rules())
+    for path in (README, LIMITATIONS, REPO_ROOT / "docs" / "DEMO_UI.md"):
+        text = path.read_text(encoding="utf-8")
+        for match in re.finditer(r"\b(\d+)/(\d+)\s+(?:bounds\s+rules\s+)?passed", text):
+            assert int(match.group(2)) == actual, (
+                f"{path.name} says '{match.group(0)}' but the register has {actual} rules"
+            )

@@ -211,3 +211,32 @@ stopping:
     # framework the way a reminder or mandate offer is, so it stays exempt here the
     # same way TOUCH_BUDGET exempts it. §24.2.
     test: "tests/regulatory/test_channel_exhaustion.py::test_routes_to_human_not_silence"
+
+  - id: WHATSAPP_SESSION_WINDOW
+    machine: >-
+      action.channel != 'whatsapp' or
+      action.uses_approved_template == True or
+      action.type in ['escalate_human', 'no_action'] or
+      (last_inbound_at is not None and
+       now < last_inbound_at + timedelta(WHATSAPP_SESSION_WINDOW_DAYS))
+    human: "WhatsApp only carries a free-form message within 24 hours of the debtor's
+            own last message. Outside that window an approved template is the only
+            permitted send, so a free-form reply there is refused rather than handed
+            to a channel that will silently drop it."
+    # Source: Meta's WhatsApp Business Platform customer-service window. This is a
+    # PLATFORM rule, not law -- which is why it lives in the stopping register with
+    # the limits this system imposes on itself, and not in the regulatory register
+    # alongside RBI/TRAI/MSMED. Filing a vendor's terms of service as regulation
+    # would be exactly the overclaim this project criticises elsewhere.
+    #
+    # Empirically grounded, not just read: a real send hit Twilio error 63016
+    # ("failed to send freeform message because you are outside the allowed
+    # window") during channel bring-up -- see docs/CHANNELS.md. The rule models a
+    # constraint this project has actually been refused by.
+    #
+    # Why it matters for a collections agent specifically: the conversational reply
+    # path and the cold-outreach path are structurally different actions, and an
+    # agent that doesn't model the difference silently fails to deliver at exactly
+    # the moment it believes it is chasing. A message the platform drops is worse
+    # than a message the gate refuses -- the gate's refusal is at least logged.
+    test: "tests/regulatory/test_whatsapp_session_window.py::test_refuses_freeform_outside_the_window"

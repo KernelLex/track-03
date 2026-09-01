@@ -82,6 +82,7 @@ st_action = st.builds(
     carries_legal_number=st.booleans(),
     rail_tag=st.one_of(st.none(), st.sampled_from(["razorpay", "simulated"])),
     is_regulatory_notice=st.booleans(),
+    uses_approved_template=st.booleans(),
     params=st_params,
     debtor_stated_params=st_params,
     clamp_direction=st.one_of(st.none(), st.sampled_from(["favours_debtor", "favours_supplier"])),
@@ -118,6 +119,11 @@ st_bounds_context = st.builds(
     post_debit_notification_queued=st.booleans(),
     interest_computed_from=st.one_of(st.none(), st.sampled_from([0.0550, 0.09])),
     promise_date=st_optional_datetime,
+    # Without this the 5,000 cases never reach WHATSAPP_SESSION_WINDOW's
+    # interesting branches at all, and the differential test would pass
+    # while proving nothing about the newest rule. A strategy that cannot
+    # generate a rule's inputs is not testing that rule.
+    last_inbound_at=st_optional_datetime,
 )
 
 

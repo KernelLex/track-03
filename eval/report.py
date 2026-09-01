@@ -241,6 +241,17 @@ def render_markdown(
                  "harness's own ground truth, not Law 7's rail-confirmed-capture standard. "
                  "Read these arms as a measurement of bounded execution, not of money.")
     lines.append(">")
+    # Same reasoning as the note above: emitted by the generator, because a
+    # cross-link hand-added to docs/RESULTS.md would be wiped on the next
+    # run -- and the --check gate now catches that immediately, which is how
+    # this one was caught being added the wrong way.
+    lines.append("> **This population could not test Claim 1.** Its Family-B "
+                 "(administrative blocker) subpopulation is n=2 — too small to mean "
+                 "anything, and the row swings fifty points when one case changes. A "
+                 "second, separately pre-registered run built to test that claim is in "
+                 "[RESULTS_FAMILY_B.md](RESULTS_FAMILY_B.md). This run is untouched by "
+                 "it; nothing here was regenerated to suit it.")
+    lines.append(">")
     lines.append("> Separately, and not reflected in any number below: a single real capture "
                  "has been attributed under Law 7's actual standard by the deployed service "
                  "(`docs/evidence/REAL_RECOVERY.md`). That is n=1, and it closes the \"no "

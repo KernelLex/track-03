@@ -369,7 +369,11 @@ class TestTheGateVerdictIsRenderable:
             promise=PromiseFields(amount_paise=21_000_00,
                                   date=(date.today() + timedelta(days=5)).isoformat()),
         )
-        assert decision["rules_total"] == 19
+        # 20 since WHATSAPP_SESSION_WINDOW was added. Asserted against the
+        # register rather than a literal, so adding a rule updates this
+        # rather than breaking it.
+        from agent.bounds.engine import load_rules
+        assert decision["rules_total"] == len(load_rules())
         assert decision["rules_passed"] == decision["rules_total"] - len(decision["refusals"])
 
     def test_a_clean_pass_reports_a_full_tally_and_no_refusals(self, client):

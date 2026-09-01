@@ -104,6 +104,9 @@ driver, keeping the "no stage imports another stage" rule intact.
 | `agent/mandate/emandate.py` | Real, authorizable Razorpay mandates from a plan | A negotiation that ends in a polite sentence has done the hard part and dropped it |
 | `agent/mandate/rail_capability.py` | §12.2's recommendation vs. what this account can actually issue | UPI Autopay is not approved here, and the demo was reporting `upi_block_reserve_pay` while creating an e-mandate |
 | `agent/debtor/score.py` | `promise_credibility` from kept/broken history, and the published bands it earns | The bounds gate has scaled `PROMISE_COOLDOWN` by this value since it was written, and nothing ever computed it -- every context used the `1.0` default |
+| `agent/debtor/invoices.py` | A debtor's invoices and what has happened to each | The conversation was about one hardcoded invoice, so "which of these do I still owe" could not be asked at all |
+| `agent/notify/intents.py` | The handful of things a debtor says that are commands, not prose | "2" and "dispute" need no language model, and routing them through one costs four seconds and risks reading them as something they did not ask for |
+| `agent/clock.py` | What "today" means to an Indian business | `date.today()` is UTC on Render, so for five and a half hours a day every relative date resolved one day early |
 | `agent/debtor/registry.py` | Who owes what, and every promise behind their score | There was no way to ask "what has this debtor done before", which is the question `promise_credibility` was designed around |
 
 **Path B now routes into the live conversation.** The paragraph above ends

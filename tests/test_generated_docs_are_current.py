@@ -127,3 +127,20 @@ def test_results_md_matches_what_the_eval_actually_produces():
         f"{result.stdout}\n{result.stderr}\n"
         "Run `python eval/report.py` and commit the result."
     )
+
+
+def test_results_family_b_matches_what_its_eval_produces():
+    """The second pre-registered run's results, gated like the first.
+
+    Two generated results documents now exist and both are things a reader
+    is invited to reproduce, so both are checked. Gating one and not the
+    other is how the first one drifted (WHAT_BROKE #18)."""
+    result = subprocess.run(
+        [sys.executable, str(REPO / "eval" / "report_family_b.py"), "--check"],
+        cwd=REPO, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, (
+        "docs/RESULTS_FAMILY_B.md is stale with respect to eval/report_family_b.py:\n"
+        f"{result.stdout}\n{result.stderr}\n"
+        "Run `python eval/report_family_b.py` and commit the result."
+    )

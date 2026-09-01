@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import time, timedelta
 from typing import Callable
 
-from agent.bounds.context import ALL_CHANNELS, REQUIRED_PREDEBIT_FIELDS, BoundsContext
+from agent.bounds.context import ALL_CHANNELS, REQUIRED_PREDEBIT_FIELDS, BoundsContext, WHATSAPP_SESSION_WINDOW_DAYS
 
 
 def rbi_emandate_predebit_24h(ctx: BoundsContext) -> bool:
@@ -116,6 +116,31 @@ def promise_cooldown(ctx: BoundsContext) -> bool:
     return ctx.now >= ctx.promise_date + timedelta(days=effective_grace)
 
 
+def whatsapp_session_window(ctx: BoundsContext) -> bool:
+    """Written from Meta's rule as stated, not from the YAML expression.
+
+    The rule: WhatsApp carries a free-form message only inside 24 hours of
+    the debtor's own last inbound message. Outside that, an approved
+    template is the only permitted send.
+
+    So: anything not on WhatsApp is unaffected; a template send is always
+    allowed; stopping and escalating are not sends to the debtor at all;
+    and otherwise there must be an inbound message, recent enough.
+
+    A debtor who has never messaged us has no window open -- that is the
+    cold-outreach case, and it is the one this refuses.
+    """
+    if ctx.action.channel != "whatsapp":
+        return True
+    if ctx.action.uses_approved_template:
+        return True
+    if ctx.action.type in ("escalate_human", "no_action"):
+        return True
+    if ctx.last_inbound_at is None:
+        return False
+    return ctx.now < ctx.last_inbound_at + timedelta(days=WHATSAPP_SESSION_WINDOW_DAYS)
+
+
 def exhausted(ctx: BoundsContext) -> bool:
     return ctx.debtor.state != "EXHAUSTED"
 
@@ -181,5 +206,6 @@ REGISTRY: dict[str, Callable[[BoundsContext], bool]] = {
     "STATUTORY_HUMAN_GATE": statutory_human_gate,
     "RAIL_DISCLOSURE": rail_disclosure,
     "CHANNEL_EXHAUSTION": channel_exhaustion,
+    "WHATSAPP_SESSION_WINDOW": whatsapp_session_window,
     "REFUND_AND_REVOKE_HUMAN_GATE": refund_and_revoke_human_gate,
 }

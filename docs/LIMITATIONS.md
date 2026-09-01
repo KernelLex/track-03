@@ -9,7 +9,7 @@ I've built a tested, working implementation of TrueCommit's **pure-logic
 safety and compliance core** (DEVDOC_v6 §5.2's "the judgment"), **now also
 wired to a real, live Razorpay test-mode account** (as of 2026-08-30) for
 the capabilities that account actually has, plus a real (if minimal) HTTP
-webhook receiver. **1,073 collected / 1,062 passing / 11 skipped as of 2026-09-02**,
+webhook receiver. **1,092 collected / 1,081 passing / 11 skipped as of 2026-09-02**,
 measured without live credentials in the shell (the 11 skipped are the
 Razorpay-live-only suite, which skips cleanly rather than failing — no
 credentials are required to run the main suite). It's still **not**:
@@ -451,3 +451,39 @@ this code selects -- and the two are easy to conflate.
 instrument you are not creating is a small dishonesty that makes
 everything else in a demo suspect, which is why it is fixed rather than
 footnoted.
+
+## WHATSAPP_SESSION_WINDOW is a platform rule, not law
+
+The bounds register now has 20 rules. The newest, `WHATSAPP_SESSION_WINDOW`,
+models Meta's 24-hour customer-service window: WhatsApp carries a free-form
+message only within 24 hours of the debtor's own last inbound one, and
+outside that an approved template is the only permitted send.
+
+**It is filed in the `stopping` register, not `regulatory`, deliberately.**
+The regulatory register carries `source` and `clause_ref` for statutes this
+system must not breach — RBI, TRAI, MSMED. Meta's policy is a vendor's terms
+of service. Filing it as regulation would overstate what it is, in exactly
+the way this document criticises elsewhere, and a test asserts which
+register it lives in so that cannot quietly change.
+
+It is better sourced than most rules here in one specific respect: it was
+not only read, it was *hit*. A real send returned Twilio error 63016 —
+"failed to send freeform message because you are outside the allowed
+window" — during channel bring-up. The rule models a constraint this
+project has actually been refused by.
+
+**What adding it exposed.** Nine existing tests failed immediately, and
+every one marked a place the code sent on WhatsApp without declaring which
+kind of send it was: the demo trigger (an approved template), the
+conversational follow-up (free-form, but always answering an inbound
+message, so inside the window by construction), and the adversarial
+channel-hopper (cold outreach, which can only be a template). The gate had
+no way to tell them apart because the callers never said. That is the rule
+earning its place before it ever refused anything in production.
+
+**What it still cannot do:** verify that the template being sent is the one
+Meta approved. `uses_approved_template` is a caller's assertion, and a
+caller that sets it wrongly gets past this gate. Checking it properly means
+asking Twilio's Content API for the template's approval status at send
+time, which is a network call inside the bounds gate — and a gate that
+makes network calls is a gate that can fail open. Not built.

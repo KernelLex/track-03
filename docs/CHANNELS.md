@@ -171,6 +171,37 @@ Template (Content API, unlocked on the Full-tier account) is the
 remaining piece needed for a cold outbound send — the actual use case
 this project needs, since a debtor won't have messaged first.
 
+**Update, 2026-09-02 — that platform rule is now a bounds rule.**
+`WHATSAPP_SESSION_WINDOW` (`agent/bounds/rules.yaml`, rule 20 of 20)
+refuses a free-form WhatsApp send when the debtor's last inbound message
+is older than 24 hours, and requires the template path instead. It is
+filed in the `stopping` register rather than `regulatory`: Meta's policy is
+a vendor's terms of service, not law, and filing it beside RBI/TRAI/MSMED
+would overstate it — a test asserts which register it lives in.
+
+Error 63016 is why this rule is better sourced than most: it was not only
+read in Meta's documentation, it was *hit*, by a real send from this
+account. The rule models a constraint this project has actually been
+refused by.
+
+For a collections agent the distinction is load-bearing rather than
+cosmetic. The conversational reply path and the cold-outreach path are
+structurally different actions, and an agent that does not model the
+difference silently fails to deliver at exactly the moment it believes it
+is chasing. A message the platform drops is worse than one the gate
+refuses — the gate's refusal is at least logged.
+
+Adding the rule immediately failed nine existing tests, each marking a
+place this codebase sent on WhatsApp without declaring which kind of send
+it was: the demo trigger (a template), the conversational follow-up
+(free-form, but always answering an inbound message and therefore inside
+the window), and the adversarial channel-hopper (cold outreach, template
+only). It also surfaced a live defect — `agent/api/app.py` selected
+WhatsApp as the orchestrator's channel while telling the bounds gate
+"telegram", so `TRAI_DND` checked the wrong channel's opt-out list and this
+new rule could never fire on the one automated path able to send there.
+See `docs/WHAT_BROKE.md` #21.
+
 ## Wiring a live send
 
 ```python

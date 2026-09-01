@@ -18,8 +18,15 @@ trust me.
    exactly that configuration. The one parameter with no empirical source
    (`lift_prior`) turned out not to decide the outcome — which is a result
    I could only report honestly *because* the analysis was fixed in
-   advance.
-2. **A bounds gate that two independent implementations agree on.** 19
+   advance. **A second, separately pre-registered run**
+   ([`eval/PREREGISTRATION_FAMILY_B.md`](eval/PREREGISTRATION_FAMILY_B.md)
+   → [`docs/RESULTS_FAMILY_B.md`](docs/RESULTS_FAMILY_B.md)) exists because
+   the first population could not test the claim this project rests on — it
+   put n=2 in the administrative subpopulation. The first run and its
+   results are untouched and still published; this is a power analysis
+   beside them, not a replacement, and its failure threshold was committed
+   before it ran.
+2. **A bounds gate that two independent implementations agree on.** 20
    rules in YAML, plus `human_twin.py` — a second implementation of the
    same intent, written by hand, deliberately not sharing code — and a
    Hypothesis differential test driving 5,000 generated cases through both
@@ -118,7 +125,7 @@ regime, not sending another message.
 ```
 uv sync
 uv run trucommit demo     # a small, real, end-to-end walk of one debtor
-uv run pytest             # 1,073 collected: 1,062 run without credentials, 11 skipped (they run live with Razorpay test keys set)
+uv run pytest             # 1,092 collected: 1,081 run without credentials, 11 skipped (they run live with Razorpay test keys set)
 ```
 
 CI runs that same suite on every push (`.github/workflows/ci.yml`), on

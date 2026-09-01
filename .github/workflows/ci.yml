@@ -39,6 +39,9 @@ jobs:
       - name: Check docs/RESULTS.md matches the eval
         run: uv run python eval/report.py --check
 
+      - name: Check docs/RESULTS_FAMILY_B.md matches its eval
+        run: uv run python eval/report_family_b.py --check
+
       - name: Run the suite
         # Failures go into the job summary, not just the log: reading a
         # failing run shouldn't require API auth to fetch logs, which is

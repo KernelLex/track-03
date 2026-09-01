@@ -14,7 +14,7 @@ required from anyone who opens the link.
 
 **Scripted, but grounded in real code**: the pipeline walk itself (Ingest
 through Settle), the numbers shown at each stage (`p_base`, expected value,
-which of the 19 bounds rules passed, which instrument got selected), and
+which of the 20 bounds rules passed, which instrument got selected), and
 the conversation thread. "Scripted" means the *timing* is client-side
 (a `setTimeout` stagger, so the demo is reliable with no network dependency
 mid-presentation) — not that the numbers are made up. Every number comes
@@ -88,7 +88,7 @@ state would otherwise re-trigger a real duplicate send for an old reply).
    its constraint is genuinely different from the other two — see the
    table below.
 2. **Activity** — every real event, newest first, with a timestamp:
-   the send itself (with how many of the 19 bounds rules passed and the
+   the send itself (with how many of the 20 bounds rules passed and the
    channel's own reference id), the real reply when it arrives quoted
    verbatim, the extractor's scoring (family, class, and a real
    confidence, not a fixed number), a bounds refusal if the follow-up is
@@ -761,7 +761,7 @@ least visible thing on screen.
 It now renders as a state:
 
 ```
-✗  check_bounds   18/19 passed · 1 REFUSED
+✗  check_bounds   19/20 passed · 1 REFUSED
 
    PROMISE_COOLDOWN
    A promise buys quiet time. A history of broken promises buys less of
@@ -779,7 +779,7 @@ time and was being dropped at the API boundary. The fix was to stop
 throwing it away, not to write new copy -- which is why the wording on
 screen is the same wording in `rules.yaml`, and stays in sync with it.
 
-**It shows scale.** "1 REFUSED" means little on its own; "18/19 passed"
+**It shows scale.** "1 REFUSED" means little on its own; "19/20 passed"
 says a specific gate fired, not that everything failed.
 
 **It shows what happened instead.** A refusal with no stated outcome reads
@@ -792,7 +792,7 @@ this repo as "a first-class logged decision, not silence", and it was
 rendering identically to every other event -- which made it look exactly
 like the silence it is supposed to be the opposite of.
 
-A clean pass stays quiet: `✓ check_bounds 19/19 passed`, no body. The
+A clean pass stays quiet: `✓ check_bounds 20/20 passed`, no body. The
 refusal colour is reserved for refusals, so it reads at a glance rather
 than competing with a wall of green ticks.
 

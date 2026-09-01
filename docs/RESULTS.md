@@ -2,6 +2,8 @@
 
 > **Note.** Recovery in this report is a modelling convention — the harness's own ground truth, not Law 7's rail-confirmed-capture standard. Read these arms as a measurement of bounded execution, not of money.
 >
+> **This population could not test Claim 1.** Its Family-B (administrative blocker) subpopulation is n=2 — too small to mean anything, and the row swings fifty points when one case changes. A second, separately pre-registered run built to test that claim is in [RESULTS_FAMILY_B.md](RESULTS_FAMILY_B.md). This run is untouched by it; nothing here was regenerated to suit it.
+>
 > Separately, and not reflected in any number below: a single real capture has been attributed under Law 7's actual standard by the deployed service (`docs/evidence/REAL_RECOVERY.md`). That is n=1, and it closes the "no rupee has ever crossed the rail" gap rather than the "these arms are synthetic" one.
 
 I generate this with `eval/report.py`, run against parameters I locked in `eval/PREREGISTRATION.md` at commit `1f3b50346bc76400d7e443cc7d69c59c3a1172f4` — every number below comes from that exact, committed-before-running configuration, not a draw I picked after seeing an outcome.

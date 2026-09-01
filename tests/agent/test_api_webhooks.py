@@ -120,3 +120,47 @@ def test_unrecognized_event_type_is_still_ingested_with_200(client):
     )
     assert response.status_code == 200
     assert response.json()["status"] == "ingested_unrecognized_event"
+
+
+class TestTheOrchestratorDeclaresItsRealChannel:
+    """The bounds gate must reason about the channel the send actually goes
+    over. `channel_tag` was hardcoded to "telegram" at the call site while
+    `channel` was whichever provider the lifespan selected -- so with
+    WhatsApp configured, TRAI_DND checked the wrong channel's opt-out list,
+    and WHATSAPP_SESSION_WINDOW (which only fires on channel == 'whatsapp')
+    could never fire on the one automated path able to send there.
+
+    Latent while WhatsApp is unconfigured, and wrong either way. Found by
+    reading the call sites before pushing the session-window rule, not by a
+    failing test -- which is why one exists now.
+    """
+
+    def test_it_reports_telegram_when_telegram_is_the_selected_channel(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("TRUECOMMIT_EVENTS_DB", str(tmp_path / "e.db"))
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "fake")
+        monkeypatch.delenv("WHATSAPP_ACCESS_TOKEN", raising=False)
+        monkeypatch.delenv("WHATSAPP_PHONE_NUMBER_ID", raising=False)
+
+        from fastapi.testclient import TestClient
+
+        from agent.api.app import app
+
+        with TestClient(app) as client:
+            assert client.app.state.orchestrator_channel_tag == "telegram"
+
+    def test_it_reports_whatsapp_when_whatsapp_is_the_selected_channel(self, monkeypatch, tmp_path):
+        """The case that was wrong. `app.py` prefers WhatsApp the moment both
+        credentials exist, and used to keep telling the gate "telegram"."""
+        monkeypatch.setenv("TRUECOMMIT_EVENTS_DB", str(tmp_path / "e.db"))
+        monkeypatch.setenv("WHATSAPP_PHONE_NUMBER_ID", "123")
+        monkeypatch.setenv("WHATSAPP_ACCESS_TOKEN", "fake-token")
+
+        from fastapi.testclient import TestClient
+
+        from agent.api.app import app
+
+        with TestClient(app) as client:
+            assert client.app.state.orchestrator_channel_tag == "whatsapp"
+            # And the channel object matches the tag -- the two disagreeing
+            # is the whole defect.
+            assert type(client.app.state.orchestrator_channel).__name__ == "WhatsAppChannel"

@@ -104,12 +104,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.orchestrator_channel = WhatsAppChannel(whatsapp_phone_id, whatsapp_token)
         contact_phone = os.environ.get("DEMO_CONTACT_PHONE_NUMBER")
         app.state.orchestrator_contact_chat_id = contact_phone.lstrip("+") if contact_phone else None
+        app.state.orchestrator_channel_tag = "whatsapp"
     elif telegram_token:
         app.state.orchestrator_channel = TelegramChannel(telegram_token)
         app.state.orchestrator_contact_chat_id = os.environ.get("DEMO_CONTACT_TELEGRAM_CHAT_ID")
+        app.state.orchestrator_channel_tag = "telegram"
     else:
         app.state.orchestrator_channel = None
         app.state.orchestrator_contact_chat_id = None
+        app.state.orchestrator_channel_tag = None
+    # Recorded rather than hardcoded at the call site, where it was always
+    # "telegram" regardless of which channel was actually selected above.
+    # That made the bounds gate reason about a channel the send was not
+    # going over: TRAI_DND checked the wrong channel's opt-out, and
+    # WHATSAPP_SESSION_WINDOW -- which only fires on channel == 'whatsapp'
+    # -- could never fire on the one automated path able to send there.
+    # Latent while WhatsApp is unconfigured, and wrong either way.
 
     # Seed the debtor register: four declared histories spanning the score
     # bands, plus the live demo contact with no history at all. Idempotent,
@@ -449,7 +459,8 @@ def _maybe_orchestrate(state, facts: list) -> dict[str, object] | None:
 
     result = run_pipeline(
         debtor_id=debtor_id, invoice_id=invoice_id, amount_paise=amount_paise, diagnosis=diagnosis,
-        channel_tag="telegram", ledger=state.orchestrator_ledger, outbound_store=state.orchestrator_store,
+        channel_tag=getattr(state, "orchestrator_channel_tag", None) or "telegram",
+        ledger=state.orchestrator_ledger, outbound_store=state.orchestrator_store,
         rail=state.orchestrator_rail, channel=state.orchestrator_channel, to=to, message_text=message_text,
     )
     _log.info(

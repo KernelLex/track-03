@@ -883,7 +883,9 @@ async function triggerChannel(channel, btn){
     var body = await res.json();
 
     if (res.ok && body.status === 'sent'){
-      var pills = [{text:(body.bounds_checks ? body.bounds_checks.length : 0)+'/19 bounds rules passed', tone:'good'}];
+      var passed = body.bounds_checks ? body.bounds_checks.length : 0;
+      var totalRules = body.bounds_total || passed;
+      var pills = [{text: passed + '/' + totalRules + ' bounds rules passed', tone:'good'}];
       if (body.external_ref){ pills.push({text:'ref '+body.external_ref}); }
       addActivity({
         kind:'ok', channel:channel,

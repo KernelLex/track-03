@@ -190,7 +190,17 @@ def run_channel_hopper(persona_id: str, *, window_days: int, amount_paise: int) 
         debtor = DebtorCtx(id=persona_id, state="ENGAGED", opted_out_channels=frozenset(opted_out))
         invoice = InvoiceCtx(id=f"inv_{persona_id}", recovery_attempts=len(attempts))
 
-        reminder_ctx = _base_ctx(debtor=debtor, invoice=invoice, action=ActionCtx(type="send_reminder", channel=channel, rail_tag="simulated"))
+        # A cold reminder on WhatsApp can only go out as an approved
+        # template -- Meta permits nothing else outside the 24-hour session
+        # window, and this sweep contacts a debtor who has not written back.
+        # Declaring it is how the harness models what a real cold outreach
+        # would actually send; leaving it undeclared modelled a message the
+        # platform would silently drop (WHATSAPP_SESSION_WINDOW).
+        reminder_ctx = _base_ctx(
+            debtor=debtor, invoice=invoice,
+            action=ActionCtx(type="send_reminder", channel=channel, rail_tag="simulated",
+                             uses_approved_template=channel == "whatsapp"),
+        )
         reminder_result = check_bounds(reminder_ctx)
         attempts.append(ContactAttempt(
             day=day, allowed=reminder_result.passed, action_type=f"send_reminder:{channel}",

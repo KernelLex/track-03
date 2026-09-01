@@ -741,6 +741,56 @@ is UTC, so for an Indian debtor texting between 00:00 and 05:30 IST,
 run -- "21000 today" extracted as 2026-09-01 while the debtor's date was
 2026-09-02.
 
+## 21. The gate was told a channel the send was not going over
+
+**Symptom.** None. Found by reading call sites before pushing
+`WHATSAPP_SESSION_WINDOW`, specifically to check whether the new rule could
+be bypassed. It could.
+
+**Root cause.** `agent/api/app.py`'s lifespan prefers WhatsApp the moment
+both credentials exist:
+
+```python
+if whatsapp_phone_id and whatsapp_token:
+    app.state.orchestrator_channel = WhatsAppChannel(...)
+```
+
+and the call site, 350 lines away, hardcoded the channel it told the gate:
+
+```python
+result = run_pipeline(..., channel_tag="telegram", channel=state.orchestrator_channel, ...)
+```
+
+So `channel` and `channel_tag` could disagree, and the bounds gate reasoned
+about a channel the message was not going over.
+
+Two consequences, one old and one new. `TRAI_DND` checked *telegram's*
+opt-out list while sending on WhatsApp — a debtor who had opted out of
+WhatsApp would still have been messaged there. And
+`WHATSAPP_SESSION_WINDOW`, which only fires on `channel == 'whatsapp'`,
+could never fire on the one automated path capable of sending there, so the
+rule would have been inert in production while passing every test.
+
+**Latent, not active**: `WHATSAPP_ACCESS_TOKEN` is unset, so the lifespan
+falls through to Telegram and the tag was accidentally correct. It would
+have become wrong the moment the WhatsApp template was approved — which is
+to say, at the least convenient possible time.
+
+**Fix.** The lifespan records `orchestrator_channel_tag` beside the channel
+it selected, and the call site passes that. One place decides, and the two
+cannot drift.
+
+**The general shape**, worth naming because it is not specific to channels:
+a fact was derived in one place and re-asserted as a literal in another. It
+stayed correct only because the default happened to match. Every gate this
+project has is only as truthful as the context handed to it, and a
+hardcoded context field is a quiet way to lie to your own gate.
+
+**Verification.**
+`TestTheOrchestratorDeclaresItsRealChannel` starts the app with each
+credential set and asserts the tag matches the channel object actually
+constructed. The WhatsApp case fails against the old hardcoding.
+
 ## What this list is for
 
 I found every one of these by actually building against DEVDOC_v6, not by

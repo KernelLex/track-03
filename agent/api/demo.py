@@ -316,14 +316,31 @@ def _agent_reply_for(family: Family) -> str:
     return "Understood -- no rush, it'll confirm itself once it's paid."
 
 
-def _bounds_context_for(scenario: dict[str, object], channel: str) -> BoundsContext:
+def _bounds_context_for(
+    scenario: dict[str, object], channel: str, *,
+    uses_approved_template: bool = False, replying_to_inbound: bool = False,
+) -> BoundsContext:
+    """The two WhatsApp flags are not bookkeeping -- WHATSAPP_SESSION_WINDOW
+    refuses a free-form send outside Meta's 24-hour window, and it can only
+    tell the two apart if the caller says which it is doing.
+
+    Adding the rule made every WhatsApp path in this module fail until each
+    declared itself, which is the rule working: the code was sending
+    templates and free-form replies through one undifferentiated context and
+    the gate had no way to know.
+    """
     return BoundsContext(
         debtor=DebtorCtx(id="demo_debtor", state="ENGAGED", touches_7d=0),
         mandate=MandateCtx(),
-        action=ActionCtx(type="send_reminder", channel=channel, rail_tag="simulated"),
+        action=ActionCtx(type="send_reminder", channel=channel, rail_tag="simulated",
+                         uses_approved_template=uses_approved_template),
         decision=DecisionCtx(ev_paise=int(scenario["amount_paise"]) - 500),
         invoice=InvoiceCtx(id=str(scenario["invoice_id"]), recovery_attempts=1),
         config=ConfigCtx(),
+        # A reply is inside the window by construction: it exists *because*
+        # the debtor just messaged. Not an assumption -- the caller only
+        # sets this on a path triggered by a real inbound message.
+        last_inbound_at=datetime.now() if replying_to_inbound else None,
     )
 
 
@@ -339,7 +356,11 @@ def trigger_demo_contact(payload: DemoTriggerRequest) -> dict[str, object]:
 
     _check_rate_limit(payload.channel)
 
-    bounds_result = check_bounds(_bounds_context_for(scenario, payload.channel))
+    # WhatsApp cold outreach goes out as an approved Content Template --
+    # which is the only thing Meta permits outside the session window, and
+    # what this path has always actually done (`send_template`, ContentSid).
+    bounds_result = check_bounds(_bounds_context_for(
+        scenario, payload.channel, uses_approved_template=payload.channel == "whatsapp"))
     if not bounds_result.passed:
         raise HTTPException(
             status_code=422,
@@ -447,6 +468,10 @@ def trigger_demo_contact(payload: DemoTriggerRequest) -> dict[str, object]:
 
     return {
         "bounds_checks": [v.rule_id for v in bounds_result.verdicts if v.verdict == "PASS"],
+        # Sent rather than assumed. The dashboard hardcoded "/19" and went
+        # stale the moment a twentieth rule was added -- the same drift the
+        # documented-test-count gate exists to stop elsewhere.
+        "bounds_total": len(bounds_result.verdicts),
         "channel": result.channel,
         "status": result.status,
         "external_ref": result.external_ref,
@@ -978,7 +1003,7 @@ def _bounds_gate_followup(scenario: dict[str, object], channel: str) -> list[str
     other, and exempting it because it happens to be a response would be
     exactly the kind of quiet carve-out this project exists to not have.
     Returns the refusing rule ids, or None when the send is allowed."""
-    result = check_bounds(_bounds_context_for(scenario, channel))
+    result = check_bounds(_bounds_context_for(scenario, channel, replying_to_inbound=True))
     return None if result.passed else [v.rule_id for v in result.refusals]
 
 
