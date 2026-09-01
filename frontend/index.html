@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TrueCommit Console</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;1,6..72,500&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root{
+  --bg:#0B0F14; --surface:#12171D; --surface-2:#1B222A; --surface-3:#232C36;
+  --line:#242D37; --line-strong:#334051;
+  --ink:#E7EAEE; --ink-soft:#9BA5B3; --ink-faint:#5F6B7A;
+  --accent:#5B9FE8; --accent-soft:#16283D; --accent-ink:#BFDBFF; --on-accent:#04101C;
+  --live:#FF8A5C; --live-soft:#3A2116; --on-live:#2A0E00;
+  --good:#4ADE80; --good-bg:#122A1C;
+  --warn:#FBBF24; --warn-bg:#2E2410;
+  --bad:#F87171; --bad-bg:#2E1616;
+  --font-display:'Newsreader',Georgia,serif;
+  --font-body:'IBM Plex Sans',-apple-system,'Segoe UI',sans-serif;
+  --font-mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --shadow:0 1px 2px rgba(0,0,0,0.4), 0 12px 32px -16px rgba(0,0,0,0.7);
+  color-scheme: dark;
+}
+
+*{box-sizing:border-box;}
+html,body{margin:0; padding:0;}
+body{background:var(--bg); color:var(--ink); font-family:var(--font-body); line-height:1.55; -webkit-font-smoothing:antialiased;}
+h1,h2,h3,h4{font-family:var(--font-display); color:var(--ink); text-wrap:balance; margin:0;}
+p{margin:0;}
+button{font-family:inherit;}
+::selection{background:var(--accent-soft); color:var(--accent-ink);}
+code, .mono{font-family:var(--font-mono);}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+@media (prefers-reduced-motion: reduce){ *{transition:none !important; animation:none !important;} }
+
+.page{max-width:1080px; margin:0 auto; padding:0 1.25rem 4rem;}
+
+/* ---------- top bar ---------- */
+.topbar{
+  position:sticky; top:0; z-index:30; background:color-mix(in srgb, var(--bg) 90%, transparent);
+  backdrop-filter:blur(10px); border-bottom:1px solid var(--line);
+}
+.topbar-inner{
+  max-width:1080px; margin:0 auto; padding:0.85rem 1.25rem; display:flex; align-items:center;
+  justify-content:space-between; gap:1rem; flex-wrap:wrap;
+}
+.brand{display:flex; align-items:baseline; gap:0.6rem;}
+.brand .mark{font-family:var(--font-mono); font-size:0.68rem; letter-spacing:0.08em; color:var(--accent); text-transform:uppercase; border:1px solid var(--accent-soft); background:var(--accent-soft); padding:0.15em 0.5em; border-radius:4px;}
+.brand h1{font-size:1.25rem; font-weight:600;}
+.status-cluster{display:flex; align-items:center; gap:0.6rem; font-family:var(--font-mono); font-size:0.72rem;}
+.status-pill{display:flex; align-items:center; gap:0.4rem; padding:0.3rem 0.6rem; border-radius:999px; border:1px solid var(--line); background:var(--surface); color:var(--ink-soft);}
+.status-dot{width:7px; height:7px; border-radius:50%; background:var(--ink-faint); flex:none;}
+.status-dot.up{background:var(--good); box-shadow:0 0 0 3px color-mix(in srgb, var(--good) 20%, transparent);}
+.status-dot.down{background:var(--bad);}
+.status-dot.checking{background:var(--warn); animation:pulse 1.2s ease-in-out infinite;}
+@keyframes pulse{0%,100%{opacity:1;} 50%{opacity:0.35;}}
+
+/* ---------- settings ---------- */
+.settings{margin:1.25rem 0; border:1px solid var(--line); border-radius:10px; background:var(--surface); overflow:hidden;}
+.settings summary{cursor:pointer; padding:0.85rem 1.1rem; font-family:var(--font-mono); font-size:0.78rem; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.03em; display:flex; align-items:center; gap:0.5rem; list-style:none;}
+.settings summary::-webkit-details-marker{display:none;}
+.settings summary::before{content:'\25B8'; color:var(--accent); transition:transform 0.15s;}
+.settings[open] summary::before{transform:rotate(90deg);}
+.settings-body{padding:0 1.1rem 1.1rem; display:grid; gap:0.8rem; grid-template-columns:1fr 1fr;}
+@media (max-width:640px){.settings-body{grid-template-columns:1fr;}}
+.field label{display:block; font-size:0.76rem; color:var(--ink-faint); margin-bottom:0.35rem; font-family:var(--font-mono);}
+.field input{width:100%; background:var(--surface-2); border:1px solid var(--line-strong); color:var(--ink); border-radius:6px; padding:0.55rem 0.7rem; font-family:var(--font-mono); font-size:0.82rem;}
+.field input:focus{border-color:var(--accent);}
+.settings-note{grid-column:1/-1; font-size:0.78rem; color:var(--ink-faint); padding-top:0.2rem; line-height:1.5;}
+.settings-actions{grid-column:1/-1; display:flex; gap:0.6rem; align-items:center;}
+
+.btn{
+  font-family:var(--font-body); font-weight:600; font-size:0.85rem; border-radius:7px; border:1px solid var(--line-strong);
+  background:var(--surface-2); color:var(--ink); padding:0.55rem 0.95rem; cursor:pointer; transition:background 0.12s, border-color 0.12s;
+}
+.btn:hover{background:var(--surface-3); border-color:var(--accent);}
+.btn:disabled{opacity:0.45; cursor:not-allowed;}
+.btn-primary{background:var(--accent); border-color:var(--accent); color:var(--on-accent);}
+.btn-primary:hover{filter:brightness(1.08); border-color:var(--accent);}
+.btn-live{background:var(--live); border-color:var(--live); color:var(--on-live);}
+.btn-live:hover{filter:brightness(1.08);}
+.btn-small{padding:0.4rem 0.7rem; font-size:0.78rem;}
+
+/* ---------- scenario tabs ---------- */
+.scenarios{display:grid; grid-template-columns:repeat(3,1fr); gap:0.7rem; margin:1.5rem 0;}
+@media (max-width:720px){.scenarios{grid-template-columns:1fr;}}
+.scenario-card{
+  text-align:left; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:1.1rem 1.2rem;
+  cursor:pointer; transition:border-color 0.15s, transform 0.1s; color:var(--ink);
+}
+.scenario-card:hover{border-color:var(--line-strong); transform:translateY(-1px);}
+.scenario-card.active{border-color:var(--accent); background:var(--accent-soft); box-shadow:0 0 0 1px var(--accent) inset;}
+.scenario-card .eyebrow{font-family:var(--font-mono); font-size:0.68rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-faint);}
+.scenario-card.active .eyebrow{color:var(--accent-ink);}
+.scenario-card h3{font-size:1.05rem; margin-top:0.3rem; font-weight:600; font-family:var(--font-body);}
+.scenario-card p{font-size:0.83rem; color:var(--ink-soft); margin-top:0.4rem;}
+.scenario-card.active p{color:var(--ink);}
+
+/* ---------- run controls ---------- */
+.run-bar{display:flex; align-items:center; gap:0.8rem; margin-bottom:1.4rem; flex-wrap:wrap;}
+.run-bar .hint{font-size:0.82rem; color:var(--ink-faint);}
+
+/* ---------- pipeline ---------- */
+.pipeline{position:relative; padding-left:2.2rem;}
+.pipeline::before{content:''; position:absolute; left:11px; top:6px; bottom:6px; width:2px; background:var(--line);}
+.stage{position:relative; margin-bottom:0.6rem; opacity:0.35; transition:opacity 0.3s;}
+.stage.revealed{opacity:1;}
+.stage-dot{
+  position:absolute; left:-2.2rem; top:0.15rem; width:24px; height:24px; border-radius:50%;
+  background:var(--surface); border:2px solid var(--line-strong); display:flex; align-items:center; justify-content:center;
+  font-family:var(--font-mono); font-size:0.68rem; font-weight:600; color:var(--ink-faint); transition:all 0.2s;
+}
+.stage.revealed .stage-dot{border-color:var(--accent); color:var(--accent); background:var(--accent-soft);}
+.stage-card{background:var(--surface); border:1px solid var(--line); border-radius:10px; overflow:hidden;}
+.stage.revealed .stage-card{border-color:var(--line-strong);}
+.stage-head{width:100%; display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:0.8rem 1rem; background:none; border:none; color:var(--ink); cursor:pointer; text-align:left;}
+.stage-head:disabled{cursor:default;}
+.stage-name{font-weight:600; font-size:0.95rem;}
+.stage-tag{font-family:var(--font-mono); font-size:0.68rem; color:var(--ink-faint); text-transform:uppercase; letter-spacing:0.03em; margin-left:0.6rem;}
+.stage-chip{font-family:var(--font-mono); font-size:0.68rem; padding:0.18em 0.6em; border-radius:999px; font-weight:600; text-transform:uppercase; letter-spacing:0.02em; white-space:nowrap;}
+.stage-chip.pass{background:var(--good-bg); color:var(--good);}
+.stage-chip.refuse{background:var(--bad-bg); color:var(--bad);}
+.stage-chip.wait{background:var(--surface-2); color:var(--ink-faint);}
+.stage-body{padding:0 1.1rem 1.1rem; display:none; color:var(--ink-soft); font-size:0.88rem;}
+.stage-body.open{display:block;}
+.stage-body p + p{margin-top:0.6rem;}
+.stage-body strong{color:var(--ink);}
+.data-row{display:flex; justify-content:space-between; gap:1rem; padding:0.4rem 0; border-top:1px solid var(--line); font-family:var(--font-mono); font-size:0.82rem;}
+.data-row:first-of-type{margin-top:0.7rem;}
+.data-row .k{color:var(--ink-faint);}
+.data-row .v{color:var(--ink);}
+.rules-strip{display:flex; flex-wrap:wrap; gap:0.3rem; margin-top:0.6rem;}
+.rule-dot{width:9px; height:9px; border-radius:2px; background:var(--good);}
+.rule-dot.refused{background:var(--bad);}
+
+.live-trigger{margin-top:0.9rem; padding:0.9rem; border:1px dashed var(--live); border-radius:8px; background:var(--live-soft);}
+.live-trigger .row{display:flex; align-items:center; gap:0.7rem; flex-wrap:wrap;}
+.live-badge{font-family:var(--font-mono); font-size:0.66rem; font-weight:700; color:var(--live); letter-spacing:0.04em; display:flex; align-items:center; gap:0.35rem;}
+.live-badge .dot{width:7px; height:7px; border-radius:50%; background:var(--live); animation:pulse 1s ease-in-out infinite;}
+.live-result{margin-top:0.6rem; font-family:var(--font-mono); font-size:0.8rem; padding:0.5rem 0.7rem; border-radius:6px; display:none;}
+.live-result.show{display:block;}
+.live-result.ok{background:var(--good-bg); color:var(--good);}
+.live-result.err{background:var(--bad-bg); color:var(--bad);}
+
+.reply-wait{margin-top:0.6rem; display:flex; align-items:center; gap:0.6rem; font-size:0.82rem; color:var(--ink-soft);}
+.reply-wait .spinner{width:8px; height:8px; border-radius:50%; background:var(--accent); animation:pulse 0.9s ease-in-out infinite;}
+.reply-card{margin-top:0.7rem; padding:0.75rem 0.85rem; border:1px solid var(--accent); border-radius:8px; background:var(--accent-soft);}
+.reply-card .label{font-family:var(--font-mono); font-size:0.66rem; text-transform:uppercase; letter-spacing:0.03em; color:var(--accent-ink); display:block; margin-bottom:0.4rem;}
+.reply-card .reply-text{font-size:0.88rem; color:var(--ink); font-style:italic;}
+.diagnosis-row{display:flex; flex-wrap:wrap; gap:0.5rem; margin-top:0.6rem;}
+.diagnosis-pill{font-family:var(--font-mono); font-size:0.72rem; padding:0.25em 0.65em; border-radius:999px; background:var(--surface-2); color:var(--ink); border:1px solid var(--line-strong);}
+.diagnosis-pill.confidence{color:var(--good);}
+.reply-manual{margin-top:0.5rem;}
+
+/* ---------- conversation ---------- */
+.convo{margin-top:0.3rem; display:flex; flex-direction:column; gap:0.5rem;}
+.bubble{max-width:80%; padding:0.6rem 0.85rem; border-radius:10px; font-size:0.87rem; line-height:1.5;}
+.bubble.system{align-self:flex-start; background:var(--surface-2); border:1px solid var(--line); border-bottom-left-radius:2px;}
+.bubble.debtor{align-self:flex-end; background:var(--accent-soft); color:var(--accent-ink); border-bottom-right-radius:2px;}
+.bubble .who{display:block; font-family:var(--font-mono); font-size:0.65rem; text-transform:uppercase; letter-spacing:0.03em; color:var(--ink-faint); margin-bottom:0.3rem;}
+.bubble.debtor .who{color:color-mix(in srgb, var(--accent-ink) 70%, transparent);}
+
+/* ---------- ledger footer ---------- */
+.ledger{margin-top:2rem; border:1px solid var(--line); border-radius:10px; background:var(--surface); overflow:hidden;}
+.ledger-head{padding:0.8rem 1.1rem; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center;}
+.ledger-head h3{font-size:0.95rem; font-family:var(--font-body); font-weight:600;}
+.ledger-head .count{font-family:var(--font-mono); font-size:0.72rem; color:var(--ink-faint);}
+.ledger-empty{padding:1.4rem 1.1rem; text-align:center; color:var(--ink-faint); font-size:0.85rem;}
+.ledger-rows{max-height:220px; overflow-y:auto;}
+.ledger-row{display:grid; grid-template-columns:2.2rem 5.5rem 1fr 6.5rem; gap:0.8rem; padding:0.5rem 1.1rem; font-family:var(--font-mono); font-size:0.76rem; border-top:1px solid var(--line); align-items:center;}
+.ledger-row .seq{color:var(--ink-faint);}
+.ledger-row .actor{color:var(--accent);}
+.ledger-row .hash{color:var(--ink-soft); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.ledger-row .verdict{text-align:right; font-weight:600;}
+.ledger-row .verdict.pass{color:var(--good);}
+.ledger-row .verdict.refuse{color:var(--bad);}
+
+.foot-note{margin-top:1.5rem; font-size:0.78rem; color:var(--ink-faint); line-height:1.6;}
+.foot-note a{color:var(--accent);}
+</style>
+</head>
+<body>
+
+<nav class="topbar"><div class="topbar-inner">
+  <div class="brand"><span class="mark">LIVE</span><h1>TrueCommit Console</h1></div>
+  <div class="status-cluster">
+    <div class="status-pill"><span class="status-dot" id="connDot"></span><span id="connLabel">backend not checked</span></div>
+    <div class="status-pill">$<span id="spendLabel">0.013</span> / $20 spent</div>
+  </div>
+</div></nav>
+
+<div class="page">
+
+  <details class="settings" id="settingsPanel">
+    <summary>Demo connection settings</summary>
+    <div class="settings-body">
+      <div class="field">
+        <label for="backendUrl">Backend URL</label>
+        <input id="backendUrl" type="text" placeholder="https://track-03.onrender.com" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="triggerSecret">DEMO_TRIGGER_SECRET (from your .env / Render env vars)</label>
+        <input id="triggerSecret" type="password" placeholder="paste it here — kept only in this browser" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="settings-actions">
+        <button class="btn btn-small" id="testConnBtn">Test connection</button>
+        <span class="settings-note" id="settingsNote" style="padding-top:0;">Saved only in this browser's local storage — never sent anywhere but your own backend, never included in this page's own source.</span>
+      </div>
+      <p class="settings-note">This page can't hold real credentials — it calls your Render backend for the two "send this for real" buttons below. Everything else runs entirely in this page using real, precomputed output from <code>check_bounds()</code> / <code>compute_ev()</code> / <code>select_instrument()</code>. See <code>docs/DEMO_UI.md</code>.</p>
+    </div>
+  </details>
+
+  <div class="scenarios" id="scenarioTabs"></div>
+
+  <div class="run-bar">
+    <button class="btn btn-primary" id="runBtn">▶ Run scenario</button>
+    <button class="btn btn-small" id="resetBtn">Reset</button>
+    <span class="hint" id="runHint">Click a stage to inspect it, or Run to step through automatically.</span>
+  </div>
+
+  <div class="pipeline" id="pipeline"></div>
+
+  <div class="ledger">
+    <div class="ledger-head"><h3>Ledger — this session</h3><span class="count" id="ledgerCount">0 entries</span></div>
+    <div class="ledger-empty" id="ledgerEmpty">No entries yet — run a scenario.</div>
+    <div class="ledger-rows" id="ledgerRows"></div>
+  </div>
+
+  <p class="foot-note">
+    Every number above (p_base, expected value, which bounds rules ran, which instrument was selected) came from actually
+    running <code>agent/decide/ev.py</code>, <code>agent/bounds/engine.py</code>, and <code>agent/mandate/instrument.py</code>
+    against these exact scenarios (<code>tools/gen_demo_data.py</code>) — not hand-typed. The pipeline timing here is scripted
+    for a reliable demo; the two "send this for real" buttons are the one part that genuinely leaves this page and reaches
+    a live Telegram bot / phone call through the real backend.
+  </p>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+// ---- real, precomputed backend output (tools/gen_demo_data.py) ----
+var REAL = {
+  b2b: { amount_paise: 4250000, p_base: 0.9827, ev_paise: 2087637, instrument: "upi_block_reserve_pay",
+    instrument_rationale: "single payment over Rs 15,000 — funds blocked with AFA at commitment; the later debit isn't a new decision",
+    bounds_checked: 19, bounds_passed: 19 },
+  subscription: { amount_paise: 99900, p_base: 0.9679, ev_paise: 47845, instrument: "recurring_emandate",
+    instrument_rationale: "12 installments, each at or under the AFA-free ceiling — one authorization replaces 6-9 chase touches",
+    bounds_checked: 19, bounds_passed: 19 },
+  escalation: { amount_paise: 8800000, disputed_paise: 3000000, undisputed_paise: 5800000,
+    mandate_refusal_rule: "NO_MANDATE_ON_DISPUTE", escalate_ev_paise: 700000 }
+};
+
+function inr(paise){
+  return "₹" + (paise/100).toLocaleString('en-IN', {maximumFractionDigits:0});
+}
+
+// ---- scenario definitions ----
+var SCENARIOS = {
+  b2b: {
+    label: "B2B invoice", eyebrow: "Accounts receivable", channel: "telegram",
+    blurb: "Invoice INV-2201, ₹42,500, 22 days overdue.",
+    stages: [
+      { name: "Ingest", tag: "hears what happened",
+        html: "<p>Razorpay reports invoice <strong>INV-2201</strong> ("+inr(REAL.b2b.amount_paise)+") is now 22 days overdue — the last auto-debit attempt never completed. Checked against everything received before: not a duplicate. Logged as fact.</p>" },
+      { name: "Diagnose", tag: "works out why",
+        html: "<p>No dispute on file. Clean payment history on this buyer. Diagnosis: <strong>Family C — liquidity/timing</strong>, not a real blocker. This debtor is likely to pay — the friction is a missing easy way to pay, not unwillingness.</p>" },
+      { name: "Decide", tag: "checks it's worth it",
+        html: "<p>Real fitted model, real Kaggle data — not a guess.</p>"
+              + "<div class='data-row'><span class='k'>p_base (fitted)</span><span class='v'>"+(REAL.b2b.p_base*100).toFixed(1)+"%</span></div>"
+              + "<div class='data-row'><span class='k'>expected value</span><span class='v'>"+inr(REAL.b2b.ev_paise)+"</span></div>"
+              + "<p>Comfortably worth pursuing.</p>" },
+      { name: "Bounds", tag: "the one gate", chip: "pass",
+        html: "<p><code>check_bounds()</code> — every rule, every time.</p>"
+              + "<div class='data-row'><span class='k'>rules checked</span><span class='v'>"+REAL.b2b.bounds_checked+"</span></div>"
+              + "<div class='data-row'><span class='k'>rules passed</span><span class='v'>"+REAL.b2b.bounds_passed+" / "+REAL.b2b.bounds_checked+"</span></div>"
+              + "<div class='rules-strip' id='rulesB2b'></div>"
+              + "<p style='margin-top:0.6rem;'>Above the ₹15,000 AFA-free ceiling → <code>select_instrument()</code> returns <strong>"+REAL.b2b.instrument+"</strong>: "+REAL.b2b.instrument_rationale+".</p>" },
+      { name: "Act", tag: "does the thing", live: true,
+        html: "<p>A real payment link is created through Razorpay and sent.</p>" },
+      { name: "Listen", tag: "hears back",
+        html: "<p>Waiting for Razorpay's own confirmation — not assumed just because a request was sent.</p>" },
+      { name: "Settle", tag: "says it's paid",
+        html: "<p>Payment captured. Checked this exact payment hasn't been counted anywhere else. Marked "+inr(REAL.b2b.amount_paise)+" recovered — once, permanently.</p>" },
+    ],
+    convo: [
+      { who: "system", text: "Hi, this is TrueCommit on behalf of Acme Textiles. Invoice INV-2201 for ₹42,500 is now 22 days overdue. Here's a one-tap link to clear it." },
+      { who: "debtor", text: "Sorry, been swamped. Can you send that link again? I'll clear it today." },
+      { who: "system", text: "Payment link resent. No rush on a reply — it'll confirm itself once it's paid." },
+    ],
+  },
+  subscription: {
+    label: "Subscription", eyebrow: "Recurring / mandate", channel: "telegram",
+    blurb: "Subscription SUB-8834, ₹999/mo, mandate at risk in 3 days.",
+    stages: [
+      { name: "Ingest", tag: "hears what happened",
+        html: "<p>Subscription <strong>SUB-8834</strong>'s mandate health-check flags a defect — the next "+inr(REAL.subscription.amount_paise)+" auto-debit, due in 3 days, is at risk of failing before it's even presented.</p>" },
+      { name: "Diagnose", tag: "works out why",
+        html: "<p>Diagnosis: <strong>Family A — instrument failure</strong>. Not a willingness problem — the mandate itself needs repair before the scheduled debit, or it fails the same way next month too.</p>" },
+      { name: "Decide", tag: "checks it's worth it",
+        html: "<div class='data-row'><span class='k'>p_base (fitted)</span><span class='v'>"+(REAL.subscription.p_base*100).toFixed(1)+"%</span></div>"
+              + "<div class='data-row'><span class='k'>expected value</span><span class='v'>"+inr(REAL.subscription.ev_paise)+"</span></div>"
+              + "<p>A repaired mandate replaces 6–9 future chase touches — cheap to fix once, now.</p>" },
+      { name: "Bounds", tag: "the one gate", chip: "pass",
+        html: "<div class='data-row'><span class='k'>rules checked</span><span class='v'>"+REAL.subscription.bounds_checked+"</span></div>"
+              + "<div class='data-row'><span class='k'>rules passed</span><span class='v'>"+REAL.subscription.bounds_passed+" / "+REAL.subscription.bounds_checked+"</span></div>"
+              + "<div class='rules-strip' id='rulesSub'></div>"
+              + "<p style='margin-top:0.6rem;'><code>select_instrument()</code> → <strong>"+REAL.subscription.instrument+"</strong>: "+REAL.subscription.instrument_rationale+".</p>" },
+      { name: "Act", tag: "does the thing", live: true,
+        html: "<p><code>repair_mandate</code> is called against the real Razorpay subscription object — before the debit is presented, not after it fails.</p>" },
+      { name: "Listen", tag: "hears back",
+        html: "<p>Mandate health re-checked after the repair.</p>" },
+      { name: "Settle", tag: "says it's paid",
+        html: "<p>The scheduled debit is presented on time and captured cleanly. The failure that would have happened never did — this is the whole point of a subscription business: catching it before, not chasing after.</p>" },
+    ],
+    convo: [
+      { who: "system", text: "Hi, this is TrueCommit. Your subscription's next auto-debit of ₹999 is coming up, and we've noticed your mandate may not clear it. Tap here to fix it before the debit is presented." },
+      { who: "debtor", text: "oh good catch, updating now" },
+      { who: "system", text: "Mandate repaired. Your next debit is scheduled normally — nothing else to do." },
+    ],
+  },
+  escalation: {
+    label: "Escalation", eyebrow: "Disputed invoice", channel: "ivr",
+    blurb: "Invoice INV-5581, ₹88,000 — ₹30,000 of it disputed.",
+    stages: [
+      { name: "Ingest", tag: "hears what happened",
+        html: "<p>The buyer's reply on invoice <strong>INV-5581</strong> ("+inr(REAL.escalation.amount_paise)+") just arrived: <em>\"we only received "+inr(REAL.escalation.undisputed_paise)+" worth of the order, not paying for parts we never got.\"</em></p>" },
+      { name: "Diagnose", tag: "works out why",
+        html: "<p>Diagnosis: <strong>Family D — dispute</strong>. "+inr(REAL.escalation.disputed_paise)+" of the "+inr(REAL.escalation.amount_paise)+" is contested.</p>" },
+      { name: "Decide", tag: "checks it's worth it",
+        html: "<p>A dispute still gets a real expected-value calculation — human review has a cost too, weighed the same way as any other action.</p>"
+              + "<div class='data-row'><span class='k'>EV of escalating</span><span class='v'>"+inr(REAL.escalation.escalate_ev_paise)+"</span></div>" },
+      { name: "Bounds", tag: "the one gate", chip: "refuse",
+        html: "<p><code>check_bounds()</code> refuses a mandate or reminder against the disputed amount outright:</p>"
+              + "<div class='data-row'><span class='k'>attempted: create_mandate</span><span class='v' style='color:var(--bad)'>REFUSED</span></div>"
+              + "<div class='data-row'><span class='k'>rule</span><span class='v'>"+REAL.escalation.mandate_refusal_rule+"</span></div>"
+              + "<div class='data-row'><span class='k'>attempted: escalate_human</span><span class='v' style='color:var(--good)'>PASSED</span></div>"
+              + "<p style='margin-top:0.6rem;'><strong>escalate_human</strong> is the only action that clears the gate — not because it's special-cased, because it's the only one with positive EV that doesn't touch the disputed amount.</p>" },
+      { name: "Act", tag: "routes to a human", live: true,
+        html: "<p>Routed to the human queue — not silence, not another automated message. The case surfaces with the full context attached: what's disputed, what isn't, and why the gate refused the automated path.</p>" },
+      { name: "Listen", tag: "hears back",
+        html: "<p>Waiting on the human's resolution — the automated pipeline doesn't touch this invoice again until they've acted.</p>" },
+      { name: "Settle", tag: "pending human review",
+        html: "<p>Not settled automatically. This is deliberate: nothing marks a disputed amount as recovered without a human decision behind it.</p>" },
+    ],
+    convo: [
+      { who: "debtor", text: "we only received 58,000 worth of the order, not paying for parts we never got" },
+      { who: "system", text: "Understood — this needs a person to review, not another automated message. Flagging your case now; someone will follow up on the disputed portion directly." },
+    ],
+  }
+};
+
+// ---- state ----
+var state = {
+  scenario: 'b2b', revealed: 0, openStage: -1, running: false, ledgerSeq: 0,
+  polling: false, pollTimer: null, pollsLeft: 0, lastSeenUpdateId: null,
+  liveReplies: [], // real replies for the *current* run only -- SCENARIOS[key].convo is static reference data, never mutated
+};
+var POLL_INTERVAL_MS = 3000;
+var MAX_POLLS = 40; // ~2 minutes
+
+function loadSettings(){
+  try{
+    document.getElementById('backendUrl').value = localStorage.getItem('tc_backend_url') || 'https://track-03.onrender.com';
+    document.getElementById('triggerSecret').value = localStorage.getItem('tc_secret') || '';
+  }catch(e){}
+}
+function saveSettings(){
+  try{
+    localStorage.setItem('tc_backend_url', document.getElementById('backendUrl').value.trim());
+    localStorage.setItem('tc_secret', document.getElementById('triggerSecret').value);
+  }catch(e){}
+}
+
+function renderScenarioTabs(){
+  var el = document.getElementById('scenarioTabs');
+  el.innerHTML = '';
+  Object.keys(SCENARIOS).forEach(function(key){
+    var s = SCENARIOS[key];
+    var card = document.createElement('button');
+    card.className = 'scenario-card' + (state.scenario === key ? ' active' : '');
+    card.innerHTML = '<span class="eyebrow">'+s.eyebrow+'</span><h3>'+s.label+'</h3><p>'+s.blurb+'</p>';
+    card.addEventListener('click', function(){
+      stopPolling(); state.lastSeenUpdateId = null; state.liveReplies = [];
+      state.scenario = key; state.revealed = 0; state.openStage = -1;
+      render();
+    });
+    el.appendChild(card);
+  });
+}
+
+function renderPipeline(){
+  var scenario = SCENARIOS[state.scenario];
+  var el = document.getElementById('pipeline');
+  el.innerHTML = '';
+  scenario.stages.forEach(function(stage, i){
+    var wrap = document.createElement('div');
+    wrap.className = 'stage' + (i < state.revealed ? ' revealed' : '');
+
+    var chipHtml = '';
+    if (i < state.revealed){
+      if (stage.chip === 'pass') chipHtml = '<span class="stage-chip pass">Pass</span>';
+      else if (stage.chip === 'refuse') chipHtml = '<span class="stage-chip refuse">Refuse</span>';
+    } else {
+      chipHtml = '<span class="stage-chip wait">Waiting</span>';
+    }
+
+    var isOpen = state.openStage === i && i < state.revealed;
+    var liveHtml = '';
+    if (stage.live && isOpen){
+      liveHtml = '<div class="live-trigger"><div class="row">'
+        + '<span class="live-badge"><span class="dot"></span>LIVE</span>'
+        + '<button class="btn btn-live btn-small" data-live="'+i+'">'
+        + (scenario.channel === 'ivr' ? '📞 Call my phone for real' : '📲 Send this to my Telegram for real')
+        + '</button></div>'
+        + '<div class="live-result" id="liveResult"></div>'
+        + (scenario.channel === 'telegram' ? '<div id="replyPanel"></div>' : '')
+        + '</div>';
+    }
+
+    wrap.innerHTML =
+      '<span class="stage-dot">'+(i+1)+'</span>'
+      + '<div class="stage-card">'
+      +   '<button class="stage-head" data-stage="'+i+'" '+(i>=state.revealed?'disabled':'')+'>'
+      +     '<span><span class="stage-name">'+stage.name+'</span><span class="stage-tag">'+stage.tag+'</span></span>'
+      +     chipHtml
+      +   '</button>'
+      +   '<div class="stage-body'+(isOpen?' open':'')+'" id="stageBody'+i+'">'+stage.html+liveHtml+'</div>'
+      + '</div>';
+    el.appendChild(wrap);
+  });
+
+  el.querySelectorAll('[data-stage]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var i = parseInt(btn.getAttribute('data-stage'), 10);
+      state.openStage = (state.openStage === i) ? -1 : i;
+      renderPipeline();
+      renderRuleStrips();
+    });
+  });
+  el.querySelectorAll('[data-live]').forEach(function(btn){
+    btn.addEventListener('click', function(){ triggerLive(btn); });
+  });
+
+  renderRuleStrips();
+}
+
+function renderRuleStrips(){
+  ['rulesB2b','rulesSub'].forEach(function(id){
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = '';
+    for (var i=0;i<19;i++){
+      var d = document.createElement('span');
+      d.className = 'rule-dot';
+      el.appendChild(d);
+    }
+  });
+}
+
+function escapeHtml(str){
+  var div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function renderConvo(container){
+  var scenario = SCENARIOS[state.scenario];
+  container.innerHTML = '';
+  scenario.convo.concat(state.liveReplies).forEach(function(msg){
+    var b = document.createElement('div');
+    b.className = 'bubble ' + msg.who;
+    b.innerHTML = '<span class="who">'+(msg.who === 'system' ? 'TrueCommit' : 'Debtor')+'</span>'+escapeHtml(msg.text);
+    container.appendChild(b);
+  });
+}
+
+function connStatus(kind, label){
+  var dot = document.getElementById('connDot');
+  dot.className = 'status-dot ' + kind;
+  document.getElementById('connLabel').textContent = label;
+}
+
+async function testConnection(){
+  saveSettings();
+  var url = document.getElementById('backendUrl').value.trim().replace(/\/$/, '');
+  if (!url){ connStatus('down', 'no backend url set'); return; }
+  connStatus('checking', 'checking...');
+  try{
+    var res = await fetch(url + '/health', { method:'GET' });
+    if (res.ok){ connStatus('up', 'backend reachable'); }
+    else { connStatus('down', 'backend responded ' + res.status); }
+  }catch(e){
+    connStatus('down', 'backend unreachable');
+  }
+}
+
+async function triggerLive(btn){
+  saveSettings();
+  var url = document.getElementById('backendUrl').value.trim().replace(/\/$/, '');
+  var secret = document.getElementById('triggerSecret').value;
+  var resultEl = document.getElementById('liveResult');
+  var scenario = SCENARIOS[state.scenario];
+
+  if (!url || !secret){
+    resultEl.className = 'live-result show err';
+    resultEl.textContent = 'Set your backend URL and DEMO_TRIGGER_SECRET in the settings panel above first.';
+    document.getElementById('settingsPanel').open = true;
+    return;
+  }
+
+  btn.disabled = true;
+  var originalText = btn.textContent;
+  btn.textContent = 'Sending…';
+  resultEl.className = 'live-result show';
+  resultEl.style.color = 'var(--ink-soft)';
+  resultEl.textContent = 'Calling your backend at ' + url + ' …';
+
+  try{
+    var res = await fetch(url + '/demo/trigger', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: secret, channel: scenario.channel, scenario: state.scenario }),
+    });
+    var body = await res.json();
+    if (res.ok && body.status === 'sent'){
+      resultEl.className = 'live-result show ok';
+      resultEl.textContent = '✓ Sent for real — channel=' + body.channel + (body.external_ref ? (' ref=' + body.external_ref) : '');
+      addLedgerRow('ACT', 'sent:' + scenario.channel, 'pass');
+      if (scenario.channel === 'telegram'){ startPolling(url, secret); }
+    } else if (res.ok && body.status === 'failed'){
+      // The request itself worked (bounds passed, the channel was reached) --
+      // the channel's own API said no. Distinct from a network/auth error below.
+      resultEl.className = 'live-result show err';
+      var reason = (body.detail && (body.detail.message || JSON.stringify(body.detail))) || 'channel rejected the send';
+      resultEl.textContent = '✗ Reached ' + body.channel + ', but it wasn\'t sent: ' + reason;
+    } else {
+      resultEl.className = 'live-result show err';
+      resultEl.textContent = '✗ ' + (body.detail || ('HTTP ' + res.status));
+    }
+  }catch(e){
+    resultEl.className = 'live-result show err';
+    resultEl.textContent = '✗ Could not reach your backend. Is the Render service awake and reachable?';
+  }finally{
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+}
+
+// ---- reactive Telegram: poll for a real reply, diagnose it for real ----
+
+function renderReplyPanel(html){
+  var panel = document.getElementById('replyPanel');
+  if (panel) panel.innerHTML = html;
+}
+
+function startPolling(url, secret){
+  stopPolling();
+  state.polling = true;
+  state.pollsLeft = MAX_POLLS;
+  renderReplyPanel(
+    '<div class="reply-wait"><span class="spinner"></span>Waiting for your reply on Telegram… (checking every 3s)</div>'
+    + '<div class="reply-manual"><button class="btn btn-small" id="checkNowBtn">Check now</button>'
+    + ' <button class="btn btn-small" id="stopWaitBtn">Stop waiting</button></div>'
+  );
+  bindReplyPanelButtons(url, secret);
+  state.pollTimer = setInterval(function(){ pollOnce(url, secret); }, POLL_INTERVAL_MS);
+}
+
+function stopPolling(){
+  if (state.pollTimer){ clearInterval(state.pollTimer); state.pollTimer = null; }
+  state.polling = false;
+}
+
+function bindReplyPanelButtons(url, secret){
+  var checkBtn = document.getElementById('checkNowBtn');
+  var stopBtn = document.getElementById('stopWaitBtn');
+  if (checkBtn) checkBtn.addEventListener('click', function(){ pollOnce(url, secret); });
+  if (stopBtn) stopBtn.addEventListener('click', function(){
+    stopPolling();
+    renderReplyPanel('<div class="reply-wait">Stopped waiting. <button class="btn btn-small" id="checkNowBtn2">Check now</button></div>');
+    var btn2 = document.getElementById('checkNowBtn2');
+    if (btn2) btn2.addEventListener('click', function(){ startPolling(url, secret); });
+  });
+}
+
+async function pollOnce(url, secret){
+  state.pollsLeft -= 1;
+  if (state.pollsLeft <= 0){ stopPolling(); }
+
+  try{
+    var res = await fetch(url + '/demo/check-reply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: secret, after_update_id: state.lastSeenUpdateId, diagnose: true }),
+    });
+    if (!res.ok){ return; } // transient/misconfig -- next poll (or "check now") tries again
+    var body = await res.json();
+    if (!body.has_reply) return;
+
+    stopPolling();
+    state.lastSeenUpdateId = body.update_id;
+
+    // Add the real reply to the conversation thread as a genuine debtor
+    // bubble -- appended to this run's own list, never onto the shared
+    // SCENARIOS[key].convo static data (that would duplicate across re-runs).
+    state.liveReplies.push({ who: 'debtor', text: body.text + ' — (this is your real reply)' });
+    renderConvo(document.getElementById('convoContainer'));
+
+    var diagHtml;
+    if (body.diagnosis && body.diagnosis.error){
+      diagHtml = '<div class="diagnosis-row"><span class="diagnosis-pill">extraction failed: ' + escapeHtml(body.diagnosis.error) + '</span></div>';
+    } else if (body.diagnosis){
+      diagHtml =
+        '<div class="diagnosis-row">'
+        + '<span class="diagnosis-pill">family: ' + escapeHtml(body.diagnosis.family) + '</span>'
+        + '<span class="diagnosis-pill">class: ' + escapeHtml(body.diagnosis.class) + '</span>'
+        + '<span class="diagnosis-pill confidence">confidence: ' + (body.diagnosis.confidence*100).toFixed(0) + '%</span>'
+        + '</div>';
+    } else {
+      diagHtml = '';
+    }
+
+    renderReplyPanel(
+      '<div class="reply-card">'
+      + '<span class="label">Your real reply, just read by the actual extractor</span>'
+      + '<div class="reply-text">“' + escapeHtml(body.text) + '”</div>'
+      + diagHtml
+      + '</div>'
+    );
+    addLedgerRow('DIAGNOSE', 'live_reply:extracted', 'pass');
+  }catch(e){
+    // network hiccup -- silently retried on the next scheduled poll
+  }
+}
+
+function hashLike(seed){
+  var s = (seed * 2654435761) >>> 0;
+  return s.toString(16).padStart(8,'0');
+}
+
+function addLedgerRow(actor, note, verdict){
+  state.ledgerSeq += 1;
+  var rows = document.getElementById('ledgerRows');
+  document.getElementById('ledgerEmpty').style.display = 'none';
+  var row = document.createElement('div');
+  row.className = 'ledger-row';
+  row.innerHTML =
+    '<span class="seq">#'+state.ledgerSeq+'</span>'
+    + '<span class="actor">'+actor+'</span>'
+    + '<span class="hash">'+note+' · '+hashLike(state.ledgerSeq)+'…</span>'
+    + '<span class="verdict '+verdict+'">'+(verdict==='pass'?'PASS':'REFUSE')+'</span>';
+  rows.appendChild(row);
+  rows.scrollTop = rows.scrollHeight;
+  document.getElementById('ledgerCount').textContent = state.ledgerSeq + (state.ledgerSeq===1?' entry':' entries');
+}
+
+function resetLedger(){
+  state.ledgerSeq = 0;
+  document.getElementById('ledgerRows').innerHTML = '';
+  document.getElementById('ledgerEmpty').style.display = 'block';
+  document.getElementById('ledgerCount').textContent = '0 entries';
+}
+
+function render(){
+  renderScenarioTabs();
+  renderPipeline();
+  renderConvo(document.getElementById('convoContainer'));
+}
+
+async function runScenario(){
+  if (state.running) return;
+  state.running = true;
+  stopPolling(); state.lastSeenUpdateId = null; state.liveReplies = [];
+  var scenario = SCENARIOS[state.scenario];
+  var runBtn = document.getElementById('runBtn');
+  runBtn.disabled = true;
+  state.revealed = 0; state.openStage = -1;
+  renderPipeline();
+
+  for (var i=0;i<scenario.stages.length;i++){
+    await new Promise(function(r){ setTimeout(r, 550); });
+    state.revealed = i+1;
+    state.openStage = i;
+    renderPipeline();
+    var stage = scenario.stages[i];
+    var verdict = stage.chip === 'refuse' ? 'refuse' : 'pass';
+    addLedgerRow(stage.name.toUpperCase(), state.scenario+':'+stage.name.toLowerCase(), verdict);
+  }
+  runBtn.disabled = false;
+  state.running = false;
+}
+
+document.getElementById('runBtn').addEventListener('click', runScenario);
+document.getElementById('resetBtn').addEventListener('click', function(){
+  stopPolling(); state.lastSeenUpdateId = null; state.liveReplies = [];
+  state.revealed = 0; state.openStage = -1; resetLedger(); renderPipeline();
+  renderConvo(document.getElementById('convoContainer'));
+});
+document.getElementById('testConnBtn').addEventListener('click', testConnection);
+document.getElementById('backendUrl').addEventListener('change', saveSettings);
+document.getElementById('triggerSecret').addEventListener('change', saveSettings);
+
+// The conversation panel is created up front, before the first render(),
+// so render()'s own renderConvo() call always finds a real, attached
+// container instead of needing a detached-div fallback.
+var convoSection = document.createElement('div');
+convoSection.style.marginTop = '1.5rem';
+convoSection.innerHTML = '<h3 style="font-size:1rem;font-family:var(--font-body);font-weight:600;margin-bottom:0.7rem;">Conversation thread</h3>';
+var convoBody = document.createElement('div');
+convoBody.className = 'convo';
+convoBody.id = 'convoContainer';
+convoSection.appendChild(convoBody);
+document.getElementById('pipeline').insertAdjacentElement('afterend', convoSection);
+
+loadSettings();
+render();
+testConnection();
+})();
+</script>
+</body>
+</html>
