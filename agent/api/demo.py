@@ -48,7 +48,7 @@ import logging
 import os
 import re
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -59,6 +59,7 @@ from agent.bounds.engine import check_bounds
 from agent.diagnose.extract import Family
 from agent.diagnose.llm_extract import ExtractionFailed, extract_from_reply
 from agent.orchestrate import select_action_for_diagnosis
+from agent.mandate.payment_plan import PlanRejected, build_plan, describe_plan
 from agent.notify.compose import ComposeFailed, compose_reply
 from agent.notify.protocol import ChannelUnavailable
 from agent.notify.telegram import TelegramChannel
@@ -469,6 +470,70 @@ def _diagnosis_dict(extraction) -> dict[str, object]:
     return d
 
 
+def _plan_from_promise(extraction, scenario: dict[str, object]) -> dict[str, object] | None:
+    """A debtor who proposes a split gets a real, priced plan back.
+
+    "I can do 21,000 on the 5th and the rest on the 20th" is the most
+    common useful reply in collections and the one a dunning bot handles
+    worst -- it either ignores the offer and repeats the full amount, or
+    accepts it with no instrument behind it. Everything needed to answer
+    properly already existed (`select_instrument`, `compute_early_payment_offer`,
+    `Promise.installments`, which the extractor has always populated); this
+    reads what they proposed and asks those.
+
+    Deliberately conservative about what counts as a proposal: a promise
+    with no date, or with an amount at or above the full balance, is an
+    ordinary promise rather than a split, and gets the normal path. Only a
+    genuine part-payment offer builds a plan -- inventing a schedule the
+    debtor didn't ask for would be putting words in their mouth.
+    """
+    promise = getattr(extraction, "promise", None)
+    if promise is None or not promise.date or not promise.amount_paise:
+        return None
+
+    total = int(scenario["amount_paise"])
+    first_amount = int(promise.amount_paise)
+    if first_amount >= total:
+        return None  # paying in full on a date is a promise, not a split
+
+    try:
+        first_date = date.fromisoformat(promise.date)
+    except ValueError:  # pragma: no cover -- ExtractionResult validates ISO8601 upstream
+        return None
+
+    # The debtor named one leg and a date. The remainder is theirs to place;
+    # absent a second stated date, this proposes the balance a fortnight on
+    # -- flagged below as proposed rather than agreed, so the reply can say
+    # so instead of implying they committed to it.
+    remainder = total - first_amount
+    legs = [(first_amount, first_date), (remainder, first_date + timedelta(days=14))]
+
+    try:
+        plan = build_plan(invoice_id=str(scenario["invoice_id"]), total_amount_paise=total, legs=legs)
+    except PlanRejected as exc:
+        _log.warning("demo: could not build a plan from the stated promise: %s", exc)
+        return None
+
+    return {
+        "legs": [
+            {
+                "sequence": leg.sequence,
+                "amount_paise": leg.amount_paise,
+                "due_date": leg.due_date.isoformat(),
+                "payable_paise": leg.payable_paise,
+                "savings_paise": leg.savings_paise,
+                "proposed_by": "debtor" if leg.sequence == 1 else "system",
+            }
+            for leg in plan.legs
+        ],
+        "instrument": plan.instrument.instrument.value,
+        "requires_afa_per_debit": plan.requires_afa_per_debit,
+        "total_payable_paise": plan.total_payable_paise,
+        "total_savings_paise": plan.total_savings_paise,
+        "summary": describe_plan(plan),
+    }
+
+
 def _decide_next_step(extraction, scenario: dict[str, object], *, channel: str, debtor_key: str) -> dict[str, object]:
     """DECIDE -> BOUNDS on a diagnosed reply, through the real machinery.
 
@@ -544,7 +609,7 @@ def _decide_next_step(extraction, scenario: dict[str, object], *, channel: str, 
 
 def _compose_or_fallback(
     reply_text: str, diagnosis: dict[str, object], scenario: dict[str, object],
-    decision: dict[str, object] | None = None,
+    decision: dict[str, object] | None = None, plan: dict[str, object] | None = None,
 ) -> str:
     """A real, specific reply to what the debtor actually said
     (agent.notify.compose) -- falling back to the fixed family-level line
@@ -571,6 +636,7 @@ def _compose_or_fallback(
                 else None
             ),
             next_step=None if decision is None else str(decision.get("action")),
+            payment_plan=None if plan is None else str(plan.get("summary")),
             purpose="demo_dashboard_conversational_reply",
         )
     except Exception as exc:
@@ -664,7 +730,10 @@ def _check_telegram_reply(payload: CheckReplyRequest) -> dict[str, object]:
                         extraction, scenario, channel="telegram", debtor_key=f"demo_telegram_{payload.scenario}",
                     )
                     result["decision"] = decision
-                    reply_text = _compose_or_fallback(text, result["diagnosis"], scenario, decision)
+                    plan = _plan_from_promise(extraction, scenario)
+                    if plan is not None:
+                        result["payment_plan"] = plan
+                    reply_text = _compose_or_fallback(text, result["diagnosis"], scenario, decision, plan)
                     reply_channel = TelegramChannel(token)
                     try:
                         reply_channel.send(to=chat_id, text=reply_text)
@@ -738,7 +807,10 @@ def _check_whatsapp_reply(payload: CheckReplyRequest) -> dict[str, object]:
                         extraction, scenario, channel="whatsapp", debtor_key=f"demo_whatsapp_{payload.scenario}",
                     )
                     result["decision"] = decision
-                    reply_text = _compose_or_fallback(text, result["diagnosis"], scenario, decision)
+                    plan = _plan_from_promise(extraction, scenario)
+                    if plan is not None:
+                        result["payment_plan"] = plan
+                    reply_text = _compose_or_fallback(text, result["diagnosis"], scenario, decision, plan)
                     reply_channel = TwilioWhatsAppChannel(sid, secret_value, whatsapp_from, auth_username=username)
                     try:
                         reply_channel.send(to=phone, text=reply_text)

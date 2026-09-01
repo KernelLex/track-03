@@ -116,6 +116,7 @@ _NEXT_STEP_BRIEF = {
 def _context_block(
     *, invoice_id: str, amount_paise: int, days_overdue: int,
     family: str, class_: str, payment_link: str | None, next_step: str | None,
+    payment_plan: str | None = None,
 ) -> str:
     lines = [
         "Context for this conversation (facts you may use; anything not here, you do not know):",
@@ -137,6 +138,17 @@ def _context_block(
             f"- The system has already decided the next step: {next_step}. "
             + _NEXT_STEP_BRIEF.get(next_step, "Describe it accurately and do not promise anything else.")
         )
+    if payment_plan:
+        # They proposed a split, so the reply answers the split. Any date
+        # they did not name is this system's proposal, not something they
+        # agreed to -- put it as a proposal rather than as settled.
+        lines.append(
+            "- They proposed paying in instalments. This plan has been computed for them:\n"
+            + payment_plan
+            + "\n  Confirm back the instalment they actually named. Any date they did not name is a "
+              "proposal -- put it to them as one and ask them to confirm. Quote a discounted figure "
+              "only if it appears above; never offer a reduction that isn't there."
+        )
     return "\n".join(lines)
 
 
@@ -150,6 +162,7 @@ def compose_reply(
     class_: str,
     payment_link: str | None = None,
     next_step: str | None = None,
+    payment_plan: str | None = None,
     client: anthropic.Anthropic | None = None,
     model: str = DEFAULT_MODEL,
     spend_ledger: SpendLedger | None = None,
@@ -179,6 +192,7 @@ def compose_reply(
         {"type": "text", "text": _context_block(
             invoice_id=invoice_id, amount_paise=amount_paise, days_overdue=days_overdue,
             family=family, class_=class_, payment_link=payment_link, next_step=next_step,
+            payment_plan=payment_plan,
         )},
     ]
     messages = [{"role": "user", "content": truncated}]

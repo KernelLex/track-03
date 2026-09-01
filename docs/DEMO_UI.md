@@ -114,6 +114,54 @@ endpoint's original "can only ever reach the demo owner" property
 deliberately: E.164 format validation, plus a 5-minute per-number cooldown
 *on top of* the existing 20-second per-channel one.
 
+## Negotiating a split, not just asking for the money
+
+"I can do 21,000 on the 5th and the rest later" is the most common useful
+reply in collections and the one a dunning bot handles worst: it either
+ignores the offer and repeats the full amount, or accepts it with nothing
+behind it. `agent/mandate/payment_plan.py` answers it properly, and every
+piece it needs already existed -- `select_instrument()`,
+`compute_early_payment_offer()`, and `Promise.installments`, which the
+extractor has always populated. The module is the join, nothing more: it
+computes and returns a plan, and sends or charges nothing.
+
+For Rs 42,500 offered as 21,250 on the 5th and the balance a fortnight on:
+
+```
+  1. Rs 21,250 due 2026-09-05 -- Rs 20,825 if paid by 2026-09-11 (saves Rs 425)
+  2. Rs 21,250 due 2026-09-20
+  Instrument: recurring_emandate_afa_per_debit (AFA required per debit)
+```
+
+**The instrument follows the split, and that is the interesting part.**
+The AFA-free ceiling is per debit, not per plan. Two legs of Rs 21,250 are
+two debits over the ceiling, so every one needs additional factor
+authentication. The same total in four legs of Rs 10,625 is under it, and
+a single authorization covers the whole plan -- a real argument for
+offering a longer split, produced by the existing rules rather than
+decided here.
+
+Three things it deliberately will not do:
+
+- **Invent a schedule.** A promise with no amount, or one covering the
+  full balance, is an ordinary promise and takes the normal path. Only a
+  genuine part-payment offer builds a plan.
+- **Round their numbers.** Legs that don't sum to the invoice raise
+  `PlanRejected` rather than being quietly adjusted -- a shortfall is a
+  real disagreement about what is owed, not a rounding problem, and
+  `installment_amount_paise` exists precisely because a real plan need not
+  divide evenly.
+- **Invent a fee.** A discount is `compute_early_payment_offer()`'s
+  published rate against a date the debtor themselves named -- earned, not
+  offered as an inducement to move. Late-payment figures come from
+  `agent/statutory/msmed.py`'s statutory interest, never a late fee this
+  project made up. The composer's prompt already forbids stating a
+  consequence, and a fabricated fee is exactly that.
+
+A date the debtor did not name is marked `proposed_by: "system"` and the
+composer is told to put it as a proposal to confirm, rather than reporting
+it back as though they agreed to it.
+
 ## The reply is composed, not canned
 
 The first version answered with one fixed sentence per diagnosis family

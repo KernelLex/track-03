@@ -772,3 +772,66 @@ class TestConversationDrivesTheRealDecision:
         assert captured["next_step"] == "escalate_human"
         # A dispute being escalated must not be handed a payment link.
         assert captured["payment_link"] is None
+
+
+class TestInstalmentNegotiation:
+    """A debtor offering to split the balance is the most common useful
+    reply in collections, and the one a dunning bot handles worst -- it
+    either ignores the offer and repeats the full amount, or accepts it
+    with no instrument behind it."""
+
+    def _reply(self, client, monkeypatch, text, *, amount_paise, promise_date):
+        from agent.diagnose.extract import DiagnosisClass, ExtractionResult, Family, PromiseFields
+
+        captured = {}
+        monkeypatch.setattr(demo_module, "compose_reply",
+                            lambda reply_text, **kw: captured.update(kw) or "ok")
+        monkeypatch.setattr(
+            demo_module, "extract_from_reply",
+            lambda t, **kw: ExtractionResult(
+                family=Family.C, class_=DiagnosisClass.PROMISE_STATED, confidence=0.9,
+                promise=PromiseFields(amount_paise=amount_paise, date=promise_date),
+            ),
+        )
+        _FakeChannel.updates = [{"update_id": 950, "message": {"chat": {"id": "999888777"}, "text": text}}]
+        response = client.post("/demo/check-reply", json={"secret": SECRET, "diagnose": True})
+        return response.json(), captured
+
+    def test_a_part_payment_offer_builds_a_real_dated_plan(self, client, monkeypatch):
+        body, _ = self._reply(client, monkeypatch, "I can pay 21,000 on the 5th",
+                              amount_paise=21_000_00, promise_date="2026-09-05")
+        plan = body["payment_plan"]
+
+        assert len(plan["legs"]) == 2
+        assert plan["legs"][0]["amount_paise"] == 21_000_00
+        assert plan["legs"][0]["due_date"] == "2026-09-05"
+        assert plan["legs"][0]["proposed_by"] == "debtor"
+        # The balance, and a date the debtor never named.
+        assert plan["legs"][1]["amount_paise"] == 42_500_00 - 21_000_00
+        assert plan["legs"][1]["proposed_by"] == "system"
+
+    def test_the_plan_carries_a_real_instrument_not_just_a_schedule(self, client, monkeypatch):
+        """Two legs over the AFA-free ceiling need authentication per debit
+        -- that is the instrument rules' answer, not this module's."""
+        body, _ = self._reply(client, monkeypatch, "21,000 on the 5th",
+                              amount_paise=21_000_00, promise_date="2026-09-05")
+        assert body["payment_plan"]["instrument"].startswith("recurring_emandate")
+        assert body["payment_plan"]["requires_afa_per_debit"] is True
+
+    def test_the_plan_is_given_to_the_composer(self, client, monkeypatch):
+        _, captured = self._reply(client, monkeypatch, "21,000 on the 5th",
+                                  amount_paise=21_000_00, promise_date="2026-09-05")
+        assert captured["payment_plan"] is not None
+        assert "instalment" in captured["payment_plan"]
+
+    def test_paying_the_full_amount_on_a_date_is_a_promise_not_a_split(self, client, monkeypatch):
+        """Inventing a schedule the debtor never proposed would be putting
+        words in their mouth."""
+        body, _ = self._reply(client, monkeypatch, "I'll pay the whole thing on the 5th",
+                              amount_paise=42_500_00, promise_date="2026-09-05")
+        assert "payment_plan" not in body
+
+    def test_a_promise_with_no_amount_builds_no_plan(self, client, monkeypatch):
+        body, _ = self._reply(client, monkeypatch, "I'll pay soon",
+                              amount_paise=None, promise_date="2026-09-05")
+        assert "payment_plan" not in body

@@ -153,3 +153,18 @@ class TestNextStepBrief:
         _compose(client, ledger)
         _, kwargs = client.messages.create.call_args
         assert "already decided the next step" not in kwargs["system"][1]["text"]
+
+    def test_a_proposed_plan_reaches_the_model_with_its_provisional_framing(self, ledger):
+        """A date the debtor didn't name is this system's proposal. The
+        model has to be told that, or it will report it back as agreed."""
+        client = _fake_client()
+        compose_reply(
+            "I can do 21,000 on the 5th", invoice_id="INV-2201", amount_paise=42_500_00,
+            days_overdue=22, family="C", class_="PROMISE_STATED",
+            payment_plan="Plan for INV-2201: 2 instalment(s).\n  1. Rs 21,000 due 2026-09-05",
+            client=client, spend_ledger=ledger,
+        )
+        _, kwargs = client.messages.create.call_args
+        context = kwargs["system"][1]["text"]
+        assert "proposed paying in instalments" in context
+        assert "put it to them as one" in context
