@@ -135,8 +135,18 @@ def test_whatsapp_trigger_only_supports_the_b2b_scenario(client):
     assert _FakeChannel.sent == []
 
 
-def test_whatsapp_trigger_missing_content_sid_returns_a_clear_error(client, monkeypatch):
+def test_whatsapp_trigger_falls_back_to_the_projects_own_template(client, monkeypatch):
+    """The ContentSid is a resource id, not a secret -- an unset env var
+    uses this project's own real template rather than failing, so it isn't
+    one more thing to configure on every deployment."""
     monkeypatch.delenv("TWILIO_WHATSAPP_CONTENT_SID", raising=False)
+    response = client.post("/demo/trigger", json={"secret": SECRET, "channel": "whatsapp", "scenario": "b2b"})
+    assert response.status_code == 200
+    assert _FakeChannel.sent[0]["content_sid"] == demo_module.DEFAULT_WHATSAPP_CONTENT_SID
+
+
+def test_whatsapp_trigger_missing_twilio_config_returns_a_clear_error(client, monkeypatch):
+    monkeypatch.delenv("TWILIO_WHATSAPP_FROM", raising=False)
     response = client.post("/demo/trigger", json={"secret": SECRET, "channel": "whatsapp", "scenario": "b2b"})
     assert response.status_code == 503
 

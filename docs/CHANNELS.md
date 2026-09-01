@@ -54,7 +54,7 @@ what's actually exercised."
 | Telegram | `agent/notify/telegram.py` | ✅ mocked (`tests/agent/test_notify_channels.py`) | ✅ 2026-08-31 — real send confirmed, see below |
 | Twilio voice (`ivr`) | `agent/notify/twilio_voice.py` | ✅ mocked | 🔶 2026-08-31 — credentials confirmed; real call cleanly refused by Twilio's own trial-account limits, see below |
 | Simulated | `agent/notify/simulated.py` | ✅ | n/a — never touches the network by design |
-| Twilio WhatsApp | `agent/notify/twilio_whatsapp.py` | ✅ mocked (`tests/agent/test_twilio_whatsapp_channel.py`, 10 tests) | 🔶 2026-09-01 — sender genuinely live (real send accepted and routed); a real Content Template is the remaining piece for a cold send, see below |
+| Twilio WhatsApp | `agent/notify/twilio_whatsapp.py` | ✅ mocked (`tests/agent/test_twilio_whatsapp_channel.py`, 16 tests) | 🔶 2026-09-01 — sender genuinely live (real send accepted and routed); a real Content Template is submitted and in WhatsApp review, which a cold send needs, see below |
 | SMS / email | not implemented | — | — |
 
 "Tested" means I assert the request shape (URL, body, form/JSON encoding)
@@ -135,6 +135,17 @@ templates), number search, and unrestricted outbound calls. I built
 Twilio's real Messages API — a genuinely different endpoint shape from the
 direct Meta integration (`agent/notify/whatsapp.py`), not a config flip on
 the same channel.
+
+**The Content Template, and one real rejection worth recording.** A cold
+WhatsApp send needs a pre-approved template
+(`TWILIO_WHATSAPP_CONTENT_SID`, defaulted in `agent/api/demo.py` since a
+ContentSid is a resource id rather than a secret). The first submission
+was rejected by Meta within seconds -- *"Variables can't be at the start
+or end of the template"* -- because its body ended with the payment-link
+variable. The fix is trivial once the reason is visible (put real text
+after the link), but the reason is only visible by reading the approval
+resource back: the create and submit calls both succeed, and the
+rejection lands asynchronously afterward.
 
 **Update, 2026-09-01: the WhatsApp sender registration cleared.** Getting
 there hit two separate external blockers, neither in this codebase: (1)

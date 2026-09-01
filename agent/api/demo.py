@@ -72,6 +72,18 @@ router = APIRouter(prefix="/demo", tags=["demo"])
 MIN_SECONDS_BETWEEN_TRIGGERS = 20.0
 _last_triggered_at: dict[str, float] = {}
 
+DEFAULT_WHATSAPP_CONTENT_SID = "HX7fab710a0f32ab9e8a1be21250bf98a3"
+"""This project's own real WhatsApp Content Template
+("truecommit_invoice_reminder_v2") -- a resource id, not a secret, so it
+ships as the default rather than as one more env var to set on every
+deployment. TWILIO_WHATSAPP_CONTENT_SID overrides it.
+
+A cold WhatsApp send needs an approved template at all (free-form Body
+only delivers inside the 24h customer-service window). Worth recording
+why this is v2: v1 was rejected by Meta within seconds with "Variables
+can't be at the start or end of the template" -- it ended with {{4}}, the
+payment link. v2 puts real text after the link."""
+
 # A visitor-supplied recipient applies only to the phone-addressed channels
 # ("whatsapp" and "ivr"). Telegram is not one: a bot can only message
 # someone who has already messaged it first, so there is no number to
@@ -323,7 +335,7 @@ def trigger_demo_contact(payload: DemoTriggerRequest) -> dict[str, object]:
             )
         sid = os.environ.get("TWILIO_ACCOUNT_SID")
         whatsapp_from = os.environ.get("TWILIO_WHATSAPP_FROM")
-        content_sid = os.environ.get("TWILIO_WHATSAPP_CONTENT_SID")
+        content_sid = os.environ.get("TWILIO_WHATSAPP_CONTENT_SID", DEFAULT_WHATSAPP_CONTENT_SID)
         api_key_sid = os.environ.get("TWILIO_API_KEY_SID")
         api_key_secret = os.environ.get("TWILIO_API_KEY_SECRET")
         auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
