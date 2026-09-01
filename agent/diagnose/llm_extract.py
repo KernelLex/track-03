@@ -23,6 +23,8 @@ from __future__ import annotations
 import os
 from datetime import date
 
+from agent.clock import business_today
+
 import anthropic
 from pydantic import ValidationError
 
@@ -167,7 +169,7 @@ def extract_from_reply(
     truncated = reply_text[:MAX_REPLY_CHARS]
     client = client or _default_client()
     ledger = spend_ledger or SpendLedger()
-    today = today or date.today()
+    today = today or business_today()
 
     # The static instructions stay first and cacheable; today's date is a
     # second, small, volatile block appended *after* it -- Anthropic's

@@ -213,6 +213,22 @@ class ConversationStore:
         self._conn.execute("DELETE FROM conversation_proposals WHERE conversation_id = ?", (conversation_id,))
         self._conn.commit()
 
+    # ---- which invoice this conversation is about --------------------
+
+    def set_focus(self, conversation_id: str, invoice_id: str) -> None:
+        """Remember which invoice the debtor selected.
+
+        Stored rather than held in memory for the same reason the proposal
+        is: a cold start mid-conversation must not silently change which
+        invoice "dispute this" refers to."""
+        self.set_proposal(conversation_id, kind="invoice_focus", detail={"invoice_id": invoice_id})
+
+    def focus(self, conversation_id: str) -> str | None:
+        proposal = self.outstanding_proposal(conversation_id)
+        if proposal is None or proposal.kind != "invoice_focus":
+            return None
+        return proposal.detail.get("invoice_id")
+
     # ---- the timeline ------------------------------------------------
 
     def record_event(

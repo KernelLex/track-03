@@ -616,3 +616,98 @@ the actual conversation that produced it.
 
 The chosen tab is remembered in `localStorage`, wrapped in try/catch because
 it throws outright in some embedded contexts.
+
+## Self-service: a debtor asking about their own invoices
+
+The conversation used to be about one hardcoded invoice. `SCENARIOS` held
+`INV-2201` and every reply was implicitly about it, so the thing a real
+counterparty most often wants could not be asked at all: *which of these do
+I still owe?*
+
+Answering that removes work from a human queue without chasing anyone,
+which is the same argument this project makes about diagnosis — the
+cheapest recovery is the one that never needed a chase.
+
+```
+> what do i owe
+  1. INV-2201 -- ₹42,500.00 (due, 22 days overdue)
+  2. INV-2244 -- ₹9,750.00 (due 2026-09-08)
+  3. INV-2176 -- ₹18,400.00 (paid)
+
+  Outstanding: ₹52,250.00.
+  Reply with a number to pick one, then: schedule, dispute, or problem.
+
+> 1     → INV-2201 -- ₹42,500.00, 22 days overdue.
+> dispute → marked disputed, chasing stopped, routed to a person
+```
+
+**Commands are deterministic, not a model call.** `agent/notify/intents.py`
+matches a short, unambiguous set — "invoices", a bare number, "dispute",
+"schedule", "problem" — and returns `None` for everything else, which falls
+through to the real extractor. A menu selection costs nothing and takes no
+seconds; routing "2" through a language model costs money, four seconds,
+and a chance of being read as something the debtor did not ask for.
+
+**Ambiguity always resolves to prose.** The router caps at 60 characters
+and requires a bare number to be the *entire* message, because a number
+inside a sentence is an amount or a date. Verified against the cases that
+would break it: "2 units were damaged", "I'll pay 2 lakh next week", and a
+long message mentioning a dispute all reach the extractor untouched. A
+keyword router that swallowed those would be worse than no router.
+
+**Law 8 holds here too.** Matching a keyword decides which of *this
+system's* code paths runs. It never lets a message assert a fact. "Mark
+INV-2201 as paid" matches nothing in the router and is classified by the
+extractor as the claim it is (`ALREADY_PAID_UNRECONCILED`), to be checked
+against the rail.
+
+**Status is a fact, not a claim.** `paid` is set only by a rail-confirmed
+capture — Law 7's standard, the same one `RecoveryLedger.attribute()`
+enforces. A test asserts that four different ways of typing "I've paid it"
+leave the invoice `outstanding`.
+
+**A dispute freezes the line.** It is marked `disputed`, drops out of the
+outstanding total, routes to a person, and `schedule` on it is refused —
+no debit is set up on a contested amount while a human is looking. No
+attempt is made to judge whether the dispute is valid; a system deciding
+for itself which disputes counted would be doing exactly what
+`DISPUTE_FREEZE` exists to prevent.
+
+**Scheduling is deliberately the simplest plan possible** — the whole
+invoice on its own due date, as a real mandate. They asked to schedule;
+they did not propose terms, and inventing a split would put a schedule in
+their mouth. The negotiation path already handles the case where they name
+one.
+
+## "Today" is the debtor's today
+
+`date.today()` is the server's local date, and on Render that is UTC. IST
+is UTC+05:30, so between 00:00 and 05:30 IST the UTC date is still
+yesterday — and for those five and a half hours every relative date the
+system resolved was one day early.
+
+Seen live: a debtor wrote "I can pay 21000 today" and the extractor,
+told the UTC date, resolved it to 2026-09-01 while their own calendar said
+the 2nd. A debit scheduled a day before they agreed to it is a real
+problem, not a cosmetic one.
+
+`agent/clock.py::business_today()` now backs every relative date — the
+extraction prompt, the promise horizon, the early-payment window, promise
+expiry, and seeding. A fixed +05:30 offset rather than a tzdata lookup:
+India has one timezone and has never observed daylight saving, so the
+offset is exactly correct and has nothing to drift or go missing in a slim
+container. `TRUECOMMIT_TIMEZONE_OFFSET_MINUTES` overrides it.
+
+## Confidence gates plan-building
+
+`MIN_CONFIDENCE_FOR_PLAN = 0.65`, calibrated against real extractions
+rather than picked round. Messages that genuinely propose a schedule scored
+0.90 and 0.93; the two that misled the system scored 0.55 ("either 21000
+today or the whole thing on the 10th") and 0.35–0.40 ("make it the 7th
+instead of the 5th").
+
+The model was reporting its own uncertainty accurately and nothing was
+listening. A plan built on a 0.4-confidence reading gets a real e-mandate
+issued against it, which is a strange thing to do with a guess. Below the
+threshold the debtor gets an acknowledgement and a question instead of an
+instrument.

@@ -59,11 +59,17 @@ from agent.bounds.engine import check_bounds
 from agent.diagnose.extract import Family
 from agent.diagnose.llm_extract import ExtractionFailed, extract_from_reply
 from agent.orchestrate import select_action_for_diagnosis
+from agent.clock import business_today
+from agent.debtor.invoices import (
+    DISPUTED, OUTSTANDING, PAID, SCHEDULED, STATUS_LABEL, InvoiceStore,
+)
 from agent.debtor.registry import DebtorRegistry
 from agent.debtor.score import BANDS, DebtorTerms, terms_for
 from agent.mandate.emandate import create_plan_mandates, describe_mandate_links
 from agent.mandate.payment_plan import PlanRejected, build_plan, describe_plan
+from agent.money import to_rupees_display
 from agent.notify.conversation import ConversationStore
+from agent.notify.intents import detect_intent
 from agent.notify.compose import ComposeFailed, compose_reply
 from agent.notify.protocol import ChannelUnavailable
 from agent.notify.telegram import TelegramChannel
@@ -494,6 +500,26 @@ def _diagnosis_dict(extraction) -> dict[str, object]:
     return d
 
 
+MIN_CONFIDENCE_FOR_PLAN = 0.65
+"""Below this, a stated promise is acknowledged but not turned into a plan.
+
+Calibrated against real extractions rather than picked round. Messages that
+genuinely propose a schedule score high -- "21000 today and rest on 5th"
+came back at 0.90, a three-leg split at 0.93. The ones that misled the
+system scored low and honestly: "either 21000 today or the whole thing on
+the 10th" at 0.55, "make it the 7th instead of the 5th" at 0.35-0.40.
+
+The model was telling the truth about its own uncertainty and nothing was
+listening. A plan built on a 0.4-confidence reading gets a real e-mandate
+issued against it, which is a strange thing to do with a guess -- so the
+threshold sits above the observed ambiguous band and below the observed
+confident one, and a low-confidence promise gets an acknowledgement and a
+question instead of an instrument.
+
+
+"""
+
+
 def _legs_from_schedule(promise, total: int) -> list[tuple[int, date]] | None:
     """The debtor's own multi-leg schedule, with "the rest" resolved.
 
@@ -578,6 +604,13 @@ def _plan_from_promise(extraction, scenario: dict[str, object],
     """
     promise = getattr(extraction, "promise", None)
     if promise is None or not promise.date:
+        return None
+
+    if getattr(extraction, "confidence", 1.0) < MIN_CONFIDENCE_FOR_PLAN:
+        # The extractor is uncertain what was proposed, and says so. Issuing
+        # a real mandate against a guess is worse than asking.
+        _log.info("demo: confidence %.2f is below %.2f -- acknowledging without building a plan",
+                  extraction.confidence, MIN_CONFIDENCE_FOR_PLAN)
         return None
 
     total = int(scenario["amount_paise"])
@@ -1205,6 +1238,210 @@ def _record_stated_promise(debtor_id: str | None, plan: dict, scenario: dict[str
         _log.warning("demo: could not record the stated promise", exc_info=True)
 
 
+
+# --------------------------------------------------------------------------
+# Self-service: a debtor asking about their own invoices.
+# --------------------------------------------------------------------------
+
+def _invoice_store() -> InvoiceStore:
+    return InvoiceStore(os.environ.get("TRUECOMMIT_DEBTORS_DB", "debtors.db"))
+
+
+def _resolve_invoice(invoices: list, ref: str | None, focus: str | None):
+    """Which invoice the debtor means.
+
+    A bare number is a position in the list they were just shown, so it is
+    resolved against that same ordering rather than a database id -- "2"
+    must mean the line printed as 2, not whatever row happens to be second
+    in storage.
+    """
+    if ref:
+        for inv in invoices:
+            if inv.invoice_id.upper() == ref.upper():
+                return inv
+        if ref.isdigit():
+            index = int(ref) - 1
+            if 0 <= index < len(invoices):
+                return invoices[index]
+        return None
+    if focus:
+        return next((i for i in invoices if i.invoice_id == focus), None)
+    # Exactly one thing is open, so there is nothing to disambiguate.
+    open_invoices = [i for i in invoices if i.is_open]
+    return open_invoices[0] if len(open_invoices) == 1 else None
+
+
+def _render_invoice_list(invoices: list, store: InvoiceStore, debtor_id: str) -> str:
+    if not invoices:
+        return ("I cannot see any invoices against this account. If you are expecting one, "
+                "reply and a person will check.")
+    lines = ["Here is everything on your account:", ""]
+    for position, inv in enumerate(invoices, start=1):
+        overdue = inv.days_overdue()
+        status = STATUS_LABEL.get(inv.status, inv.status)
+        if inv.status == OUTSTANDING and overdue:
+            detail = f"{status}, {overdue} days overdue"
+        elif inv.status == OUTSTANDING:
+            detail = f"{status} {inv.due_date}"
+        else:
+            detail = status
+        lines.append(f"{position}. {inv.invoice_id} -- {to_rupees_display(inv.amount_paise)} ({detail})")
+
+    outstanding = store.total_outstanding_paise(debtor_id)
+    lines.append("")
+    if outstanding:
+        lines.append(f"Outstanding: {to_rupees_display(outstanding)}.")
+        lines.append("Reply with a number to pick one, then: schedule, dispute, or problem "
+                     "to reach a person.")
+    else:
+        lines.append("Nothing outstanding -- all clear.")
+    return "\n".join(lines)
+
+
+def _describe_invoice(invoice) -> str:
+    overdue = invoice.days_overdue()
+    if invoice.status == PAID:
+        return (f"{invoice.invoice_id} -- {to_rupees_display(invoice.amount_paise)} is paid and "
+                "settled. Nothing outstanding on it.")
+    if invoice.status == DISPUTED:
+        return (f"{invoice.invoice_id} -- {to_rupees_display(invoice.amount_paise)} is marked "
+                "disputed and a person has it. Automated chasing on it is paused.")
+    when = f", {overdue} days overdue" if overdue else f", due {invoice.due_date}"
+    return (f"{invoice.invoice_id} -- {to_rupees_display(invoice.amount_paise)}{when}.\n\n"
+            "Reply: schedule to set up payment, dispute if something is wrong with it, "
+            "or problem to reach a person.")
+
+
+def _offer_schedule(invoice, conversation_id: str, channel: str, store, invoice_store) -> dict:
+    """A real mandate for the whole invoice on its own due date.
+
+    Deliberately the simplest possible plan. They asked to schedule; they
+    did not propose terms, and inventing a split here would be putting a
+    schedule in their mouth. The negotiation path already handles the case
+    where they name one.
+    """
+    if invoice.status == PAID:
+        return {"reply": f"{invoice.invoice_id} is already paid -- nothing to schedule.",
+                "intent": "schedule_noop"}
+    if invoice.status == DISPUTED:
+        return {"reply": f"{invoice.invoice_id} is disputed and with a person, so I am not "
+                         "setting up a debit on it. They will come back to you.",
+                "intent": "schedule_blocked"}
+
+    due = max(date.fromisoformat(invoice.due_date), business_today() + timedelta(days=1))
+    try:
+        plan = build_plan(invoice_id=invoice.invoice_id,
+                          total_amount_paise=invoice.amount_paise,
+                          legs=[(invoice.amount_paise, due)])
+    except PlanRejected as exc:
+        _log.warning("demo: could not build a schedule for %s: %s", invoice.invoice_id, exc)
+        return {"reply": "I could not set that up automatically -- passing it to a person.",
+                "intent": "schedule_failed"}
+
+    links = _mandate_links_for(plan)
+    if not links:
+        # No plausible-looking URL, ever. An unavailable link means saying so.
+        return {"reply": f"I could not create the mandate link just now. A person will follow "
+                         f"up on {invoice.invoice_id} -- nothing has been charged.",
+                "intent": "schedule_no_link"}
+
+    invoice_store.set_status(invoice.debtor_id, invoice.invoice_id, SCHEDULED,
+                             note=f"mandate {links[0].mandate_id}")
+    store.record_event(conversation_id, kind="mandate_issued", channel=channel, detail={
+        "links": [{"mandate_id": link.mandate_id, "short_url": link.short_url,
+                   "amount_paise": link.amount_paise, "sequences": list(link.sequences),
+                   "first_debit_on": link.first_debit_on.isoformat(),
+                   "afa_required": link.afa_required} for link in links],
+        "invoice_id": invoice.invoice_id, "via": "self_service",
+    })
+    leg = plan.legs[0]
+    return {
+        "reply": (f"Set up for {invoice.invoice_id}: {to_rupees_display(leg.payable_paise)} on "
+                  f"{leg.due_date.isoformat()}.\n\nAuthorize it here: {links[0].short_url}\n\n"
+                  "That schedules the debit for that date. It does not take anything now."),
+        "intent": "schedule", "invoice_id": invoice.invoice_id,
+    }
+
+
+def _raise_dispute(invoice, conversation_id: str, channel: str, store, invoice_store) -> dict:
+    """Freeze the line and route it to a person.
+
+    No attempt to judge whether the dispute is valid. That is the whole
+    point of DISPUTE_FREEZE: a contested amount stops being chased while a
+    human looks, and a system deciding for itself which disputes counted
+    would be doing the exact thing the rule exists to prevent.
+    """
+    if invoice.status == PAID:
+        return {"reply": f"{invoice.invoice_id} is already settled. Tell me what is wrong with "
+                         "it and I will pass it to a person.", "intent": "dispute_on_paid"}
+
+    invoice_store.set_status(invoice.debtor_id, invoice.invoice_id, DISPUTED,
+                             note="raised by the debtor in conversation")
+    store.record_event(conversation_id, kind="dispute_raised", channel=channel,
+                       detail={"invoice_id": invoice.invoice_id,
+                               "amount_paise": invoice.amount_paise})
+    return {
+        "reply": (f"Noted -- {invoice.invoice_id} is marked disputed and automated chasing on "
+                  "it has stopped. A person will review it.\n\nTell me what is wrong with it "
+                  "and I will pass that on with it."),
+        "intent": "dispute", "invoice_id": invoice.invoice_id,
+    }
+
+
+def _handle_intent(intent, *, conversation_id: str, channel: str, store) -> dict | None:
+    """Answer a menu command without a model call.
+
+    Returns None when the command cannot be answered here -- no debtor on
+    record, no invoices -- so the message falls through to the ordinary
+    diagnosed path rather than dead-ending. A debtor who types something
+    slightly off should still be read, not rejected.
+    """
+    debtor_id, _terms = _terms_for_conversation(conversation_id)
+    if debtor_id is None:
+        return None
+
+    invoice_store = _invoice_store()
+    try:
+        invoices = invoice_store.for_debtor(debtor_id)
+        if not invoices:
+            return None
+
+        if intent.kind in ("list", "help"):
+            store.record_event(conversation_id, kind="invoices_listed", channel=channel,
+                               detail={"count": len(invoices)})
+            return {"reply": _render_invoice_list(invoices, invoice_store, debtor_id),
+                    "intent": intent.kind}
+
+        invoice = _resolve_invoice(invoices, intent.invoice_ref, store.focus(conversation_id))
+        if invoice is None:
+            if intent.kind == "select":
+                return {"reply": "I could not match that to one of your invoices. Reply "
+                                 "'invoices' to see the list again.", "intent": "select_miss"}
+            return {"reply": "Which invoice is that about? Reply 'invoices' for the list, "
+                             "then the number.", "intent": f"{intent.kind}_needs_invoice"}
+
+        store.set_focus(conversation_id, invoice.invoice_id)
+
+        if intent.kind == "select":
+            return {"reply": _describe_invoice(invoice), "intent": "select",
+                    "invoice_id": invoice.invoice_id}
+        if intent.kind == "schedule":
+            return _offer_schedule(invoice, conversation_id, channel, store, invoice_store)
+        if intent.kind == "dispute":
+            return _raise_dispute(invoice, conversation_id, channel, store, invoice_store)
+        if intent.kind == "problem":
+            # No diagnosis attempted. They asked for a person, and guessing
+            # at the problem first answers a question they did not ask.
+            store.record_event(conversation_id, kind="escalated_by_request", channel=channel,
+                               detail={"invoice_id": invoice.invoice_id})
+            return {"reply": f"Understood -- I have flagged {invoice.invoice_id} for a person "
+                             "to pick up, and paused automated messages on it. Anything you "
+                             "add here goes to them with it.",
+                    "intent": "problem", "invoice_id": invoice.invoice_id}
+    finally:
+        invoice_store.close()
+    return None
+
 def handle_inbound_message(
     *,
     conversation_id: str,
@@ -1241,6 +1478,29 @@ def handle_inbound_message(
         store.record_event(conversation_id, kind="reply_received", channel=channel, detail={"text": text})
 
         result: dict[str, object] = {"handled": True, "text": text, "external_id": external_id}
+
+        # A menu command is answered here, before any model call. "2" or
+        # "dispute" needs no language understanding, and routing it through
+        # an extractor would cost four seconds and a chance of being read as
+        # something the debtor did not ask for. Anything that is not
+        # unambiguously a command returns None and takes the ordinary path.
+        intent = detect_intent(text)
+        if intent is not None:
+            answered = _handle_intent(intent, conversation_id=conversation_id,
+                                      channel=channel, store=store)
+            if answered is not None:
+                reply_text = str(answered["reply"])
+                try:
+                    send(reply_text)
+                except ChannelUnavailable:
+                    _log.warning("inbound: reply send failed on %s", channel, exc_info=True)
+                    store.record_event(conversation_id, kind="reply_send_failed", channel=channel)
+                    return result
+                store.record_turn(conversation_id, direction="outbound", text=reply_text)
+                store.record_event(conversation_id, kind="agent_replied", channel=channel,
+                                   detail={"text": reply_text, "intent": answered.get("intent")})
+                result.update({"agent_reply": reply_text, "self_service": answered.get("intent")})
+                return result
 
         try:
             extraction = _diagnose_and_note(text, conversation_context=transcript or None)

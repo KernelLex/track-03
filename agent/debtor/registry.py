@@ -25,6 +25,8 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
+from agent.clock import business_today
+
 from agent.db import connect
 from agent.debtor.score import DebtorTerms, PromiseOutcome, terms_for
 
@@ -216,7 +218,7 @@ class DebtorRegistry:
         Time passing is what resolves this, not a judgement about the
         debtor -- which is exactly the property that makes the resulting
         score defensible."""
-        today = today or date.today()
+        today = today or business_today()
         rows = self._conn.execute(
             "SELECT id, promised_date FROM promise_outcomes WHERE debtor_id = ? AND outcome = 'pending'",
             (debtor_id,),

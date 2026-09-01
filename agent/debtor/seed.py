@@ -20,6 +20,9 @@ from __future__ import annotations
 import os
 from datetime import date, timedelta
 
+from agent.clock import business_today
+
+from agent.debtor.invoices import OUTSTANDING, PAID, Invoice, InvoiceStore
 from agent.debtor.registry import Debtor, DebtorRegistry
 
 REAL_DEBTOR_ID = "debtor_live"
@@ -53,6 +56,53 @@ _SEEDED = [
 ]
 
 
+# (invoice_id, amount_paise, days_from_today_due, status)
+#
+# Every debtor gets a small ledger rather than the single invoice the
+# demo used to assume, because "which of these do I still owe" is the
+# question a real counterparty asks first -- and it cannot be asked of a
+# list of one. Paid rows are included deliberately: a debtor confirming
+# what has already cleared is a support request answered without a chase.
+_INVOICES = {
+    "debtor_live": [
+        ("INV-2201", 42_500_00, -22, OUTSTANDING),
+        ("INV-2176", 18_400_00, -51, PAID),
+        ("INV-2244", 9_750_00, 6, OUTSTANDING),
+    ],
+    "debtor_kavya": [
+        ("INV-2188", 68_000_00, -14, OUTSTANDING),
+        ("INV-2140", 22_000_00, -60, PAID),
+    ],
+    "debtor_meridian": [
+        ("INV-2194", 1_15_000_00, -30, OUTSTANDING),
+        ("INV-2151", 35_000_00, -75, PAID),
+        ("INV-2249", 27_300_00, 11, OUTSTANDING),
+    ],
+    "debtor_sunrise": [
+        ("INV-2203", 37_500_00, -18, OUTSTANDING),
+        ("INV-2162", 12_000_00, -44, PAID),
+    ],
+    "debtor_orbit": [
+        ("INV-2211", 92_000_00, -37, OUTSTANDING),
+        ("INV-2199", 30_000_00, -55, OUTSTANDING),
+    ],
+}
+
+
+def seed_invoices(store: InvoiceStore, *, today: date | None = None) -> int:
+    """Idempotent, and never overwrites a status a real payment or dispute
+    has moved -- `add_if_absent`, not `upsert`, for exactly that reason."""
+    today = today or business_today()
+    written = 0
+    for debtor_id, rows in _INVOICES.items():
+        for invoice_id, amount_paise, due_offset, status in rows:
+            written += store.add_if_absent(Invoice(
+                debtor_id=debtor_id, invoice_id=invoice_id, amount_paise=amount_paise,
+                due_date=(today + timedelta(days=due_offset)).isoformat(), status=status,
+            ))
+    return written
+
+
 def seed_registry(registry: DebtorRegistry, *, today: date | None = None) -> list[str]:
     """Idempotent: safe to call on every boot.
 
@@ -60,7 +110,7 @@ def seed_registry(registry: DebtorRegistry, *, today: date | None = None) -> lis
     can't inflate a seeded history -- and a real debtor's earned score is
     never touched by this at all.
     """
-    today = today or date.today()
+    today = today or business_today()
     written: list[str] = []
 
     for debtor, promises in _SEEDED:

@@ -41,6 +41,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
+from agent.clock import business_today
+
 from agent.mandate.early_payment import DEFAULT_DISCOUNT_RATE, DEFAULT_WINDOW_DAYS, compute_early_payment_offer
 from agent.mandate.instrument import InstrumentSpec, Promise, select_instrument
 from agent.mandate.rail_capability import DeployableInstrument, deployable_instrument
@@ -142,7 +144,7 @@ def build_plan(
         raise PlanRejected("every instalment must be a positive amount")
 
     ordered = sorted(legs, key=lambda leg: leg[1])
-    today = today or date.today()
+    today = today or business_today()
 
     priced: list[PlanLeg] = []
     for index, (amount_paise, due_date) in enumerate(ordered, start=1):

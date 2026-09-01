@@ -13,6 +13,8 @@ allowed anywhere outside a test — see the field's own docstring.
 from __future__ import annotations
 
 from datetime import date, timedelta
+
+from agent.clock import business_today
 from enum import Enum
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -119,7 +121,7 @@ def _validate_promise_date(value: str | None) -> str | None:
         parsed = date.fromisoformat(value)
     except ValueError as exc:
         raise ValueError(f"promise.date {value!r} is not a valid ISO8601 date") from exc
-    today = date.today()
+    today = business_today()
     if parsed < today - timedelta(days=30) or parsed > today + timedelta(days=MAX_PROMISE_DATE_HORIZON_DAYS):
         raise ValueError(
             f"promise.date {value!r} is outside a plausible horizon "
