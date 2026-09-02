@@ -97,6 +97,57 @@ before a live send can use them. The code that calls them is real and
 tested; the templates themselves are a Meta-console setup step, not a
 code gap.
 
+## Update, 2026-09-02 — a template is approved and a real send was delivered
+
+**Read the previous paragraph carefully before assuming this supersedes it.
+It does not.** The approved template lives on **Twilio**, not on the Meta
+Cloud API path that `agent/notify/whatsapp.py` implements. Those are two
+different integrations that both say "WhatsApp", and conflating them is the
+easiest mistake to make in this file.
+
+What is now true:
+
+```
+name:              truecommit_invoice_reminder_v2
+sid:               HX7fab710a0f32ab9e8a1be21250bf98a3
+status:            approved
+category:          UTILITY
+rejection_reason:  (none)
+```
+
+Body, with its four variables:
+
+> Hi, this is TrueCommit on behalf of Acme Textiles. Invoice `{{1}}` for Rs
+> `{{2}}` is now `{{3}}` days overdue. You can pay here: `{{4}}` — reply to
+> this message if anything about the invoice looks wrong.
+
+A real cold outbound was sent against it to a real handset —
+`MM8227e461795d36d03ca12dd3e2553ade` — and **polled to a terminal status of
+`delivered`**. That distinction matters: Twilio's create call returns
+`queued`, and a document that reported `queued` as success would be claiming
+delivery it had not observed. The status above was read back from
+`GET /Messages/{sid}.json` after the fact.
+
+This closes the "cold outbound needs an approved template" blocker: a debtor
+who has never messaged first can now be contacted on WhatsApp. It is also
+what makes `WHATSAPP_SESSION_WINDOW` (bounds rule 20) load-bearing rather
+than theoretical — outside the 24-hour window, only an approved template may
+be sent, and that rule is now enforcing a constraint the system can actually
+run into.
+
+**What is still not done**, so this section is not read as more than it is:
+
+* `agent/notify/whatsapp.py` — the direct Meta Cloud API module — **still
+  has not made a real call**. It stays tested against `httpx.MockTransport`
+  only, and `WHATSAPP_ACCESS_TOKEN` / `WHATSAPP_APP_SECRET` are still unset.
+  Everything above went through Twilio.
+* **No inbound reply is wired into the pipeline.** A WhatsApp reply carries a
+  `wa_id` and nothing else; resolving that to a `debtor_id` and an
+  `invoice_id` needs the merchant AR lookup described below and in
+  `docs/ORCHESTRATION.md`.
+* The interactive-button templates are still uncreated. Only the plain-text
+  reminder is approved.
+
 ## Fields needed to go live
 
 From my 2026-09-01 handoff notes: `phone_number_id=1306946662503182`,

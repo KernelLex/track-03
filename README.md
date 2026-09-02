@@ -213,15 +213,20 @@ server-side rather than shipping it to every visitor — see
 
 ## What's still open
 
-I'm blocked on things outside my own code, not on more of it: the Twilio
-WhatsApp sender is genuinely live now (a real send was accepted and
-routed — see `docs/CHANNELS.md`'s Twilio section), but a real Content
-Template is still needed for a cold outbound send, since a debtor won't
-have messaged first — the same platform rule every WhatsApp provider
-enforces, not an account restriction. The direct Meta integration
-(`agent/notify/whatsapp.py`, see [`docs/WHATSAPP.md`](docs/WHATSAPP.md))
-remains its own separate path, blocked on Meta's own business
-verification. Also still open: my Razorpay test account's own live-rail
+I'm blocked on things outside my own code, not on more of it.
+
+**WhatsApp cold outbound is no longer one of them.** As of 2026-09-02 the
+Content Template `truecommit_invoice_reminder_v2` is **approved** (category
+`UTILITY`), and a real templated message has been sent to a real handset and
+confirmed `delivered` by Twilio — `MM8227e461795d36d03ca12dd3e2553ade`, not
+`queued` or `accepted` but the terminal delivery status. That makes WhatsApp
+the third live outbound channel alongside Telegram and Twilio voice. The
+direct Meta Cloud API integration (`agent/notify/whatsapp.py`, see
+[`docs/WHATSAPP.md`](docs/WHATSAPP.md)) remains a **separate, still-unbuilt
+path** — it is blocked on Meta business verification, and the live sends go
+through Twilio, not through that module.
+
+Still open: my Razorpay test account's own live-rail
 ceiling on `present_debit`/`modify_mandate`. See `docs/LIMITATIONS.md` for
 the complete list, including what I deliberately scoped out (the
 25-respondent vignette study, §27) rather than left undone by accident.

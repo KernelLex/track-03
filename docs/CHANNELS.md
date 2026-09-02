@@ -54,7 +54,7 @@ what's actually exercised."
 | Telegram | `agent/notify/telegram.py` | ✅ mocked (`tests/agent/test_notify_channels.py`) | ✅ 2026-08-31 — real send confirmed, see below |
 | Twilio voice (`ivr`) | `agent/notify/twilio_voice.py` | ✅ mocked | 🔶 2026-08-31 — credentials confirmed; real call cleanly refused by Twilio's own trial-account limits, see below |
 | Simulated | `agent/notify/simulated.py` | ✅ | n/a — never touches the network by design |
-| Twilio WhatsApp | `agent/notify/twilio_whatsapp.py` | ✅ mocked (`tests/agent/test_twilio_whatsapp_channel.py`, 16 tests) | 🔶 2026-09-01 — sender genuinely live (real send accepted and routed); a real Content Template is submitted and in WhatsApp review, which a cold send needs, see below |
+| Twilio WhatsApp | `agent/notify/twilio_whatsapp.py` | ✅ mocked (`tests/agent/test_twilio_whatsapp_channel.py`, 16 tests) | ✅ 2026-09-02 — Content Template `truecommit_invoice_reminder_v2` **approved**; a real cold outbound reached terminal status `delivered` (`MM8227e461795d36d03ca12dd3e2553ade`), see below |
 | SMS / email | not implemented | — | — |
 
 "Tested" means I assert the request shape (URL, body, form/JSON encoding)
@@ -178,6 +178,28 @@ is older than 24 hours, and requires the template path instead. It is
 filed in the `stopping` register rather than `regulatory`: Meta's policy is
 a vendor's terms of service, not law, and filing it beside RBI/TRAI/MSMED
 would overstate it — a test asserts which register it lives in.
+
+**Update, 2026-09-02 — the template cleared review, and a cold outbound was
+delivered.** `truecommit_invoice_reminder_v2`
+(`HX7fab710a0f32ab9e8a1be21250bf98a3`) came back `approved`, category
+`UTILITY`, no rejection reason. A real templated send then went to a real
+handset and reached a terminal status of **`delivered`**:
+
+```
+sid:    MM8227e461795d36d03ca12dd3e2553ade
+from:   whatsapp:+19376467656
+status: delivered        (polled from GET /Messages/{sid}.json)
+```
+
+The polling is the point. Twilio's create call returns `queued`, and the
+earlier 63016 finding above exists precisely because an accepted send is not
+a delivered one — reporting `queued` as success would have repeated that
+mistake in the opposite direction. This row moves from 🔶 to ✅.
+
+It also makes `WHATSAPP_SESSION_WINDOW` load-bearing rather than defensive:
+the template path it points a refused free-form send toward now actually
+exists and works, so the rule routes to a real capability instead of a
+documented intention.
 
 Error 63016 is why this rule is better sourced than most: it was not only
 read in Meta's documentation, it was *hit*, by a real send from this

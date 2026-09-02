@@ -51,12 +51,22 @@ credentials are required to run the main suite). It's still **not**:
   Telegram messages live, repeatedly, since 2026-08-31 (`docs/CHANNELS.md`);
   Twilio voice is still blocked on the connected account owning a phone
   number, an external/billing blocker, not a code gap
-- A live WhatsApp send. `agent/notify/whatsapp.py` is code-complete and
-  I've tested it against Meta's documented Cloud API request/response
-  shapes via `httpx.MockTransport` (37 tests) — the same standard I held
-  `TwilioVoiceChannel` to before its own live credentials existed — but I
-  don't have a real Meta Business account yet, so nothing here has touched
-  Meta's actual API. See `docs/WHATSAPP.md`.
+- ~~A live WhatsApp send.~~ **Done, 2026-09-02.** The Twilio Content
+  Template `truecommit_invoice_reminder_v2` came back `approved` (category
+  `UTILITY`, no rejection reason), and a real templated cold outbound went
+  to a real handset: message `MM8227e461795d36d03ca12dd3e2553ade`,
+  polled to a terminal status of **`delivered`** rather than reported at
+  `queued`. WhatsApp is now the third live outbound channel.
+
+  Two things this does *not* cover, stated so the row is not read as more
+  than it is. **`agent/notify/whatsapp.py` still has not touched Meta's
+  API** — that module is the direct Meta Cloud API path, it remains tested
+  only against `httpx.MockTransport` (37 tests), and it is still blocked on
+  Meta business verification. The live sends go through Twilio, which is a
+  different code path. And **no inbound WhatsApp reply has been wired into
+  the pipeline**: a reply carries a `wa_id`, and resolving that to a debtor
+  and an invoice needs the merchant AR lookup documented in
+  `docs/ORCHESTRATION.md`. See `docs/WHATSAPP.md`.
 
 ## Webhook receiver (§19) — permanently deployed now, not a tunnel
 
