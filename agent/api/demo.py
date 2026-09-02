@@ -1703,7 +1703,18 @@ async def telegram_webhook(request: Request) -> dict[str, object]:
     # never be able to drive the conversation, and their message must never
     # surface as though the demo's own debtor had sent it.
     demo_contact = os.environ.get("DEMO_CONTACT_TELEGRAM_CHAT_ID")
-    if demo_contact and chat_id != str(demo_contact):
+    # Fail closed. `if configured and ...` skipped the check entirely when
+    # the variable was unset, so an unconfigured deployment accepted a
+    # message from any chat, ran a real model call on it, and replied --
+    # on a public endpoint. Caught by a probe from chat id "1" coming back
+    # `handled: true` instead of `not_the_demo_contact`.
+    #
+    # There is no legitimate case for this endpoint talking to an unknown
+    # chat, so an unset contact refuses rather than opening up.
+    if not demo_contact:
+        _log.warning("telegram webhook: DEMO_CONTACT_TELEGRAM_CHAT_ID is not configured -- refusing")
+        return {"ok": True, "handled": False, "reason": "demo_contact_not_configured"}
+    if chat_id != str(demo_contact):
         _log.info("telegram webhook: ignoring a message from a non-demo chat")
         return {"ok": True, "handled": False, "reason": "not_the_demo_contact"}
 
@@ -2349,7 +2360,18 @@ async def subscription_telegram_webhook(request: Request) -> dict[str, object]:
         return {"ok": True, "handled": False, "reason": "no_text"}
 
     configured = os.environ.get("DEMO_CONTACT_SUBSCRIPTION_CHAT_ID")
-    if configured and chat_id != str(configured):
+    # Fail closed. `if configured and ...` skipped the check entirely when
+    # the variable was unset, so an unconfigured deployment accepted a
+    # message from any chat, ran a real model call on it, and replied --
+    # on a public endpoint. Caught by a probe from chat id "1" coming back
+    # `handled: true` instead of `not_the_demo_contact`.
+    #
+    # There is no legitimate case for this endpoint talking to an unknown
+    # chat, so an unset contact refuses rather than opening up.
+    if not configured:
+        _log.warning("subscription webhook: DEMO_CONTACT_SUBSCRIPTION_CHAT_ID is not configured -- refusing")
+        return {"ok": True, "handled": False, "reason": "demo_contact_not_configured"}
+    if chat_id != str(configured):
         _log.info("subscription webhook: ignoring a message from a non-demo chat")
         return {"ok": True, "handled": False, "reason": "not_the_demo_contact"}
 

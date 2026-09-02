@@ -268,3 +268,59 @@ class TestTheThreadsDoNotCollide:
         _alert(client, "headroom")
         b2b = client.get("/demo/timeline", params={"conversation_id": CHAT_ID}).json()
         assert b2b["events"] == []
+
+
+class TestTheContactGuardFailsClosed:
+    """`if configured and chat_id != configured` skipped the check entirely
+    when the variable was unset, so an unconfigured deployment accepted a
+    message from *any* chat, ran a real model call on it, and replied -- on
+    a public endpoint.
+
+    Caught in production by a probe from chat id "1" coming back
+    `handled: true` instead of `not_the_demo_contact`. The b2b webhook had
+    the identical bug and was safe only because its variable happened to be
+    set.
+    """
+
+    def test_an_unconfigured_subscription_contact_refuses_everyone(self, client, monkeypatch):
+        monkeypatch.delenv("DEMO_CONTACT_SUBSCRIPTION_CHAT_ID", raising=False)
+        response = client.post(
+            "/demo/telegram-webhook/subscription",
+            json={"update_id": 41, "message": {"chat": {"id": "1"}, "text": "probe"}},
+            headers={"X-Telegram-Bot-Api-Secret-Token": "sub-hook-secret"},
+        )
+        assert response.json()["handled"] is False
+        assert response.json()["reason"] == "demo_contact_not_configured"
+
+    def test_an_unconfigured_b2b_contact_refuses_everyone(self, client, monkeypatch):
+        monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", "b2b-secret")
+        monkeypatch.delenv("DEMO_CONTACT_TELEGRAM_CHAT_ID", raising=False)
+        response = client.post(
+            "/demo/telegram-webhook",
+            json={"update_id": 42, "message": {"chat": {"id": "1"}, "text": "probe"}},
+            headers={"X-Telegram-Bot-Api-Secret-Token": "b2b-secret"},
+        )
+        assert response.json()["reason"] == "demo_contact_not_configured"
+
+    def test_the_configured_contact_still_gets_through(self, client, monkeypatch):
+        """Failing closed must not close on the person it exists for.
+
+        Asserted by whether the extractor was *reached*, not by the reply --
+        a guard that rejects at the door never gets that far, and that is
+        the difference this test is measuring."""
+        from agent.diagnose.extract import DiagnosisClass, ExtractionResult, Family
+
+        reached = []
+        monkeypatch.setattr(
+            demo_module, "extract_from_reply",
+            lambda t, **kw: reached.append(t) or ExtractionResult(
+                family=Family.C, class_=DiagnosisClass.STALLING, confidence=0.5),
+        )
+        monkeypatch.setattr(demo_module, "compose_reply", lambda reply_text, **kw: "ok")
+
+        client.post(
+            "/demo/telegram-webhook/subscription",
+            json={"update_id": 43, "message": {"chat": {"id": CHAT_ID}, "text": "hi"}},
+            headers={"X-Telegram-Bot-Api-Secret-Token": "sub-hook-secret"},
+        )
+        assert reached == ["hi"], "the configured contact was refused at the door"

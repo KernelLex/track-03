@@ -945,6 +945,51 @@ and the same band.
 mandate warning appeared inside the invoice story. There is now a thread
 switcher, and in "All" mode subscription rows carry a tag.
 
+## 25. The webhook's "only the demo contact" guard failed open
+
+**Symptom.** Found by a preflight probe against the deployed service before
+running a live test. A message posted from chat id `"1"` -- an id belonging
+to nobody in this demo -- came back `{"ok": true, "handled": true}` instead
+of `not_the_demo_contact`. It was diagnosed by a real model call and a reply
+was attempted.
+
+**Root cause.** Both Telegram webhooks guarded the same way:
+
+```python
+demo_contact = os.environ.get("DEMO_CONTACT_TELEGRAM_CHAT_ID")
+if demo_contact and chat_id != str(demo_contact):
+    return {"ok": True, "handled": False, "reason": "not_the_demo_contact"}
+```
+
+The `demo_contact and` is the bug. With the variable unset the whole
+comparison is skipped and *every* chat is accepted -- on a public endpoint.
+The intent was "if we know who the contact is, enforce it"; the effect was
+"if we don't know, let anyone in".
+
+Both the b2b and subscription webhooks had it. The b2b one had never
+misbehaved for one reason only: its variable happened to be set. It was one
+missing environment variable away from letting any stranger who found the
+bot drive the conversation, spend real model budget, and receive real
+replies.
+
+**This is the same shape as WHAT_BROKE #22.** A check that cannot
+distinguish the passing case from the failing one, because the environment
+made the distinction invisible. There, IST and UTC agreed on my machine.
+Here, the guard and no-guard behave identically whenever the variable is
+set -- which it always was, everywhere it was tested.
+
+**Fix.** Fail closed. An unset contact refuses with
+`demo_contact_not_configured` rather than opening up. There is no legitimate
+case for this endpoint talking to an unknown chat, so "we don't know who to
+talk to" is a reason to refuse, not a reason to accept.
+
+**Verification.**
+`TestTheContactGuardFailsClosed` deletes the variable and asserts both
+webhooks refuse -- and, separately, that the configured contact still gets
+through, measured by whether the *extractor was reached* rather than by the
+reply. A guard that rejects at the door never gets that far, which is
+precisely the difference being tested.
+
 ## What this list is for
 
 I found every one of these by actually building against DEVDOC_v6, not by
