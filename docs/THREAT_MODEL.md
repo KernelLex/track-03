@@ -109,10 +109,10 @@ implicit.
 
 | Endpoint | Auth | What bounds it |
 |---|---|---|
-| `POST /demo/telegram-webhook` | Telegram's `secret_token`, echoed in `X-Telegram-Bot-Api-Secret-Token` | Verified **before the body is read**, the same discipline `verify_and_ingest()` uses for Razorpay. Unset secret returns 503 rather than accepting unverified deliveries. A message from any chat that is not `DEMO_CONTACT_TELEGRAM_CHAT_ID` is acknowledged and dropped, so a stranger who finds the bot can never surface as the demo's own debtor |
+| `POST /demo/telegram-webhook` | Telegram's `secret_token`, echoed in `X-Telegram-Bot-Api-Secret-Token` | Verified **before the body is read**, the same discipline `verify_and_ingest()` uses for Razorpay. Unset secret returns 503 rather than accepting unverified deliveries. A message from any chat that is not `DEMO_CONTACT_TELEGRAM_CHAT_ID` is acknowledged and dropped, so a stranger who finds the bot can never surface as the demo's own debtor. **The guard fails closed**: an *unset* contact id refuses everyone rather than skipping the check, which is what it used to do (WHAT_BROKE #25) |
 | `POST /demo/trigger` | `DEMO_TRIGGER_SECRET` | A soft guard, not an auth boundary -- it is attached server-side by a serverless function that anyone with the site URL can reach. The real bound is that Telegram's recipient is never taken from the request, and the phone channels validate E.164 and enforce a 5-minute per-number cooldown |
 | `GET /demo/timeline` | none | Read-only, and exposes the demo's own scripted invoice plus the demo owner's own replies to their own bot. Requiring the trigger secret would mean baking a *send* credential into a page that only wants to watch |
-| `POST /demo/telegram-webhook/subscription` | The **subscription bot's own** `secret_token` | A separate path and a separate secret from the b2b bot's, deliberately: when a delivery starts 403ing, `getWebhookInfo`'s URL should say immediately which bot broke. Same before-the-body verification, same non-demo-chat rejection |
+| `POST /demo/telegram-webhook/subscription` | The **subscription bot's own** `secret_token` | A separate path and a separate secret from the b2b bot's, deliberately: when a delivery starts 403ing, `getWebhookInfo`'s URL should say immediately which bot broke. Same before-the-body verification, same fail-closed non-demo-chat rejection |
 | `POST /demo/subscription-alert` | `DEMO_TRIGGER_SECRET` | Can only warn about a mandate in the seeded portfolio, named by defect kind rather than by arbitrary id, and refuses (409) for a mandate that is healthy -- so it cannot be used to manufacture an alarm. Honors a caller-supplied phone number under the same E.164 validation and 5-minute per-number cooldown as `/demo/trigger` |
 | `GET /demo/mandate-health` | none | Read-only. Exposes the seeded mandate book and the detector's verdict on it -- constructed fixtures, nothing belonging to a third party |
 | `POST /demo/reset` | `DEMO_TRIGGER_SECRET` | Restores only the invoices `agent/debtor/seed.py` declares; a row created by anything else is left alone. Never touches the recovery ledger, the hash-chained ledger, or the promise history behind a debtor's score — those record things that really happened, and a demo convenience has no business rewriting them |
@@ -125,6 +125,16 @@ limited, never to an arbitrary recipient of their choosing on Telegram).
 For a public demo of a project whose data is its own fixtures, that is an
 acceptable trade; for a real deployment it is not, and none of these four
 endpoints belongs in one.
+
+**A second near miss, found the same way.** The chat-id guard on both
+Telegram webhooks read `if demo_contact and chat_id != demo_contact`. With
+the variable unset, the comparison was skipped and *every* chat was
+accepted -- on a public endpoint, with a real model call and a real reply
+behind it. The b2b webhook had never misbehaved for one reason only: its
+variable happened to be set everywhere it was tested. Guard and no-guard are
+indistinguishable whenever the value is present, so nothing could have
+surfaced it except probing a deployment directly, which is how it was found
+(WHAT_BROKE #25). It now refuses when unconfigured.
 
 **A near miss worth recording.** Verifying that the webhook secret was
 *configured* is not the same as verifying it *matches* -- the endpoint
