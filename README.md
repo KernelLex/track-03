@@ -133,7 +133,7 @@ regime, not sending another message.
 ```
 uv sync
 uv run trucommit demo     # a small, real, end-to-end walk of one debtor
-uv run pytest             # 1,151 collected: 1,140 run without credentials, 11 skipped (they run live with Razorpay test keys set)
+uv run pytest             # 1,318 collected: 1,307 run without credentials, 11 skipped (they run live with Razorpay test keys set)
 ```
 
 CI runs that same suite on every push (`.github/workflows/ci.yml`), on
@@ -149,7 +149,23 @@ uv run python eval/report.py                      # docs/RESULTS.md, from the lo
 uv run python tools/compute_at_risk_headline.py    # docs/evidence/AT_RISK_HEADLINE.md
 uv run python tools/run_adversarial_personas.py    # docs/evidence/ADVERSARIAL_PERSONAS.md
 uv run python tools/run_dry_run_batch.py           # docs/evidence/DRY_RUN_BATCH.md
+
+uv run python -m eval.golden.score --baseline      # keyword baseline, no API calls
+uv run python -m eval.golden.score --extractor     # 50 live extractions
+uv run python -m eval.golden.score --report        # docs/evidence/EXTRACTION_ACCURACY.md
 ```
+
+**Extraction accuracy is measured against a pre-registered golden set**, not
+demonstrated: 50 labelled debtor replies whose labels are committed in their
+own commit *before* the extractor is run against them, scored with Wilson
+intervals against a keyword baseline
+([`docs/evidence/EXTRACTION_ACCURACY.md`](docs/evidence/EXTRACTION_ACCURACY.md)).
+`score.py` refuses to run if the labels have uncommitted changes. The result
+is reported with its own limits stated: the extractor gets 49/50 on class and
+50/50 on family, but the baseline gets 45/50, so the class-accuracy gap is
+**not statistically significant at n=50** — the set is too clean to
+discriminate, and the report says so rather than quoting the 98% alone.
+Building the baseline is `docs/WHAT_BROKE.md` #27.
 
 See [`docs/SETUP.md`](docs/SETUP.md) for the verified clean-clone timing
 and [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md) for the complete,

@@ -25,6 +25,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPO = Path(__file__).resolve().parents[1]
@@ -127,6 +128,52 @@ def test_results_md_matches_what_the_eval_actually_produces():
         f"{result.stdout}\n{result.stderr}\n"
         "Run `python eval/report.py` and commit the result."
     )
+
+
+def test_extraction_accuracy_matches_what_the_scorer_produces():
+    """The third generated results document, gated on arrival rather than
+    after it drifts.
+
+    RESULTS.md went stale because it sat outside the gate (#18), and the
+    lesson recorded there was that gating one results doc and not another
+    is exactly how the first one drifts. So this one is gated in the same
+    commit that creates it, before it has had a chance to.
+
+    It also gates something the other two do not: a stale
+    EXTRACTION_ACCURACY.md could publish a *different accuracy figure* than
+    the committed run in golden_extractor_results.json actually produced,
+    which is the specific way a pre-registered result stops meaning
+    anything. Cheap to check -- no model calls, both result sets are
+    cached.
+    """
+    result = subprocess.run(
+        [sys.executable, "-m", "eval.golden.score", "--check"],
+        cwd=REPO, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, (
+        "docs/evidence/EXTRACTION_ACCURACY.md is stale with respect to "
+        f"eval/golden/score.py:\n{result.stdout}\n{result.stderr}\n"
+        "Run `python -m eval.golden.score --report` and commit the result."
+    )
+
+
+def test_the_golden_labels_are_committed_before_the_results_they_score():
+    """Pre-registration, asserted rather than trusted.
+
+    The whole claim of EXTRACTION_ACCURACY.md rests on replies.jsonl being
+    committed before the extractor ran against it. `score.py` enforces that
+    at run time; this asserts the enforcement is actually reachable and has
+    not been quietly disabled -- and it fails loudly on a shallow clone
+    instead of passing for the wrong reason, which is the trap that made
+    eleven red CI runs report green (WHAT_BROKE #22).
+    """
+    from eval.golden.score import PreregistrationViolation, verify_preregistration
+
+    try:
+        commit = verify_preregistration()
+    except PreregistrationViolation as exc:
+        pytest.fail(f"golden-set pre-registration is not intact: {exc}")
+    assert len(commit) == 40, "expected a full commit sha for the label commit"
 
 
 def test_results_family_b_matches_what_its_eval_produces():

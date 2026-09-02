@@ -9,7 +9,7 @@ I've built a tested, working implementation of TrueCommit's **pure-logic
 safety and compliance core** (DEVDOC_v6 §5.2's "the judgment"), **now also
 wired to a real, live Razorpay test-mode account** (as of 2026-08-30) for
 the capabilities that account actually has, plus a real (if minimal) HTTP
-webhook receiver. **1,151 collected / 1,140 passing / 11 skipped as of 2026-09-02**,
+webhook receiver. **1,318 collected / 1,307 passing / 11 skipped as of 2026-09-02**,
 measured without live credentials in the shell (the 11 skipped are the
 Razorpay-live-only suite, which skips cleanly rather than failing — no
 credentials are required to run the main suite). It's still **not**:
@@ -242,9 +242,39 @@ objection-marker / deemed-acceptance logic I built on top of it
 `client.messages.parse()` against `claude-sonnet-5`, constructing a real
 `ExtractionResult` so every existing validator runs on the model's
 output) — tested against a mocked client (`tests/agent/test_llm_extract.py`,
-11 tests), never yet against the real API. §17.8's stratified golden set
-still doesn't exist — it needs real extractions to label, and I haven't
-produced any yet.
+11 tests).
+
+**Update, 2026-09-02 — §17.8's golden set now exists, and its result is
+weaker than the headline number looks.** `eval/golden/replies.jsonl` holds
+50 labelled replies; the labels are committed in their own commit before the
+extractor is run against them, and `eval/golden/score.py` refuses to score if
+that ordering cannot be established from git (it also refuses on a shallow
+clone, because `git log -1 -- <path>` returns HEAD there — the trap that made
+the doc-staleness gate report green for eleven runs, `WHAT_BROKE.md` #22).
+
+The extractor gets **49/50 on class and 50/50 on family**. A keyword baseline
+on the same 50 gets **45/50**, so the class-accuracy gap is **not significant
+at n=50** (+8.0 pp, p = 0.092). Only family accuracy clears the bar (p =
+0.041) — which is the comparison that matters, since family is what gates the
+action set, but it is a much narrower claim than "98% accurate".
+
+Three limits worth stating plainly, all of them in
+`docs/evidence/EXTRACTION_ACCURACY.md` too:
+
+* **A regex getting 90% means the set is too clean.** These are mostly
+  unambiguous exemplars, which is exactly what surface matching handles. The
+  set has weak power to discriminate.
+* **I wrote 49 of the 50 replies.** One is a real reply harvested from the
+  deployed Telegram bot. Authored text carries my own idea of what a debtor
+  sounds like; the fix is to keep harvesting live ones.
+* **The single miss is arguable and still counts as a miss.** `g048` was
+  labelled `MANDATE_INVALID` and read as `SILENT_REVOCATION`, and the
+  extractor has a real case. The label stands — moving it after seeing the
+  output is the exact thing pre-registration exists to prevent.
+
+Building the baseline is its own entry in `WHAT_BROKE.md` (#27): the first
+version scored 94% because I wrote the regexes against my own phrasing, one
+of them patching the very blind spot a test item existed to demonstrate.
 
 I've **built §11.7's Auditor for its two model-free jobs**: chain
 integrity (wraps `Ledger.verify_chain()`) and bounds integrity
@@ -337,6 +367,9 @@ needed.
   rule at all for a paise-as-int type computing fractional interest).
 
 ## Golden set / vignette study / adversarial personas / eval harness
+
+*The golden set itself is built as of 2026-09-02 — see the section above for
+its result and its three stated limits. The vignette study is still absent.*
 
 I've **built DEVDOC_v6 §24.1's injection corpus (40 cases) and its
 structural resistance tests** (`data/injection_corpus.jsonl`,

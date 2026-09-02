@@ -1055,6 +1055,63 @@ delivers one payment as two events and asserts one message; and asserts a
 genuinely different payment is still announced, so the claim cannot silence
 real news.
 
+## 27. I wrote the baseline against my own answers, and it nearly worked
+
+**Symptom.** The keyword baseline built to make the golden set's accuracy
+figure meaningful scored **94% class accuracy** on a 29-way problem. A
+60-line regex should not do that. The number was suspicious in the
+direction that mattered -- it was about to be published as the bar the
+extractor cleared.
+
+**Root cause.** I authored 49 of the 50 replies, and then wrote the regexes
+with those replies on screen. Several patterns were lifted straight out of
+individual items:
+
+```python
+(Family.C, CASHFLOW_SHORTFALL, r"... |account is empty|collection is (very )?bad|not paid us"),
+(Family.A, INSTRUMENT_EXPIRED,  r"expired|expiry|card is old"),
+```
+
+`collection is (very )?bad` matches exactly one item, `g001`. `account is
+empty` matches `g003`. And `card is old` matches `g045` -- whose own
+committed note reads *"a keyword baseline should miss this"*. I had written
+the test case to demonstrate the baseline's blind spot and then, forty
+minutes later, patched the blind spot without noticing it was the point.
+
+That is not a baseline. It is the answer key with extra steps, and every
+percentage point it earned made the extractor's margin look smaller while
+making the comparison meaningless.
+
+**Fix.** `baseline.py` is now restricted to vocabulary a collections domain
+expert would list *before* seeing the set -- `gst`, `challan`, `utr`,
+`mandate`, `otp`, `cash flow` -- with a docstring stating the constraint so
+the next edit has to honour it. It scores 90%.
+
+**What the fix did not fix, and the real finding.** 90% is still very high,
+and the honest reading is not that the baseline is good -- it is that **my
+golden set is too easy**. Unambiguous exemplars are exactly what regexes
+handle. The consequence is published rather than smoothed over: the
+extractor's class-accuracy win over the baseline is **not statistically
+significant** (+8.0 pp, p = 0.092), and `docs/evidence/
+EXTRACTION_ACCURACY.md` says so in its own results section. The set can
+show the extractor is not *worse* than a regex; it cannot show it is
+better. Only family accuracy, which is what actually gates the action set,
+clears the bar (p = 0.041).
+
+**Why no test caught it.** There was no test, because the baseline was
+itself the measuring instrument -- nothing was checking the checker. There
+are now two: one asserting the baseline clears 50% family accuracy (below
+that, beating it proves nothing) and one asserting it does not reach 100%
+class accuracy (at that point the model is unnecessary, which would be a
+finding of its own). Neither would have caught this specific bug. The thing
+that caught it was the number looking too good.
+
+**The near miss.** Had I written a slightly weaker baseline, it would have
+scored 60%, the extractor's 98% would have looked like a decisive win, and
+I would have published a comparison against a strawman I had built without
+realising it. The overfitting is what made the number implausible enough to
+check.
+
 ## What this list is for
 
 I found every one of these by actually building against DEVDOC_v6, not by

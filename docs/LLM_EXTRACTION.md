@@ -72,7 +72,18 @@ roughly $1.50–2. I haven't run this yet — see `PROGRESS.md`.
 | `extract_from_reply()` (the real call) | ✅ built, `tests/agent/test_llm_extract.py` (20 tests, all against a mocked client) |
 | Live call against the real API | ✅ **confirmed 2026-08-31 — see below** |
 | Budget tracking (`agent/spend.py`) | ✅ built, live-verified, see `docs/BUDGET.md` |
+| Accuracy on a pre-registered golden set | ✅ **2026-09-02 — 49/50 class, 50/50 family, but see the caveat** |
 | Wired into the live webhook → DIAGNOSE path | ⬜ not yet connected end to end |
+
+**On that accuracy row, before it gets quoted.** A keyword baseline
+(`eval/golden/baseline.py`) scores 45/50 on the same items, so the
+class-accuracy difference is **not statistically significant at n=50**
+(+8.0 pp, p = 0.092). Family accuracy — the thing that actually gates the
+action set — does clear the bar at p = 0.041. The full result, the
+confusion matrix, the one miss, and the reasons the set is too clean to
+discriminate are in
+[`docs/evidence/EXTRACTION_ACCURACY.md`](evidence/EXTRACTION_ACCURACY.md).
+Regenerate with `uv run python -m eval.golden.score --report`.
 
 Every test in `test_llm_extract.py` uses a `MagicMock` standing in for
 `anthropic.Anthropic()` — the suite passes with no `ANTHROPIC_API_KEY` set

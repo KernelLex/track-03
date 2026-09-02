@@ -1,0 +1,302 @@
+[
+  {
+    "id": "g001",
+    "predicted_family": "C",
+    "predicted_class": "CASHFLOW_SHORTFALL",
+    "confidence": null
+  },
+  {
+    "id": "g002",
+    "predicted_family": "C",
+    "predicted_class": "CASHFLOW_SHORTFALL",
+    "confidence": null
+  },
+  {
+    "id": "g003",
+    "predicted_family": "B",
+    "predicted_class": "GST_DEFECT",
+    "confidence": null
+  },
+  {
+    "id": "g004",
+    "predicted_family": "C",
+    "predicted_class": "CASHFLOW_SHORTFALL",
+    "confidence": null
+  },
+  {
+    "id": "g005",
+    "predicted_family": "C",
+    "predicted_class": "STALLING",
+    "confidence": null
+  },
+  {
+    "id": "g006",
+    "predicted_family": "C",
+    "predicted_class": "PROMISE_STATED",
+    "confidence": null
+  },
+  {
+    "id": "g007",
+    "predicted_family": "C",
+    "predicted_class": "PROMISE_STATED",
+    "confidence": null
+  },
+  {
+    "id": "g008",
+    "predicted_family": "C",
+    "predicted_class": "PROMISE_STATED",
+    "confidence": null
+  },
+  {
+    "id": "g009",
+    "predicted_family": "C",
+    "predicted_class": "PROMISE_STATED",
+    "confidence": null
+  },
+  {
+    "id": "g010",
+    "predicted_family": "C",
+    "predicted_class": "PROMISE_STATED",
+    "confidence": null
+  },
+  {
+    "id": "g011",
+    "predicted_family": "C",
+    "predicted_class": "PROMISE_STATED",
+    "confidence": null
+  },
+  {
+    "id": "g012",
+    "predicted_family": "C",
+    "predicted_class": "STALLING",
+    "confidence": null
+  },
+  {
+    "id": "g013",
+    "predicted_family": "C",
+    "predicted_class": "STALLING",
+    "confidence": null
+  },
+  {
+    "id": "g014",
+    "predicted_family": "C",
+    "predicted_class": "STALLING",
+    "confidence": null
+  },
+  {
+    "id": "g015",
+    "predicted_family": "C",
+    "predicted_class": "STALLING",
+    "confidence": null
+  },
+  {
+    "id": "g016",
+    "predicted_family": "C",
+    "predicted_class": "REFUSAL",
+    "confidence": null
+  },
+  {
+    "id": "g017",
+    "predicted_family": "C",
+    "predicted_class": "REFUSAL",
+    "confidence": null
+  },
+  {
+    "id": "g018",
+    "predicted_family": "C",
+    "predicted_class": "REFUSAL",
+    "confidence": null
+  },
+  {
+    "id": "g019",
+    "predicted_family": "B",
+    "predicted_class": "INVOICE_NOT_RECEIVED",
+    "confidence": null
+  },
+  {
+    "id": "g020",
+    "predicted_family": "B",
+    "predicted_class": "INVOICE_NOT_RECEIVED",
+    "confidence": null
+  },
+  {
+    "id": "g021",
+    "predicted_family": "B",
+    "predicted_class": "INVOICE_NOT_RECEIVED",
+    "confidence": null
+  },
+  {
+    "id": "g022",
+    "predicted_family": "B",
+    "predicted_class": "PO_MISMATCH",
+    "confidence": null
+  },
+  {
+    "id": "g023",
+    "predicted_family": "B",
+    "predicted_class": "PO_MISMATCH",
+    "confidence": null
+  },
+  {
+    "id": "g024",
+    "predicted_family": "B",
+    "predicted_class": "PO_MISMATCH",
+    "confidence": null
+  },
+  {
+    "id": "g025",
+    "predicted_family": "B",
+    "predicted_class": "GST_DEFECT",
+    "confidence": null
+  },
+  {
+    "id": "g026",
+    "predicted_family": "B",
+    "predicted_class": "GST_DEFECT",
+    "confidence": null
+  },
+  {
+    "id": "g027",
+    "predicted_family": "B",
+    "predicted_class": "ALREADY_PAID_UNRECONCILED",
+    "confidence": null
+  },
+  {
+    "id": "g028",
+    "predicted_family": "B",
+    "predicted_class": "ALREADY_PAID_UNRECONCILED",
+    "confidence": null
+  },
+  {
+    "id": "g029",
+    "predicted_family": "B",
+    "predicted_class": "ALREADY_PAID_UNRECONCILED",
+    "confidence": null
+  },
+  {
+    "id": "g030",
+    "predicted_family": "B",
+    "predicted_class": "APPROVAL_BOTTLENECK",
+    "confidence": null
+  },
+  {
+    "id": "g031",
+    "predicted_family": "B",
+    "predicted_class": "APPROVAL_BOTTLENECK",
+    "confidence": null
+  },
+  {
+    "id": "g032",
+    "predicted_family": "B",
+    "predicted_class": "DOCUMENT_MISSING",
+    "confidence": null
+  },
+  {
+    "id": "g033",
+    "predicted_family": "B",
+    "predicted_class": "BANK_DETAIL_MISMATCH",
+    "confidence": null
+  },
+  {
+    "id": "g034",
+    "predicted_family": "B",
+    "predicted_class": "INVOICE_NOT_RECEIVED",
+    "confidence": null
+  },
+  {
+    "id": "g035",
+    "predicted_family": "D",
+    "predicted_class": "QUANTITY_QUALITY",
+    "confidence": null
+  },
+  {
+    "id": "g036",
+    "predicted_family": "D",
+    "predicted_class": "QUANTITY_QUALITY",
+    "confidence": null
+  },
+  {
+    "id": "g037",
+    "predicted_family": "D",
+    "predicted_class": "AMOUNT",
+    "confidence": null
+  },
+  {
+    "id": "g038",
+    "predicted_family": "D",
+    "predicted_class": "AMOUNT",
+    "confidence": null
+  },
+  {
+    "id": "g039",
+    "predicted_family": "C",
+    "predicted_class": "STALLING",
+    "confidence": null
+  },
+  {
+    "id": "g040",
+    "predicted_family": "D",
+    "predicted_class": "CONTRACT",
+    "confidence": null
+  },
+  {
+    "id": "g041",
+    "predicted_family": "D",
+    "predicted_class": "CONTRACT",
+    "confidence": null
+  },
+  {
+    "id": "g042",
+    "predicted_family": "D",
+    "predicted_class": "NOT_OUR_DEBT",
+    "confidence": null
+  },
+  {
+    "id": "g043",
+    "predicted_family": "D",
+    "predicted_class": "NOT_OUR_DEBT",
+    "confidence": null
+  },
+  {
+    "id": "g044",
+    "predicted_family": "A",
+    "predicted_class": "INSTRUMENT_EXPIRED",
+    "confidence": null
+  },
+  {
+    "id": "g045",
+    "predicted_family": "C",
+    "predicted_class": "STALLING",
+    "confidence": null
+  },
+  {
+    "id": "g046",
+    "predicted_family": "A",
+    "predicted_class": "INSUFFICIENT_FUNDS",
+    "confidence": null
+  },
+  {
+    "id": "g047",
+    "predicted_family": "A",
+    "predicted_class": "INSUFFICIENT_FUNDS",
+    "confidence": null
+  },
+  {
+    "id": "g048",
+    "predicted_family": "A",
+    "predicted_class": "MANDATE_INVALID",
+    "confidence": null
+  },
+  {
+    "id": "g049",
+    "predicted_family": "A",
+    "predicted_class": "LIMIT_EXCEEDED",
+    "confidence": null
+  },
+  {
+    "id": "g050",
+    "predicted_family": "A",
+    "predicted_class": "AUTH_FAILURE",
+    "confidence": null
+  }
+]

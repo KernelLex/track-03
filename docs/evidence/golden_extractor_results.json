@@ -1,0 +1,352 @@
+[
+  {
+    "id": "g001",
+    "predicted_family": "C",
+    "predicted_class": "CASHFLOW_SHORTFALL",
+    "confidence": 0.85,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g002",
+    "predicted_family": "C",
+    "predicted_class": "CASHFLOW_SHORTFALL",
+    "confidence": 0.82,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g003",
+    "predicted_family": "C",
+    "predicted_class": "CASHFLOW_SHORTFALL",
+    "confidence": 0.72,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g004",
+    "predicted_family": "C",
+    "predicted_class": "CASHFLOW_SHORTFALL",
+    "confidence": 0.83,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g005",
+    "predicted_family": "C",
+    "predicted_class": "CASHFLOW_SHORTFALL",
+    "confidence": 0.78,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g006",
+    "predicted_family": "C",
+    "predicted_class": "PROMISE_STATED",
+    "confidence": 0.62,
+    "promise_amount_paise": 2100000
+  },
+  {
+    "id": "g007",
+    "predicted_family": "C",
+    "predicted_class": "PROMISE_STATED",
+    "confidence": 0.75,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g008",
+    "predicted_family": "C",
+    "predicted_class": "PROMISE_STATED",
+    "confidence": 0.85,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g009",
+    "predicted_family": "C",
+    "predicted_class": "PROMISE_STATED",
+    "confidence": 0.85,
+    "promise_amount_paise": 4500000
+  },
+  {
+    "id": "g010",
+    "predicted_family": "C",
+    "predicted_class": "PROMISE_STATED",
+    "confidence": 0.72,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g011",
+    "predicted_family": "C",
+    "predicted_class": "PROMISE_STATED",
+    "confidence": 0.75,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g012",
+    "predicted_family": "C",
+    "predicted_class": "STALLING",
+    "confidence": 0.82,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g013",
+    "predicted_family": "C",
+    "predicted_class": "STALLING",
+    "confidence": 0.55,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g014",
+    "predicted_family": "C",
+    "predicted_class": "STALLING",
+    "confidence": 0.82,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g015",
+    "predicted_family": "C",
+    "predicted_class": "STALLING",
+    "confidence": 0.75,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g016",
+    "predicted_family": "C",
+    "predicted_class": "REFUSAL",
+    "confidence": 0.85,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g017",
+    "predicted_family": "C",
+    "predicted_class": "REFUSAL",
+    "confidence": 0.6,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g018",
+    "predicted_family": "C",
+    "predicted_class": "REFUSAL",
+    "confidence": 0.85,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g019",
+    "predicted_family": "B",
+    "predicted_class": "INVOICE_NOT_RECEIVED",
+    "confidence": 0.9,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g020",
+    "predicted_family": "B",
+    "predicted_class": "INVOICE_NOT_RECEIVED",
+    "confidence": 0.85,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g021",
+    "predicted_family": "B",
+    "predicted_class": "INVOICE_NOT_RECEIVED",
+    "confidence": 0.85,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g022",
+    "predicted_family": "B",
+    "predicted_class": "PO_MISMATCH",
+    "confidence": 0.9,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g023",
+    "predicted_family": "B",
+    "predicted_class": "PO_MISMATCH",
+    "confidence": 0.88,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g024",
+    "predicted_family": "B",
+    "predicted_class": "PO_MISMATCH",
+    "confidence": 0.85,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g025",
+    "predicted_family": "B",
+    "predicted_class": "GST_DEFECT",
+    "confidence": 0.9,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g026",
+    "predicted_family": "B",
+    "predicted_class": "GST_DEFECT",
+    "confidence": 0.9,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g027",
+    "predicted_family": "B",
+    "predicted_class": "ALREADY_PAID_UNRECONCILED",
+    "confidence": 0.86,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g028",
+    "predicted_family": "B",
+    "predicted_class": "ALREADY_PAID_UNRECONCILED",
+    "confidence": 0.75,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g029",
+    "predicted_family": "B",
+    "predicted_class": "ALREADY_PAID_UNRECONCILED",
+    "confidence": 0.72,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g030",
+    "predicted_family": "B",
+    "predicted_class": "APPROVAL_BOTTLENECK",
+    "confidence": 0.85,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g031",
+    "predicted_family": "B",
+    "predicted_class": "APPROVAL_BOTTLENECK",
+    "confidence": 0.82,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g032",
+    "predicted_family": "B",
+    "predicted_class": "DOCUMENT_MISSING",
+    "confidence": 0.85,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g033",
+    "predicted_family": "B",
+    "predicted_class": "BANK_DETAIL_MISMATCH",
+    "confidence": 0.82,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g034",
+    "predicted_family": "D",
+    "predicted_class": "QUANTITY_QUALITY",
+    "confidence": 0.9,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g035",
+    "predicted_family": "D",
+    "predicted_class": "QUANTITY_QUALITY",
+    "confidence": 0.9,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g036",
+    "predicted_family": "D",
+    "predicted_class": "QUANTITY_QUALITY",
+    "confidence": 0.85,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g037",
+    "predicted_family": "D",
+    "predicted_class": "AMOUNT",
+    "confidence": 0.9,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g038",
+    "predicted_family": "D",
+    "predicted_class": "AMOUNT",
+    "confidence": 0.85,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g039",
+    "predicted_family": "D",
+    "predicted_class": "AMOUNT",
+    "confidence": 0.72,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g040",
+    "predicted_family": "D",
+    "predicted_class": "CONTRACT",
+    "confidence": 0.85,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g041",
+    "predicted_family": "D",
+    "predicted_class": "CONTRACT",
+    "confidence": 0.72,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g042",
+    "predicted_family": "D",
+    "predicted_class": "NOT_OUR_DEBT",
+    "confidence": 0.75,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g043",
+    "predicted_family": "D",
+    "predicted_class": "NOT_OUR_DEBT",
+    "confidence": 0.85,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g044",
+    "predicted_family": "A",
+    "predicted_class": "INSTRUMENT_EXPIRED",
+    "confidence": 0.9,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g045",
+    "predicted_family": "A",
+    "predicted_class": "INSTRUMENT_EXPIRED",
+    "confidence": 0.75,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g046",
+    "predicted_family": "A",
+    "predicted_class": "INSUFFICIENT_FUNDS",
+    "confidence": 0.82,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g047",
+    "predicted_family": "A",
+    "predicted_class": "INSUFFICIENT_FUNDS",
+    "confidence": 0.8,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g048",
+    "predicted_family": "A",
+    "predicted_class": "SILENT_REVOCATION",
+    "confidence": 0.72,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g049",
+    "predicted_family": "A",
+    "predicted_class": "LIMIT_EXCEEDED",
+    "confidence": 0.85,
+    "promise_amount_paise": null
+  },
+  {
+    "id": "g050",
+    "predicted_family": "A",
+    "predicted_class": "AUTH_FAILURE",
+    "confidence": 0.82,
+    "promise_amount_paise": null
+  }
+]
