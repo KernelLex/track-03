@@ -1846,6 +1846,16 @@ def demo_timeline(conversation_id: str | None = None, limit: int = 60) -> dict[s
 
 class DemoResetRequest(BaseModel):
     secret: str
+    clear_promises: bool = False
+    """Also wipe the promise history a debtor's score is computed from.
+
+    Off by default and deliberately separate from `clear_conversation`,
+    because this deletes a record of things that really happened -- a
+    promise made, kept or broken. The reason it exists at all: a defect in
+    how a capture was matched to a promise (WHAT_BROKE #26) left a debtor
+    who had genuinely paid scored as having broken their word, and there
+    was no way to correct a record the system had got wrong.
+    """
     clear_conversation: bool = False
     """Wipe the transcript and timeline as well as the invoices.
 
@@ -1885,6 +1895,16 @@ def reset_demo(payload: DemoResetRequest) -> dict[str, object]:
     finally:
         store.close()
 
+    promises_cleared = 0
+    if payload.clear_promises:
+        registry = _registry()
+        try:
+            for debtor in registry.all_debtors():
+                if not debtor.is_seeded:
+                    promises_cleared += registry.clear_promises(debtor.id)
+        finally:
+            registry.close()
+
     cleared = False
     if payload.clear_conversation:
         conversation = _conversation_store()
@@ -1909,6 +1929,7 @@ def reset_demo(payload: DemoResetRequest) -> dict[str, object]:
     return {
         "ok": True,
         "invoices_restored": restored,
+        "promises_cleared": promises_cleared,
         "conversation_cleared": cleared,
         "note": ("Ledgers and promise history are untouched -- those record things that "
                  "really happened."),

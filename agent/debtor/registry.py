@@ -195,11 +195,25 @@ class DebtorRegistry:
         debtor accrue pending promises indefinitely while paying only the
         newest. Returns False when there was nothing open to settle.
         """
+        row = None
         if invoice_id:
             row = self._conn.execute(
                 "SELECT id FROM promise_outcomes WHERE debtor_id = ? AND invoice_id = ? "
                 "AND outcome = 'pending' ORDER BY id LIMIT 1", (debtor_id, invoice_id)).fetchone()
-        else:
+        if row is None:
+            # The rail's invoice id and the merchant's invoice reference are
+            # different namespaces. A real capture arrived carrying
+            # `inv_TWte5TwAYXxtq8` -- Razorpay's own id -- while the promise
+            # was recorded against `INV-2201`, the merchant's reference, so
+            # the scoped lookup matched nothing, the promise stayed pending,
+            # its date passed, and it was scored as broken. A debtor who
+            # actually paid was recorded as having broken their word.
+            #
+            # Falling back to the oldest open promise is what the docstring
+            # above always described. Scoping by invoice is an optimisation
+            # for the case where the two ids genuinely align (a merchant
+            # that propagates its own reference through the payment's
+            # notes); it must never be the only way to match.
             row = self._conn.execute(
                 "SELECT id FROM promise_outcomes WHERE debtor_id = ? AND outcome = 'pending' "
                 "ORDER BY id LIMIT 1", (debtor_id,)).fetchone()
@@ -235,6 +249,22 @@ class DebtorRegistry:
         if broken:
             self._conn.commit()
         return broken
+
+    def clear_promises(self, debtor_id: str) -> int:
+        """Forget a debtor's promise history. Returns how many rows went.
+
+        Only ever called from the secret-gated demo reset. This deletes a
+        record of real events, which is why nothing else may call it and why
+        the reset does not do it by default -- but a record the system got
+        wrong (WHAT_BROKE #26 scored a debtor who had paid as having broken
+        their word) needs some way to be corrected."""
+        rows = self._conn.execute(
+            "SELECT COUNT(*) FROM promise_outcomes WHERE debtor_id = ?", (debtor_id,)
+        ).fetchone()
+        count = int(rows[0]) if rows else 0
+        self._conn.execute("DELETE FROM promise_outcomes WHERE debtor_id = ?", (debtor_id,))
+        self._conn.commit()
+        return count
 
     def outcomes_for(self, debtor_id: str) -> list[PromiseOutcome]:
         rows = self._conn.execute(

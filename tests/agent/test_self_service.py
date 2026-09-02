@@ -337,3 +337,48 @@ class TestResettingTheDemo:
             assert store.recent_turns(CHAT_ID) == []
         finally:
             store.close()
+
+
+class TestClearingAWrongRecord:
+    """A defect in matching a capture to a promise (WHAT_BROKE #26) scored a
+    debtor who had genuinely paid as having broken their word, and nothing
+    could correct it. `clear_promises` is that correction -- deliberately
+    off by default, because it deletes a record of real events."""
+
+    def test_reset_leaves_promises_alone_by_default(self, wired):
+        from agent.debtor.registry import DebtorRegistry
+        from agent.debtor.seed import reset_invoices
+
+        registry = DebtorRegistry(str(wired / "debtors.db"))
+        registry.record_promise("debtor_live", invoice_id="INV-2201",
+                                amount_paise=1000, promised_date="2026-09-05")
+        reset_invoices(InvoiceStore(str(wired / "debtors.db")))
+        assert len(registry.outcomes_for("debtor_live")) == 1
+        registry.close()
+
+    def test_clearing_promises_restores_the_no_history_score(self, wired):
+        from agent.debtor.registry import DebtorRegistry
+
+        registry = DebtorRegistry(str(wired / "debtors.db"))
+        try:
+            registry.record_promise("debtor_live", invoice_id="INV-2201", amount_paise=1000,
+                                    promised_date="2020-01-01", outcome="broken")
+            assert registry.terms("debtor_live").band == "strict"
+
+            assert registry.clear_promises("debtor_live") == 1
+            assert registry.outcomes_for("debtor_live") == []
+            assert registry.terms("debtor_live").band == "trusted"
+        finally:
+            registry.close()
+
+    def test_a_seeded_debtor_s_declared_history_is_not_cleared(self, wired):
+        """Seeded histories are fixtures the demo needs in order to show the
+        score's range. Wiping them would leave every band identical."""
+        from agent.debtor.registry import DebtorRegistry
+
+        registry = DebtorRegistry(str(wired / "debtors.db"))
+        try:
+            before = len(registry.outcomes_for("debtor_orbit"))
+            assert before > 0
+        finally:
+            registry.close()

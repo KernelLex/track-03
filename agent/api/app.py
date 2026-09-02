@@ -538,6 +538,18 @@ def _notify_payment_outcome(state, facts: list) -> dict[str, object] | None:
     if not chat_id:
         return None
 
+    payment_ref = str(fact_map.get("payment_id") or "")
+    if payment_ref and not _claim_payment_outcome(str(chat_id), payment_ref):
+        # Told once, whatever the rail does. A real capture arrived twice,
+        # a second apart, and the debtor got two identical "payment
+        # received" messages -- INGEST's dedup is per (source, event_id)
+        # and the recovery ledger's is UNIQUE(payment_id), and neither
+        # stops a *second event about the same payment* from producing a
+        # second message. The claim is what does, and it is the same
+        # UNIQUE-constraint primitive the conversation path already uses.
+        _log.info("payment outcome: %s already announced -- not repeating", payment_ref)
+        return {"notified": False, "reason": "already_announced", "payment_id": payment_ref}
+
     amount_paise = int(fact_map.get("payment_amount_paise") or 0)
     payment_id = str(fact_map.get("payment_id") or "")
     invoice_id = fact_map.get("invoice_id")
@@ -594,6 +606,25 @@ def _notify_payment_outcome(state, facts: list) -> dict[str, object] | None:
 
     _record_payment_event(str(chat_id), kind=kind, detail=detail)
     return {"notified": True, "status": result.status, "promise_settled": settled}
+
+
+def _claim_payment_outcome(conversation_id: str, payment_id: str) -> bool:
+    """True if this payment is ours to announce, False if already announced.
+
+    A UNIQUE constraint decides, not a prior read -- the same discipline
+    `handle_inbound_message` uses for a redelivered debtor message, and for
+    the same reason: a message to a real person is not free to repeat."""
+    try:
+        store = ConversationStore(os.environ.get("TRUECOMMIT_CONVERSATION_DB", "conversation.db"))
+        try:
+            return store.claim_message(conversation_id, f"payment_outcome:{payment_id}")
+        finally:
+            store.close()
+    except Exception:
+        # A storage failure must not silence a real payment notification.
+        # Announcing twice is a far smaller harm than never announcing.
+        _log.warning("payment outcome: could not claim %s -- announcing anyway", payment_id, exc_info=True)
+        return True
 
 
 def _settle_promise_for(channel_ref: str, *, payment_id: str, invoice_id: str | None) -> bool:

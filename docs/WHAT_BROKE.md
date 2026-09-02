@@ -990,6 +990,71 @@ through, measured by whether the *extractor was reached* rather than by the
 reply. A guard that rejects at the door never gets that far, which is
 precisely the difference being tested.
 
+## 26. A debtor who paid was recorded as having broken their word
+
+**Symptom.** Found by reading the live timeline after a real Rs 42,500
+capture, not by any test. Two things were wrong at once.
+
+```
+2026-09-01T20:01:32  payment_captured  pay_TWtgGvmFoyrXAX  promise_settled: False
+2026-09-01T20:01:33  payment_captured  pay_TWtgGvmFoyrXAX  promise_settled: False
+
+debtor_live:  strict 0%  (0 of last 1 kept)  grace=1d
+   broken   Rs 21,000  due 2026-09-01
+```
+
+The money arrived. The promise it answered was scored **broken**, and the
+debtor's band fell from `trusted` to `strict` -- from ten days of grace and
+four instalments to one day and no plan at all. Every one of those
+consequences is real and every one was wrong.
+
+**Root cause one: two different namespaces for "invoice id".** The capture
+carried `inv_TWte5TwAYXxtq8` -- Razorpay's own invoice object id. The
+promise was recorded against `INV-2201`, the merchant's reference, which is
+what a debtor is actually told and what the conversation is about. These are
+unrelated identifier spaces that happen to share a variable name.
+
+`settle_promise()` scoped its lookup by invoice id, matched nothing, and
+returned False. The promise stayed `pending`, its date passed, and
+`expire_overdue_promises()` did exactly what it is supposed to do to a
+promise nobody kept.
+
+The function's own docstring says "keeps the debtor's **oldest open
+promise**". The invoice scoping was an optimisation for the case where the
+two ids align -- a merchant propagating its reference through the payment's
+notes -- and it had quietly become the only way to match. It now falls back
+to the oldest open promise, which is what the docstring always described.
+
+**Root cause two: the same payment was announced twice.** Two
+`payment.captured` events, one second apart, same `payment_id`. INGEST
+de-duplicates per `(source, event_id)` and those were two different events;
+`RecoveryLedger` de-duplicates per `UNIQUE(payment_id)` and correctly
+attributed once. Neither stops a second *event about the same payment* from
+producing a second message, and a real person received two identical
+"payment received" notices.
+
+Fixed with the same claim primitive the conversation path already uses --
+`claim_message("payment_outcome:<payment_id>")`, a UNIQUE constraint rather
+than a prior read. A storage failure there announces anyway: telling someone
+twice is a far smaller harm than never telling them.
+
+**Why no test caught either.** Every fixture used the same invoice id on
+both sides of the match, and no test ever delivered the same payment twice.
+Both are things only a real rail does. The tests were not weak so much as
+polite -- they exercised the system the way it expects to be used.
+
+**Fix, and one more thing it needed.** There was no way to correct a record
+the system had got wrong. `/demo/reset` now accepts `clear_promises`, off by
+default and separate from `clear_conversation`, because it deletes a record
+of real events -- but a score the system computed from its own bug has to be
+correctable.
+
+**Verification.** `TestBothBugsFoundInProduction` delivers a capture whose
+invoice id deliberately does not match the promise's and asserts it is kept;
+delivers one payment as two events and asserts one message; and asserts a
+genuinely different payment is still announced, so the claim cannot silence
+real news.
+
 ## What this list is for
 
 I found every one of these by actually building against DEVDOC_v6, not by

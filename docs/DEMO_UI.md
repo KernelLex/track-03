@@ -728,8 +728,16 @@ decision than putting an invoice back.
 curl -X POST https://<host>/demo/reset   -H 'Content-Type: application/json'   -d '{"secret": "<DEMO_TRIGGER_SECRET>", "clear_conversation": true}'
 ```
 
+`clear_promises: true` additionally wipes the promise history a score is
+computed from. Off by default and separate from `clear_conversation`,
+because it deletes a record of things that really happened. It exists
+because a defect in matching a capture to a promise (WHAT_BROKE #26) scored
+a debtor who had genuinely paid as having broken their word, and a score the
+system computed from its own bug has to be correctable.
+
 **What it will not touch:** the recovery ledger, the hash-chained ledger,
-and the promise history behind a debtor's score. Those record things that
+and (unless `clear_promises` is set) the promise history behind a debtor's
+score. Those record things that
 really happened -- a real capture, a real action, a real kept or broken
 promise -- and a demo convenience has no business rewriting them. A reset
 invoice with a real payment already attributed stays honest that way: the

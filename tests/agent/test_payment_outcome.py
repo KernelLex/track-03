@@ -258,3 +258,61 @@ class TestScoringDoesNotDependOnMessaging:
         events = client_without_a_channel.get("/demo/timeline").json()["events"]
         captured = [e for e in events if e["kind"] == "payment_captured"]
         assert captured and captured[0]["detail"]["notified"] is False
+
+
+class TestBothBugsFoundInProduction:
+    """Two defects a real Rs 42,500 capture exposed on the live service.
+
+    Neither showed in any test, because both tests and fixtures used the
+    same invoice id on both sides and never delivered the same payment
+    twice -- which is exactly what a real rail does.
+    """
+
+    def test_a_capture_settles_a_promise_recorded_under_a_different_invoice_id(
+        self, client, tmp_path,
+    ):
+        """The rail's invoice id and the merchant's reference are different
+        namespaces. A capture arrived as `inv_TWte5TwAYXxtq8` while the
+        promise was recorded against `INV-2201`, so the scoped lookup
+        matched nothing, the promise stayed pending, its date passed, and a
+        debtor who had actually paid was scored as having broken their word.
+        """
+        registry = DebtorRegistry(str(tmp_path / "debtors.db"))
+        registry.record_promise("debtor_live", invoice_id="INV-2201",
+                                amount_paise=42_500_00, promised_date="2026-09-05")
+        registry.close()
+
+        _post(client, "payment.captured",
+              {"event": "payment.captured", "payload": {"payment": {"entity": {
+                  "id": "pay_ns", "amount": 42_500_00, "status": "captured",
+                  "invoice_id": "inv_SOMETHING_ELSE"}}}},
+              event_id="evt_ns")
+
+        registry = DebtorRegistry(str(tmp_path / "debtors.db"))
+        try:
+            outcomes = registry.outcomes_for("debtor_live")
+            assert [o.outcome for o in outcomes] == ["kept"], (
+                "a real payment must keep the promise even when the rail's "
+                "invoice id does not match the merchant's reference")
+        finally:
+            registry.close()
+
+    def test_the_same_payment_is_announced_only_once(self, client):
+        """Observed live: two payment.captured events for one payment, a
+        second apart, and the debtor received two identical "payment
+        received" messages. INGEST dedups per (source, event_id) and the
+        recovery ledger per payment_id -- neither stops a second *event*
+        about the same payment producing a second message."""
+        first = _post(client, "payment.captured", _captured(), event_id="evt_dup_1")
+        second = _post(client, "payment.captured", _captured(), event_id="evt_dup_2")
+
+        assert first.json()["debtor_notified"]["notified"] is True
+        assert second.json()["debtor_notified"]["notified"] is False
+        assert second.json()["debtor_notified"]["reason"] == "already_announced"
+        assert len(_FakeTelegram.sent) == 1, "a real person was told twice"
+
+    def test_a_different_payment_is_still_announced(self, client):
+        """The claim must not silence a genuinely new capture."""
+        _post(client, "payment.captured", _captured("pay_one"), event_id="evt_one")
+        _post(client, "payment.captured", _captured("pay_two"), event_id="evt_two")
+        assert len(_FakeTelegram.sent) == 2
