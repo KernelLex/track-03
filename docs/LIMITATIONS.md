@@ -9,7 +9,7 @@ I've built a tested, working implementation of TrueCommit's **pure-logic
 safety and compliance core** (DEVDOC_v6 §5.2's "the judgment"), **now also
 wired to a real, live Razorpay test-mode account** (as of 2026-08-30) for
 the capabilities that account actually has, plus a real (if minimal) HTTP
-webhook receiver. **1,384 collected / 1,373 passing / 11 skipped as of 2026-09-02**,
+webhook receiver. **1,393 collected / 1,382 passing / 11 skipped as of 2026-09-02**,
 measured without live credentials in the shell (the 11 skipped are the
 Razorpay-live-only suite, which skips cleanly rather than failing — no
 credentials are required to run the main suite). It's still **not**:
@@ -115,6 +115,28 @@ credentials are required to run the main suite). It's still **not**:
   populating `uses_approved_template` so the gate sees the truth. That is
   real work and is deliberately not being rushed in at submission time. The
   judge-facing demo path is unaffected and fully live.
+
+## `BoundsContext.now` is a fixed date, not the clock
+
+`BoundsContext.now` defaults to `datetime(2026, 1, 1)`, and the demo paths
+that build a context (`_bounds_context_for`, `_decide_next_step`) do not
+override it. Every time-based rule is therefore evaluated against a frozen
+instant rather than the real one.
+
+Found while fixing `WHAT_BROKE.md` #30, and deliberately left alone in that
+commit. It is not cosmetic: `WHATSAPP_SESSION_WINDOW` currently passes
+because `2026-01-01` is earlier than any real inbound timestamp plus 24
+hours, which is arithmetically true but is not the question the rule is
+asking. `RBI_FPC_HOURS` is the sharper case — at a real clock it would
+refuse contact outside 08:00–19:00 IST, and several of this project's own
+live sends happened at 20:00 IST and were allowed.
+
+The fix is not a one-liner precisely because it activates several rules
+simultaneously, each of which then needs its own live verification. The
+bounds engine itself takes `now` from the context and is correct; what is
+wrong is what the demo layer puts there. Stated here rather than quietly
+carried, because "the gate ran and passed" means less when one of the
+gate's inputs is a constant.
 
 ## Webhook receiver (§19) — permanently deployed now, not a tunnel
 

@@ -1243,6 +1243,68 @@ transient and I could not reproduce it, so I have not claimed a cause. What
 changed is that a transient composer failure no longer costs the debtor the
 mandate link.
 
+## 30. Two gates, one conversation, contradictory answers
+
+**Symptom.** Found by reading the timeline after the second live WhatsApp
+exchange. The debtor made a concrete offer; the decision came back:
+
+```
+14:30:00  decided  action=escalate_human  proposed_action=send_reminder  allowed=false
+                   refusals: ["PROMISE_COOLDOWN", "WHATSAPP_SESSION_WINDOW"]
+```
+
+`PROMISE_COOLDOWN` is correct — two promises inside an hour.
+`WHATSAPP_SESSION_WINDOW` is not. That rule refuses a free-form WhatsApp
+send when the debtor's last inbound message is older than 24 hours, and we
+were **at that moment handling their inbound message**.
+
+**Root cause.** `_decide_next_step`'s `_gate()` built a `BoundsContext`
+without `last_inbound_at`, so it defaulted to `None` and rule 20 saw no
+inbound at all. Every disjunct evaluated false and the rule refused:
+
+```
+action.channel != 'whatsapp'                     false
+action.uses_approved_template == True            false
+action.type in ['escalate_human', 'no_action']   false   (send_reminder)
+last_inbound_at is not None and now < ...        false   ← never populated
+```
+
+The consequence was systematic, not occasional: **on WhatsApp, every
+message-type action was refused and fell through to `escalate_human`**, so
+the channel could never act autonomously. Telegram, which rule 20 does not
+apply to, behaved completely differently on identical input — a divergence
+with no principled basis.
+
+Worse, two gates were running on the same conversation and disagreeing.
+`_bounds_gate_followup()` sets `last_inbound_at` and allowed the reply;
+`_decide_next_step` did not and refused the action. The reply went out
+seconds after the gate said the window was shut.
+
+**Why it survived a live run.** It fails safe. The wrong refusal produces
+over-escalation to a human, never a prohibited send, so nothing visibly
+broke — the debtor got a sensible answer and only the timeline showed the
+contradiction. Failing safe is what a gate should do when uncertain; it is
+also what lets a bug live quietly.
+
+**Fix.** `last_inbound_at` is now a parameter of `_decide_next_step`, passed
+by all three callers — every one of which exists solely to handle a message
+that just arrived. Nine tests, the important ones being cross-channel: the
+same message must reach the same action on Telegram and WhatsApp, because
+nothing about the debtor's words changed. Two negative tests keep the fix
+from being mistaken for switching rule 20 off — it still refuses with no
+inbound timestamp, and still refuses with one four days old.
+
+**One thing deliberately not fixed here, because it is larger.**
+`BoundsContext.now` defaults to a fixed `datetime(2026, 1, 1)` and neither
+this path nor `_bounds_context_for` overrides it. So the window comparison
+is `2026-01-01 < <real inbound time> + 24h`, which is true for a reason
+that has nothing to do with the window. The fix above makes the two paths
+*agree*, which is the actual defect; moving `now` to the real clock is a
+separate change that would simultaneously activate `RBI_FPC_HOURS` (20:00
+IST is outside permitted calling hours) and every other time-based rule at
+once. That is worth doing and is recorded here rather than smuggled in
+beside an unrelated fix.
+
 ## What this list is for
 
 I found every one of these by actually building against DEVDOC_v6, not by

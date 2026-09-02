@@ -845,7 +845,8 @@ exhausted channel, a statutory gate, a ceiling reached.
 
 
 def _decide_next_step(extraction, scenario: dict[str, object], *, channel: str, debtor_key: str,
-                      terms: DebtorTerms | None = None) -> dict[str, object]:
+                      terms: DebtorTerms | None = None,
+                      last_inbound_at: datetime | None = None) -> dict[str, object]:
     """DECIDE -> BOUNDS on a diagnosed reply, through the real machinery.
 
     This is the half the conversational demo was missing. It used to
@@ -866,6 +867,19 @@ def _decide_next_step(extraction, scenario: dict[str, object], *, channel: str, 
         CHANNEL_EXHAUSTION eventually bite).
       - If the gate refuses, the fallback is `escalate_human` -- not
         silence, and not the refused action anyway.
+
+    `last_inbound_at` must be passed by every caller handling a debtor's
+    reply, and all three of them are. Omitting it was a real defect
+    (`docs/WHAT_BROKE.md` #30): `WHATSAPP_SESSION_WINDOW` refuses a
+    free-form WhatsApp action when it cannot see an inbound message inside
+    the 24-hour window, and this context never carried one -- so on WhatsApp
+    *every* message-type action was refused and fell through to
+    `escalate_human`, while `_bounds_gate_followup()` (which does set it)
+    allowed the very same reply moments later. Two gates, same conversation,
+    contradictory answers, and the wrong one drove the decision.
+
+    It fails safe -- over-escalation, never a prohibited send -- which is
+    why it survived a live run without anyone noticing.
     """
     action_type = select_action_for_diagnosis(extraction)
     terms = terms or terms_for([])
@@ -894,6 +908,15 @@ def _decide_next_step(extraction, scenario: dict[str, object], *, channel: str, 
             invoice=InvoiceCtx(id=str(scenario["invoice_id"]), recovery_attempts=touches),
             config=ConfigCtx(grace_days=terms.grace_days),
             promise_date=promise_date,
+            # Deliberately NOT also setting `now`. It defaults to a fixed
+            # datetime(2026, 1, 1), which `_bounds_context_for` leaves alone
+            # too -- so both paths now agree, which is the bug being fixed.
+            # Moving `now` to the real clock is a separate and much larger
+            # change: it would simultaneously activate RBI_FPC_HOURS (20:00
+            # IST is outside permitted calling hours) and every other
+            # time-based rule. That is worth doing, and is recorded as its
+            # own open item rather than smuggled in beside this fix.
+            last_inbound_at=last_inbound_at,
         )
         return check_bounds(ctx)
 
@@ -1113,6 +1136,7 @@ def _check_telegram_reply(payload: CheckReplyRequest) -> dict[str, object]:
                 if refusals is None:
                     decision = _decide_next_step(
                         extraction, scenario, channel="telegram", debtor_key=f"demo_telegram_{payload.scenario}",
+                        last_inbound_at=datetime.now(),
                     )
                     result["decision"] = decision
                     plan = _plan_from_promise(extraction, scenario)
@@ -1190,6 +1214,7 @@ def _check_whatsapp_reply(payload: CheckReplyRequest) -> dict[str, object]:
                 if refusals is None:
                     decision = _decide_next_step(
                         extraction, scenario, channel="whatsapp", debtor_key=f"demo_whatsapp_{payload.scenario}",
+                        last_inbound_at=datetime.now(),
                     )
                     result["decision"] = decision
                     plan = _plan_from_promise(extraction, scenario)
@@ -1631,6 +1656,11 @@ def handle_inbound_message(
         decision = _decide_next_step(
             extraction, scenario, channel=channel, debtor_key=f"{channel}_{conversation_id}",
             terms=terms,
+            # This function exists only to handle a message that just
+            # arrived, so the window is open by construction -- the same
+            # reasoning `_bounds_context_for(replying_to_inbound=True)`
+            # documents, now applied to the decision gate as well.
+            last_inbound_at=datetime.now(),
         )
         result["decision"] = decision
         store.record_event(conversation_id, kind="decided", channel=channel, detail=decision)
