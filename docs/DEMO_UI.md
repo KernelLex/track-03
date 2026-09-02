@@ -799,3 +799,155 @@ than competing with a wall of green ticks.
 **Back-compatible by construction.** An event recorded before this change
 carries no `rules_total`, and `renderGate()` returns an empty string rather
 than a broken strip -- so the existing timeline still renders.
+
+## The subscription side: failures predicted, not reported
+
+Every dunning system in existence messages someone *after* a payment fails.
+This one runs a deterministic check over each mandate's own fields, finds
+debits that **cannot** succeed, and says so while there is still time to fix
+them.
+
+That difference is the whole point, and it is a difference in tense.
+
+### What was wrong before this
+
+`check_mandate_health()` had existed, been tested, and produced the
+Rs 91,72,435 figure in `docs/evidence/AT_RISK_HEADLINE.md` since early on --
+and it was reachable from **no endpoint at all**. An offline tool ran it
+once, wrote a markdown file, and that was the entire demonstration of the
+project's strongest claim. The "Subscription" demo scenario was a different
+message string on the same b2b trigger path; it never touched the detector.
+
+### Six failures, six repairs
+
+`GET /demo/mandate-health` runs the real detector across a seeded book of
+eight mandates. Two are healthy -- a detector that flags everything is not a
+detector -- and six carry one defect each:
+
+| Defect | The arithmetic | Repair |
+|---|---|---|
+| `HEADROOM_BREACH` | `max_amount_paise=1800000 < upcoming_debit_paise=2150000` | modify with AFA, or split the debit |
+| `EXPIRY_BEFORE_DEBIT` | `end_at < next_debit_date` | re-register ahead of the cycle |
+| `AFA_THRESHOLD_BREACH` | `7400000 > 1500000 with no AFA scheduled` | attach AFA to the pre-debit notice |
+| `REPEAT_NSF` | `consecutive_nsf=3 >= 2` | re-time the debit |
+| `SILENT_REVOCATION` | `status='revoked' with no attempted cycle` | reach out before the missed cycle |
+| `RAIL_DEGRADED` | `issuer_failure_rate=0.31 > 0.15` | route to an alternate rail |
+
+One button per defect, because they are genuinely different failures with
+genuinely different repairs and a demo that always showed a headroom breach
+would undersell five of them.
+
+**The detector's own `detail` string is shown on screen, unedited.** "This
+will fail" is worth far more when the reader can check the comparison
+themselves -- that is the moment it stops looking like a prediction.
+
+### The warning is the legally required message
+
+`RBI_EMANDATE_PREDEBIT_24H` mandates a pre-debit notice carrying five
+specific fields, and `predebit_notice.py` has always built exactly those.
+So this is not an extra courtesy bolted on: it is **the compliant
+notification, finally carrying something worth reading**. Most systems send
+it as noise.
+
+A real alert, live-verified 2026-09-02:
+
+```
+Heads up -- your next subscription debit will fail.
+
+Monthly supply plan · Rs 21,500.00 due 2026-09-06 (in 3 days)
+
+Why: the mandate you authorized has a ceiling of Rs 18,000.00, and the next
+debit is Rs 21,500.00. The bank will refuse it -- not for want of funds, but
+because the authorization itself is too small.
+
+We found this before presenting the debit, so nothing has been declined and
+no failed-payment fee applies.
+
+Fix it here: https://rzp.io/rzp/eQPxDR6m
+That authorizes a replacement mandate at Rs 25,800.00 -- and you can pick a
+different bank account on that page if you'd rather. The old one is
+cancelled once this is live. Nothing is charged now.
+```
+
+`20/20 bounds rules passed`, a real Razorpay mandate, and a real voice call
+(`CA143a95779022b3355ff47949ccf4328e`) telling them to check Telegram.
+
+Four things in that message are deliberate: it names the **arithmetic**, it
+says **nothing has been charged** (this is not a failed-payment notice), the
+link is **real**, and the correction carries **headroom** -- Rs 25,800 for a
+Rs 21,500 debit, so the replacement does not reproduce the defect it exists
+to fix.
+
+### "Change your bank", honestly
+
+Razorpay has no API to swap the account behind an existing subscription. It
+does not need one: a fresh authorization link lets the debtor pick whichever
+account they like on Razorpay's own hosted page, and the old mandate is
+revoked once the new one is live. **A new link is the bank change**, done
+the only way the rail allows -- and the message says exactly that rather
+than implying a capability that does not exist.
+
+### The alert passes the same gate
+
+A warning is an outbound contact like any other. It runs through
+`check_bounds()` with all 20 rules, and exempting it because it happens to
+be helpful would be exactly the quiet carve-out this project exists not to
+have.
+
+### B2B here, and the same mechanism is B2C
+
+The seeded book is **B2B recurring** -- supply plans, retainers, logistics
+contracts -- which matches the rest of this project (MSMED, GSTIN, PO
+mismatch are all B2B).
+
+**Nothing in the detector is specific to that.**
+`max_amount_paise < upcoming_debit_paise` is amount-agnostic arithmetic: a
+Rs 499 streaming debit against a Rs 300 ceiling fails in exactly the same
+way, and is caught by exactly the same comparison. A consumer subscription
+book -- streaming, SaaS seats, gyms, edtech -- would need new seed rows and
+no new logic.
+
+One honest caveat if that swap is ever made: `AFA_THRESHOLD_BREACH` only
+fires above Rs 15,000, RBI's AFA-free ceiling. At monthly consumer prices it
+never triggers, and a purely consumer portfolio would quietly lose one of
+the six defect types. Annual renewals cross it, so it survives there.
+
+### Declared, not measured
+
+The defect rates in this book are **declared** -- these mandates were
+constructed with breaches, exactly as `AT_RISK_HEADLINE.md` declares its
+12%/8%. Nothing here measures how often real Indian subscriptions carry a
+headroom breach, and the scan result says so in its own `note` field, which
+the dashboard prints.
+
+What is genuinely zero-assumption is the conditional: **given** a mandate
+carries a defect, the detector catches it, every time, because it is an
+inequality rather than a prediction.
+
+## Two Telegram bots, one person
+
+The subscription demo runs on its own bot, `@Truecommit_subscription_bot`,
+so the two conversations are visually separate in Telegram -- which matters
+when the demo is being filmed.
+
+**Telegram's private-chat id is the user's id, not a per-bot one**, so both
+bots report the same number for the same person. The conversation store
+namespaces the subscription thread as `sub:<chat_id>`; without that the two
+demos would share a transcript and an outstanding proposal, and a plan
+offered by one bot would be acceptable to the other (WHAT_BROKE #24).
+
+Threads are separated. **Identity is not.** A debtor who breaks a promise
+about their subscription has broken a promise, and their score should not
+reset because a different bot carried the message -- so debtor lookups strip
+the namespace (`_channel_ref_of`) while conversation state keeps it.
+
+The Case file has a thread switcher for the same reason: it used to query
+the timeline unfiltered, so a mandate warning appeared inside the invoice
+story. In "All" mode, subscription rows carry a tag.
+
+Each bot has **its own webhook path and its own secret**
+(`/demo/telegram-webhook/subscription`). A shared endpoint with a bot
+discriminator would have been less code and a worse trade: when a delivery
+starts 403ing, the URL in `getWebhookInfo` should say immediately which bot
+broke, and this project has already lost an evening to exactly that
+ambiguity.

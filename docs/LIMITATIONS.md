@@ -9,7 +9,7 @@ I've built a tested, working implementation of TrueCommit's **pure-logic
 safety and compliance core** (DEVDOC_v6 §5.2's "the judgment"), **now also
 wired to a real, live Razorpay test-mode account** (as of 2026-08-30) for
 the capabilities that account actually has, plus a real (if minimal) HTTP
-webhook receiver. **1,092 collected / 1,081 passing / 11 skipped as of 2026-09-02**,
+webhook receiver. **1,119 collected / 1,108 passing / 11 skipped as of 2026-09-02**,
 measured without live credentials in the shell (the 11 skipped are the
 Razorpay-live-only suite, which skips cleanly rather than failing — no
 credentials are required to run the main suite). It's still **not**:
@@ -487,3 +487,37 @@ caller that sets it wrongly gets past this gate. Checking it properly means
 asking Twilio's Content API for the template's approval status at send
 time, which is a network call inside the bounds gate — and a gate that
 makes network calls is a gate that can fail open. Not built.
+
+## The mandate book is constructed, and it is B2B
+
+`GET /demo/mandate-health` runs the real detector over eight seeded
+mandates. Their defect rates are **declared, not measured** -- the same
+status as the 12%/8% construction parameters behind
+`docs/evidence/AT_RISK_HEADLINE.md`'s Rs 91,72,435. Nothing in this repo
+measures how often real Indian recurring mandates carry a headroom breach,
+and the scan response says so in its own `note` field rather than leaving a
+reader to work it out.
+
+What is zero-assumption is narrower and worth stating precisely: **given** a
+mandate carries a defect, the detector catches it every time, because
+`max_amount_paise < upcoming_debit_paise` is a comparison rather than a
+prediction. That conditional is the whole claim.
+
+**The book is B2B recurring** -- supply plans, retainers, logistics
+contracts -- matching the rest of this project. The detector is not:
+`max_amount_paise < upcoming_debit_paise` is amount-agnostic, so a Rs 499
+streaming debit against a Rs 300 ceiling is caught by the identical
+comparison. A consumer subscription book would need new seed rows and no new
+logic.
+
+One caveat if that swap is made: `AFA_THRESHOLD_BREACH` fires only above
+Rs 15,000 (RBI's AFA-free ceiling), so at monthly consumer prices it never
+triggers and a purely consumer portfolio would lose one of the six defect
+types. Annual renewals cross the ceiling and keep it live.
+
+**What the alert cannot verify:** that the replacement mandate it issues is
+actually authorized. It creates a real Razorpay subscription and hands over
+the link; whether the debtor opens it, and which bank they choose, is
+theirs. The old mandate is only revoked once the new one is live -- so a
+debtor who ignores the link is left exactly where they were, which is the
+correct failure mode but means the repair loop is not closed automatically.

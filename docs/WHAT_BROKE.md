@@ -864,6 +864,87 @@ does. Verified by running the whole suite at four timezone offsets
 confirming it is now genuinely timezone-independent rather than
 accidentally aligned.
 
+## 23. The dashboard's "use my own number" field did nothing
+
+**Symptom.** None visible, which is the problem. The live console has a
+recipient field so someone trying the demo can have the call reach their own
+phone. It looked like it worked -- the request succeeded, a call was placed,
+a message went out. It just always went to the server's own configured
+contact.
+
+**Root cause.** The browser never talks to the backend directly for a
+secret-gated action; it posts to a serverless function that attaches
+`DEMO_TRIGGER_SECRET` server-side. That function forwarded three fields:
+
+```js
+body: JSON.stringify({
+  secret: DEMO_TRIGGER_SECRET,
+  channel: payload.channel,
+  scenario: payload.scenario,
+})
+```
+
+`to` is not in that list. The frontend sent it, the proxy dropped it, and
+the backend fell through to `DEMO_CONTACT_PHONE_NUMBER` exactly as it is
+designed to when no recipient is supplied. Every layer behaved correctly and
+the feature did not exist.
+
+Found while adding the same field to the subscription alert -- reading the
+proxy to copy its shape, rather than from anything failing.
+
+**Why it went unnoticed for so long.** Locally the frontend can be pointed
+straight at the backend, where `to` travels fine. The proxy only sits in the
+path on a *deployed* site. So the field worked in every test and in every
+local run, and silently did nothing in the one environment a judge would use.
+
+**Fix.** Both proxies (Vercel and Netlify) now forward `to`. The backend
+already validated it as E.164 and applied a per-number cooldown; it was
+never given the chance.
+
+## 24. Two bots, one chat id -- and then the over-correction
+
+**Symptom.** Caught before shipping, by checking the second bot's chat id
+rather than assuming it would differ.
+
+A second Telegram bot was added so the subscription demo would be a visually
+separate conversation. Telegram's private-chat id is the **user's** id, not
+a per-bot one -- so both bots reported `8327566456` for the same person.
+
+Keying conversations on that alone would have merged them: one transcript,
+one outstanding proposal, and a payment plan offered by the b2b bot
+acceptable to the subscription bot. Two bots that look separate in Telegram
+and are a single conversation underneath is worse than not splitting them at
+all, because the separation is now believed.
+
+**Fix, and then the fix's own bug.** The subscription thread is namespaced
+`sub:<chat_id>`. That separated the conversations -- and also separated
+something that should not have been separated.
+
+`_terms_for_conversation()` looks a debtor up by channel address. Given
+`sub:8327566456` it found nobody, so the subscription conversation scored on
+no-history defaults and recorded no promises at all. A debtor could break a
+promise about their subscription and their credibility would be untouched.
+
+**The distinction that was missing.** Conversation state is per-*thread*:
+transcript, outstanding proposal, handled-message claims. A plan offered on
+one bot must not be acceptable on the other. Identity and record are
+per-*person*: someone who breaks a promise has broken a promise, and their
+score should not reset because a different bot carried the message.
+
+`_channel_ref_of()` strips the namespace for identity lookups and leaves it
+in place for conversation state.
+
+**Verification.** `TestTheThreadsDoNotCollide` asserts the namespace exists,
+that an alert records against the namespaced thread, and -- the one that
+matters -- that the b2b thread stays empty when a subscription alert fires.
+Identity is checked separately: both thread ids resolve to the same debtor
+and the same band.
+
+**And the same collision existed in the UI.** The Case file called
+`/demo/timeline` with no filter, so it showed both threads interleaved and a
+mandate warning appeared inside the invoice story. There is now a thread
+switcher, and in "All" mode subscription rows carry a tag.
+
 ## What this list is for
 
 I found every one of these by actually building against DEVDOC_v6, not by

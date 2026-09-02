@@ -216,3 +216,34 @@ original stub behaviour — `message_dispatched=True`, no real send — so
 every existing caller and all 561 pre-existing tests keep working
 unchanged. A message only actually goes out when both a channel and a
 fully-shaped payload are supplied.
+
+## A second Telegram bot, for the subscription demo
+
+`@Truecommit_subscription_bot` carries the subscription conversation so it
+is visually separate from the b2b one in Telegram -- which matters when the
+demo is being recorded, and not otherwise.
+
+It has **its own webhook path and its own secret**
+(`POST /demo/telegram-webhook/subscription`). A single endpoint with a bot
+discriminator would have been less code and a worse trade: a 403 on a shared
+path tells you only that *something* is misconfigured, and this project
+already lost an evening to exactly that ambiguity when a trailing character
+was lost pasting a secret into a hosting UI (WHAT_BROKE #15).
+
+**Telegram's private-chat id is the user's id, not a per-bot one.** The same
+person messaging both bots yields the same chat id, so the conversation store
+namespaces the subscription thread (`sub:<chat_id>`). Threads are separated;
+identity is not -- a debtor's score follows the person across both bots. See
+WHAT_BROKE #24.
+
+**Voice is used differently here.** On the b2b side a call carries the whole
+message. On the subscription side it says only enough to get someone to read
+Telegram:
+
+> "Your next automatic payment, due in three days, will not go through. This
+> is not a missed payment, and nothing has been charged. Please check
+> Telegram, where we have sent the reason and a link to fix it."
+
+Deliberately free of amounts and mandate references: a spoken rupee figure
+and an id are exactly what a person cannot write down mid-call, and the
+detail is already sitting in a message they can act on.

@@ -59,7 +59,7 @@ from agent.bounds.engine import check_bounds
 from agent.diagnose.extract import Family
 from agent.diagnose.llm_extract import ExtractionFailed, extract_from_reply
 from agent.orchestrate import select_action_for_diagnosis
-from agent.clock import business_today
+from agent.clock import business_now, business_today
 from agent.debtor.invoices import (
     DISPUTED, OUTSTANDING, PAID, SCHEDULED, STATUS_LABEL, InvoiceStore,
 )
@@ -67,6 +67,8 @@ from agent.debtor.registry import DebtorRegistry
 from agent.debtor.seed import reset_invoices
 from agent.debtor.score import BANDS, DebtorTerms, terms_for
 from agent.mandate.emandate import create_plan_mandates, describe_mandate_links
+from agent.mandate.health import check_mandate_health
+from agent.mandate.portfolio import FAILURE_KINDS, MandatePortfolio, scan
 from agent.mandate.payment_plan import PlanRejected, build_plan, describe_plan
 from agent.money import to_rupees_display
 from agent.notify.conversation import ConversationStore
@@ -77,7 +79,7 @@ from agent.notify.telegram import TelegramChannel
 from agent.notify.twilio_voice import TwilioVoiceChannel
 from agent.notify.twilio_whatsapp import TwilioWhatsAppChannel
 from agent.rails.razorpay_rail import RazorpayRail
-from agent.rails.types import InvoiceSpec, LinkSpec
+from agent.rails.types import InvoiceSpec, LinkSpec, MandateSpec
 
 _log = logging.getLogger("trucommit.demo")
 
@@ -1184,6 +1186,25 @@ def _conversation_store() -> ConversationStore:
     return ConversationStore(os.environ.get("TRUECOMMIT_CONVERSATION_DB", "conversation.db"))
 
 
+def _channel_ref_of(conversation_id: str) -> str:
+    """The channel address behind a possibly-namespaced conversation id.
+
+    `sub:8327566456` and `8327566456` are two threads with one person
+    behind them: Telegram's private-chat id is the *user's* id, so both
+    bots report the same number for the same human.
+
+    The distinction this draws is the important one. Conversation state --
+    transcript, outstanding proposal, handled-message claims -- is
+    per-thread, because a plan offered on one bot must not be acceptable on
+    the other. Identity and record are per-*person*: someone who breaks a
+    promise about their subscription has broken a promise, and their
+    credibility should not reset because a different bot carried it.
+    """
+    if conversation_id.startswith(SUBSCRIPTION_THREAD_PREFIX):
+        return conversation_id[len(SUBSCRIPTION_THREAD_PREFIX):]
+    return conversation_id
+
+
 def _registry() -> DebtorRegistry:
     return DebtorRegistry(os.environ.get("TRUECOMMIT_DEBTORS_DB", "debtors.db"))
 
@@ -1199,7 +1220,11 @@ def _terms_for_conversation(conversation_id: str) -> tuple[str | None, DebtorTer
     try:
         registry = _registry()
         try:
-            debtor = registry.by_channel_ref(conversation_id)
+            # The person, not the thread -- see `_channel_ref_of`. Looking
+            # up the namespaced id found no debtor at all, so the
+            # subscription conversation scored on no-history defaults and
+            # recorded no promises against the person who made them.
+            debtor = registry.by_channel_ref(_channel_ref_of(conversation_id))
             if debtor is None:
                 return None, terms_for([])
             # Time passing is what breaks a promise, so resolve overdue ones
@@ -1977,3 +2002,368 @@ def debtor_detail(debtor_id: str) -> dict[str, object]:
     detail["turns"] = turns
     detail["events"] = events
     return detail
+
+
+# --------------------------------------------------------------------------
+# The subscription side: a debit that will fail, said before it fails.
+# --------------------------------------------------------------------------
+
+def _portfolio() -> MandatePortfolio:
+    return MandatePortfolio(os.environ.get("TRUECOMMIT_DEBTORS_DB", "debtors.db"))
+
+
+SUBSCRIPTION_THREAD_PREFIX = "sub:"
+"""Namespaces the subscription conversation.
+
+Telegram's private-chat id is the *user's* id, not a per-bot one -- so the
+b2b bot and the subscription bot both report the same chat id for the same
+person. Keying the conversation on that alone would have merged the two
+threads in the store: one transcript, one outstanding proposal, and a plan
+offered by one bot acceptable to the other. Two separate bots would have
+looked separate in Telegram and been a single conversation underneath,
+which is worse than not splitting them at all.
+
+Found when the second bot's chat id came back identical to the first's."""
+
+
+def _subscription_conversation_id(chat_id: str | None = None) -> str:
+    """The subscription bot's own thread, namespaced away from b2b's."""
+    raw = chat_id or os.environ.get("DEMO_CONTACT_SUBSCRIPTION_CHAT_ID") or "subscription"
+    return f"{SUBSCRIPTION_THREAD_PREFIX}{raw}"
+
+
+def _subscription_channel() -> TelegramChannel:
+    token = os.environ.get("TELEGRAM_SUBSCRIPTION_BOT_TOKEN")
+    if not token:
+        raise HTTPException(status_code=503,
+                            detail="TELEGRAM_SUBSCRIPTION_BOT_TOKEN not configured on this server")
+    return TelegramChannel(token)
+
+
+@router.get("/mandate-health")
+def mandate_health() -> dict[str, object]:
+    """Run the real detector across the mandate book.
+
+    `check_mandate_health()` has existed and been tested since early on, and
+    was reachable from no endpoint at all -- an offline tool ran it once and
+    wrote a markdown file. That is the wrong thing to leave unreachable,
+    because it is the strongest claim in the project: detection here is
+    arithmetic on each mandate's own fields, not a prediction.
+
+    Read-only and unauthenticated, like the other demo reads.
+    """
+    portfolio = _portfolio()
+    try:
+        return scan(portfolio.all())
+    finally:
+        portfolio.close()
+
+
+class SubscriptionAlertRequest(BaseModel):
+    secret: str
+    failure: str = "headroom"
+    """Which defect to demonstrate. The six are genuinely different failures
+    with different repairs, so the caller picks one rather than getting
+    whichever happens to be first."""
+    to: str | None = None
+    """A phone number for the voice call -- so someone trying this can have
+    it ring their own phone. Same E.164 validation and per-number cooldown
+    as /demo/trigger."""
+    call: bool = True
+
+
+def _defect_explanation(defect_value: str, m) -> str:
+    """Why this debit will fail, in the debtor's terms rather than the
+    detector's field names.
+
+    The arithmetic still travels with it -- a claim like "this will fail" is
+    worth much more when the reader can check it themselves.
+    """
+    rupees = lambda p: to_rupees_display(p)  # noqa: E731
+    return {
+        "HEADROOM_BREACH": (
+            f"the mandate you authorized has a ceiling of {rupees(m.max_amount_paise)}, "
+            f"and the next debit is {rupees(m.upcoming_debit_paise)}. The bank will refuse "
+            f"it -- not for want of funds, but because the authorization itself is too small."
+        ),
+        "EXPIRY_BEFORE_DEBIT": (
+            f"the mandate expires on {str(m.end_at)[:10]}, which is before the next debit on "
+            f"{str(m.next_debit_date)[:10]}. There will be no live authorization left to charge."
+        ),
+        "AFA_THRESHOLD_BREACH": (
+            f"the next debit is {rupees(m.upcoming_debit_paise)}, above the Rs 15,000 ceiling "
+            f"that RBI allows without you authenticating it. No authentication step is "
+            f"scheduled, so the debit will be declined."
+        ),
+        "REPEAT_NSF": (
+            f"the last {m.consecutive_nsf} attempts were returned for insufficient funds. "
+            f"Presenting a {rupees(m.upcoming_debit_paise)} debit on the same date is likely "
+            f"to be returned again."
+        ),
+        "SILENT_REVOCATION": (
+            "this mandate is no longer active at your bank, and the last cycle was never even "
+            "attempted. Nothing will be collected until it is set up again."
+        ),
+        "RAIL_DEGRADED": (
+            f"your bank is currently returning an elevated share of mandate debits "
+            f"({m.issuer_failure_rate:.0%}). This debit is more likely than usual to be "
+            f"returned for reasons that have nothing to do with your account."
+        ),
+    }.get(defect_value, "a defect was detected on this mandate.")
+
+
+def _corrected_mandate_link(m, defects) -> tuple[str | None, int]:
+    """A real, authorizable Razorpay mandate at an amount that actually works.
+
+    This is the honest form of "change your bank". Razorpay has no API to
+    swap the account behind an existing subscription -- but a fresh
+    authorization link lets the debtor pick whichever account they like on
+    Razorpay's own hosted page, and the old mandate is revoked once the new
+    one is live. A new link *is* the bank change, done the only way the rail
+    allows.
+
+    The corrected amount is the upcoming debit with headroom above it, so the
+    replacement does not reproduce the defect it exists to fix.
+    """
+    corrected = int(m.upcoming_debit_paise * 1.2)
+    key_id = os.environ.get("RAZORPAY_KEY_ID")
+    key_secret = os.environ.get("RAZORPAY_KEY_SECRET")
+    if not key_id or not key_secret:
+        return None, corrected
+
+    try:
+        rail = RazorpayRail(key_id=key_id, key_secret=key_secret)
+        mandate = rail.create_mandate(MandateSpec(
+            max_amount_paise=corrected,
+            start_at=str(m.next_debit_date),
+            end_at=str(m.end_at),
+            debit_schedule=[str(m.next_debit_date)[:10]],
+            afa_required=corrected > 15_000_00,
+        ))
+        return mandate.short_url, corrected
+    except Exception:
+        # Never a placeholder URL. An unavailable link means the message
+        # says so -- this project shipped a fake one once.
+        _log.warning("subscription: could not create the corrected mandate", exc_info=True)
+        return None, corrected
+
+
+@router.post("/subscription-alert")
+def subscription_alert(payload: SubscriptionAlertRequest) -> dict[str, object]:
+    """Warn a subscriber that their next debit will fail, before it does.
+
+    The whole argument of this endpoint is the tense. Every dunning system
+    messages someone *after* a failed payment. This one runs a deterministic
+    check over the mandate's own fields, finds a debit that cannot succeed,
+    and says so while there is still time to fix it -- with the reason, the
+    arithmetic, and a working replacement.
+
+    And the message is not an extra: RBI_EMANDATE_PREDEBIT_24H requires a
+    pre-debit notice carrying five specific fields. `predebit_notice.py`
+    builds exactly those. So this is the compliant notification, finally
+    carrying something useful.
+
+    Runs through the same `check_bounds()` gate as every other outbound
+    contact -- a warning is still a contact.
+    """
+    _require_secret(payload.secret)
+
+    mandate_id = FAILURE_KINDS.get(payload.failure)
+    if mandate_id is None:
+        raise HTTPException(status_code=400, detail=(
+            f"unknown failure kind {payload.failure!r} -- one of {sorted(FAILURE_KINDS)}"))
+
+    portfolio = _portfolio()
+    try:
+        target = next((m for m in portfolio.all() if m.mandate_id == mandate_id), None)
+    finally:
+        portfolio.close()
+    if target is None:
+        raise HTTPException(status_code=503, detail="the mandate portfolio has not been seeded")
+
+    # The real detector, on this mandate, right now.
+    defects = check_mandate_health(target.to_health_input())
+    if not defects:
+        raise HTTPException(status_code=409, detail=(
+            f"{mandate_id} is healthy -- nothing to warn about. It may already have been repaired."))
+
+    _check_rate_limit("subscription")
+
+    scenario = {"invoice_id": target.mandate_id, "amount_paise": target.upcoming_debit_paise,
+                "days_overdue": 0}
+    bounds_result = check_bounds(_bounds_context_for(scenario, "telegram", replying_to_inbound=False))
+    if not bounds_result.passed:
+        raise HTTPException(status_code=422, detail=(
+            f"check_bounds() refused this alert: {[v.rule_id for v in bounds_result.refusals]}"))
+
+    # business_now(), not datetime.now(): the portfolio stores tz-aware
+    # timestamps, and the debtor's "in 4 days" is counted on their
+    # calendar rather than the server's (agent/clock.py, WHAT_BROKE #20).
+    days = max(0, (datetime.fromisoformat(target.next_debit_date) - business_now()).days)
+    link, corrected = _corrected_mandate_link(target, defects)
+    primary = defects[0]
+
+    lines = [
+        f"Heads up -- your next subscription debit will fail.",
+        "",
+        f"{target.plan} · {to_rupees_display(target.upcoming_debit_paise)} due "
+        f"{str(target.next_debit_date)[:10]}"
+        + (f" (in {days} days)" if days else " (today)"),
+        "",
+        f"Why: {_defect_explanation(primary.defect.value, target)}",
+        "",
+        f"We found this before presenting the debit, so nothing has been declined and no "
+        f"failed-payment fee applies.",
+    ]
+    if link:
+        lines += [
+            "",
+            f"Fix it here: {link}",
+            f"That authorizes a replacement mandate at {to_rupees_display(corrected)} -- and you "
+            f"can pick a different bank account on that page if you'd rather. The old one is "
+            f"cancelled once this is live. Nothing is charged now.",
+        ]
+    else:
+        lines += ["", "A person will be in touch with a working link shortly -- nothing has "
+                        "been charged."]
+
+    text = "\n".join(lines)
+
+    raw_chat = os.environ.get("DEMO_CONTACT_SUBSCRIPTION_CHAT_ID", "")
+    chat_id = _subscription_conversation_id()
+    channel_obj = _subscription_channel()
+    try:
+        result = channel_obj.send(to=raw_chat or chat_id, text=text)
+    except ChannelUnavailable as exc:
+        raise HTTPException(status_code=502, detail=f"channel unavailable: {exc}") from exc
+    finally:
+        channel_obj.close()
+
+    store = _conversation_store()
+    try:
+        store.record_turn(chat_id, direction="outbound", text=text)
+        store.record_event(chat_id, kind="failure_predicted", channel="telegram", detail={
+            "mandate_id": target.mandate_id, "customer": target.customer,
+            "defect": primary.defect.value, "repair": primary.repair, "detail": primary.detail,
+            "upcoming_debit_paise": target.upcoming_debit_paise,
+            "max_amount_paise": target.max_amount_paise,
+            "days_until_debit": days, "corrected_amount_paise": corrected,
+            "fix_url": link, "text": text,
+            "bounds_passed": len([v for v in bounds_result.verdicts if v.verdict == "PASS"]),
+            "bounds_total": len(bounds_result.verdicts),
+        })
+    finally:
+        store.close()
+
+    call_ref = None
+    if payload.call:
+        call_ref = _place_subscription_call(target, primary, days, payload.to)
+
+    return {
+        "status": result.status,
+        "mandate_id": target.mandate_id,
+        "customer": target.customer,
+        "defect": primary.defect.value,
+        "why": primary.detail,
+        "repair": primary.repair,
+        "days_until_debit": days,
+        "fix_url": link,
+        "corrected_amount_paise": corrected,
+        "call_ref": call_ref,
+        "bounds_checks": [v.rule_id for v in bounds_result.verdicts if v.verdict == "PASS"],
+        "bounds_total": len(bounds_result.verdicts),
+        "telegram_text": text,
+    }
+
+
+def _place_subscription_call(target, defect, days: int, to: str | None) -> str | None:
+    """A voice call that says only enough to get them to read the message.
+
+    Deliberately short and free of numbers: a spoken rupee amount and a
+    mandate reference are exactly what a person cannot write down mid-call,
+    and the detail is already sitting in Telegram where they can act on it.
+    """
+    sid = os.environ.get("TWILIO_ACCOUNT_SID")
+    from_number = os.environ.get("TWILIO_FROM_NUMBER")
+    auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+    api_key_secret = os.environ.get("TWILIO_API_KEY_SECRET")
+    if not sid or not from_number or not (auth_token or api_key_secret):
+        _log.info("subscription: no Twilio config -- skipping the call")
+        return None
+
+    try:
+        phone = _resolve_recipient(to, "DEMO_CONTACT_PHONE_NUMBER")
+    except HTTPException:
+        raise
+    secret_value, username = ((api_key_secret, os.environ.get("TWILIO_API_KEY_SID"))
+                              if api_key_secret else (auth_token, None))
+    when = f"in {days} days" if days else "today"
+    text = (
+        "Hello, this is an automated call from True Commit about your subscription. "
+        f"Your next automatic payment, due {when}, will not go through. "
+        "This is not a missed payment, and nothing has been charged. "
+        "Please check Telegram, where we have sent the reason and a link to fix it. Thank you."
+    )
+    channel_obj = TwilioVoiceChannel(sid, secret_value, from_number, auth_username=username)
+    try:
+        return channel_obj.send(to=phone, text=text).external_ref
+    except ChannelUnavailable:
+        _log.warning("subscription: the call could not be placed", exc_info=True)
+        return None
+    finally:
+        channel_obj.close()
+
+
+@router.post("/telegram-webhook/subscription")
+async def subscription_telegram_webhook(request: Request) -> dict[str, object]:
+    """The subscription bot's own inbound path.
+
+    A separate route rather than a shared one with a bot discriminator: when
+    a delivery starts failing, the URL in `getWebhookInfo` says immediately
+    which bot broke. A shared endpoint that 403s tells you only that
+    *something* is misconfigured, and this project has already lost an
+    evening to exactly that ambiguity.
+
+    Everything downstream is the same machinery the b2b bot uses --
+    `handle_inbound_message` runs the real extractor, the real
+    DECIDE -> BOUNDS decision and the real composer. The subscription demo
+    is not a second, simpler pipeline; it is the same one, pointed at a
+    different conversation.
+    """
+    expected = os.environ.get("TELEGRAM_SUBSCRIPTION_WEBHOOK_SECRET")
+    if not expected:
+        raise HTTPException(status_code=503,
+                            detail="TELEGRAM_SUBSCRIPTION_WEBHOOK_SECRET not configured")
+    if request.headers.get("x-telegram-bot-api-secret-token") != expected:
+        raise HTTPException(status_code=403, detail="bad or missing Telegram secret token")
+
+    try:
+        update = await request.json()
+    except ValueError:
+        return {"ok": True, "handled": False, "reason": "unparseable_body"}
+
+    message = update.get("message") or update.get("edited_message") or {}
+    text = message.get("text")
+    chat_id = str((message.get("chat") or {}).get("id", ""))
+    if not text or not chat_id:
+        return {"ok": True, "handled": False, "reason": "no_text"}
+
+    configured = os.environ.get("DEMO_CONTACT_SUBSCRIPTION_CHAT_ID")
+    if configured and chat_id != str(configured):
+        _log.info("subscription webhook: ignoring a message from a non-demo chat")
+        return {"ok": True, "handled": False, "reason": "not_the_demo_contact"}
+
+    channel_obj = _subscription_channel()
+    try:
+        result = handle_inbound_message(
+            # Namespaced for the store, raw for the send: the thread must
+            # not collide with b2b's, and Telegram still needs the real id.
+            conversation_id=_subscription_conversation_id(chat_id),
+            external_id=str(update.get("update_id")),
+            text=text, channel="telegram", scenario_key="subscription",
+            send=lambda reply: channel_obj.send(to=chat_id, text=reply),
+        )
+    finally:
+        channel_obj.close()
+
+    return {"ok": True, **result}

@@ -277,6 +277,27 @@ code, .mono{font-family:var(--font-mono);}
 .case-detail{font-size:0.8rem; color:var(--ink-soft); margin-top:0.2rem; word-wrap:break-word; overflow-wrap:anywhere;}
 .case-detail.quoted{font-style:italic; padding-left:0.7rem; border-left:2px solid var(--line-strong);}
 
+/* ---------- which conversation ---------- */
+.case-actions{display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;}
+.thread-switch{display:inline-flex; border:1px solid var(--line-strong); border-radius:8px; overflow:hidden;}
+.thr{
+  appearance:none; background:var(--surface-2); border:none; color:var(--ink-faint);
+  font-family:var(--font-mono); font-size:0.68rem; letter-spacing:0.04em;
+  padding:0.35rem 0.65rem; cursor:pointer; border-right:1px solid var(--line-strong);
+}
+.thr:last-child{border-right:none;}
+.thr:hover{color:var(--ink-soft);}
+.thr.active{background:var(--accent-soft); color:var(--accent-ink);}
+/* Which thread a row belongs to, when showing all of them. Two bots report
+   the same Telegram chat id, so without this the only cue that a
+   subscription event is not a b2b one would be the wording. */
+.thread-tag{
+  font-family:var(--font-mono); font-size:0.6rem; text-transform:uppercase; letter-spacing:0.05em;
+  padding:0.1em 0.4em; border-radius:4px; background:var(--surface-3); color:var(--ink-faint);
+  border:1px solid var(--line-strong);
+}
+.thread-tag.sub{color:var(--warn); border-color:color-mix(in srgb, var(--warn) 40%, transparent);}
+
 /* ---------- the refusal strip ----------
    The gate's verdict as a visual state, not a sentence. A refusal used to
    render as small grey text among the other rows, which made the single
@@ -359,6 +380,42 @@ code, .mono{font-family:var(--font-mono);}
 .turn{font-size:0.8rem; line-height:1.5; padding:0.5rem 0.7rem; border-radius:8px; max-width:88%; word-wrap:break-word; overflow-wrap:anywhere;}
 .turn.inbound{background:var(--surface-3); align-self:flex-start;}
 .turn.outbound{background:var(--accent-soft); color:var(--accent-ink); align-self:flex-end;}
+
+/* ---------- subscriptions ---------- */
+.scan-summary{display:flex; flex-wrap:wrap; gap:1.6rem; padding:1rem 1.15rem 0;}
+.scan-summary .stat .n{font-family:var(--font-mono); font-size:1.4rem; font-weight:600; display:block; font-variant-numeric:tabular-nums;}
+.scan-summary .stat .l{font-size:0.72rem; color:var(--ink-faint);}
+.scan-summary .stat.bad .n{color:var(--bad);}
+.scan-summary .stat.good .n{color:var(--good);}
+.scan-summary .stat.money .n{color:var(--warn);}
+.scan-note{padding:0.6rem 1.15rem 0; font-size:0.74rem; color:var(--ink-faint); line-height:1.5; max-width:74ch;}
+
+.sub-controls{padding:1rem 1.15rem 0.4rem;}
+.fail-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:0.55rem;}
+.fail-btn{
+  text-align:left; background:var(--surface-2); border:1px solid var(--line-strong);
+  border-radius:9px; padding:0.65rem 0.8rem; cursor:pointer; color:var(--ink);
+  font-family:inherit; transition:border-color 0.12s ease, background 0.12s ease;
+}
+.fail-btn:hover:not(:disabled){border-color:var(--bad); background:var(--bad-bg);}
+.fail-btn:disabled{opacity:0.55; cursor:default;}
+.fail-btn .n{display:block; font-size:0.83rem; font-weight:600; margin-bottom:0.15rem;}
+.fail-btn .d{display:block; font-size:0.73rem; color:var(--ink-soft); line-height:1.4;}
+.fail-btn .code{display:block; font-family:var(--font-mono); font-size:0.62rem; color:var(--ink-faint); margin-top:0.3rem;}
+
+.mandate-list{display:flex; flex-direction:column;}
+.mrow{display:grid; grid-template-columns:1fr auto; gap:0.3rem 1rem; padding:0.8rem 1.15rem; border-top:1px solid var(--line);}
+.mrow .who{font-size:0.87rem; font-weight:600;}
+.mrow .plan{grid-column:1; font-size:0.74rem; color:var(--ink-faint); font-variant-numeric:tabular-nums;}
+.mrow .verdict{grid-row:1 / span 2; grid-column:2; text-align:right; font-family:var(--font-mono); font-size:0.7rem;}
+.mrow.ok .verdict{color:var(--good);}
+.mrow.bad .verdict{color:var(--bad);}
+.mrow .defect{grid-column:1 / -1; margin-top:0.4rem; border-left:2px solid var(--bad);
+              padding:0.4rem 0 0.4rem 0.7rem;}
+.mrow .defect .name{font-family:var(--font-mono); font-size:0.71rem; color:var(--bad); font-weight:600;}
+.mrow .defect .math{font-family:var(--font-mono); font-size:0.7rem; color:var(--ink-soft); display:block; margin-top:0.15rem; word-break:break-all;}
+.mrow .defect .fix{font-size:0.75rem; color:var(--ink-soft); display:block; margin-top:0.2rem;}
+.mrow .defect .fix b{color:var(--ink); font-weight:600;}
 </style>
 </head>
 <body>
@@ -392,6 +449,7 @@ code, .mono{font-family:var(--font-mono);}
     <button class="tab active" role="tab" data-tab="live" aria-selected="true">Live console</button>
     <button class="tab" role="tab" data-tab="history" aria-selected="false">Activity &amp; case files</button>
     <button class="tab" role="tab" data-tab="debtors" aria-selected="false">Debtors &amp; scores</button>
+    <button class="tab" role="tab" data-tab="subs" aria-selected="false">Subscriptions</button>
   </nav>
 
   <div class="tab-panel" id="panel-live">
@@ -472,7 +530,14 @@ code, .mono{font-family:var(--font-mono);}
         <h3>Case file — INV-2201</h3>
         <p class="casefile-sub">Read from the server. Survives a reload, a cold start, and this tab being closed.</p>
       </div>
-      <button class="btn btn-small" id="caseRefreshBtn">Refresh</button>
+      <div class="case-actions">
+        <div class="thread-switch" role="group" aria-label="Which conversation">
+          <button class="thr active" data-thread="all">All</button>
+          <button class="thr" data-thread="b2b">B2B invoice</button>
+          <button class="thr" data-thread="sub">Subscription</button>
+        </div>
+        <button class="btn btn-small" id="caseRefreshBtn">Refresh</button>
+      </div>
     </div>
 
     <div class="stage-track" id="stageTrack"></div>
@@ -531,6 +596,36 @@ code, .mono{font-family:var(--font-mono);}
       </div>
     </section>
   </div><!-- /panel-debtors -->
+
+  <div class="tab-panel" id="panel-subs" hidden>
+    <section class="casefile">
+      <div class="casefile-head">
+        <div>
+          <h3>Subscription failures &mdash; predicted, not reported</h3>
+          <p class="casefile-sub">Every dunning system messages someone <em>after</em> a payment fails.
+          This runs a deterministic check over each mandate&rsquo;s own fields, finds debits that
+          <em>cannot</em> succeed, and says so while there is still time. Detection is arithmetic, not a
+          prediction &mdash; no persona, no model.</p>
+        </div>
+        <button class="btn btn-small" id="scanBtn">Scan portfolio</button>
+      </div>
+
+      <div class="scan-summary" id="scanSummary"></div>
+
+      <div class="sub-controls">
+        <label class="field">
+          <span class="field-label">Phone number for the call</span>
+          <input id="subRecipient" type="tel" placeholder="+91&hellip; &mdash; leave blank to use the demo&rsquo;s own number" autocomplete="off" spellcheck="false">
+        </label>
+        <p class="hint" style="margin:0.4rem 0 0.9rem;">Put your own number in and the warning call comes to you.
+        A real Telegram message goes to <code>@Truecommit_subscription_bot</code> either way.</p>
+        <div class="fail-grid" id="failGrid"></div>
+      </div>
+
+      <div class="case-empty" id="subEmpty">Scan the portfolio, then trigger a failure type.</div>
+      <div class="mandate-list" id="mandateList"></div>
+    </section>
+  </div><!-- /panel-subs -->
 
   <p class="foot-note">
     Every number above (p_base, expected value, which bounds rules ran, which instrument was selected) came from actually
@@ -1149,6 +1244,16 @@ function renderMandatePanel(events){
 }
 
 function renderCaseFile(body){
+  // Learn the demo's own chat id from the data rather than configuring it
+  // twice. The subscription thread is that id with a "sub:" prefix.
+  if (!DEMO_CHAT_ID){
+    (body.events || []).some(function(e){
+      var c = e.conversation_id || '';
+      if (c && c.indexOf('sub:') !== 0 && /^\d+$/.test(c)){ DEMO_CHAT_ID = c; return true; }
+      if (c.indexOf('sub:') === 0){ DEMO_CHAT_ID = c.slice(4); return true; }
+      return false;
+    });
+  }
   renderStageTrack(body.stage);
   document.getElementById('stageNote').textContent = body.stage_label;
   renderMandatePanel(body.events);
@@ -1182,6 +1287,8 @@ function renderCaseFile(body){
       + '<div class="case-body">'
       +   '<div class="case-top"><span class="case-title">'+escapeHtml(title)+'</span>'
       +     (e.channel ? '<span class="event-chan">'+escapeHtml(CHANNEL_LABEL[e.channel] || e.channel)+'</span>' : '')
+      +     (caseThread === 'all' && String(e.conversation_id || '').indexOf('sub:') === 0
+              ? '<span class="thread-tag sub">subscription</span>' : '')
       +     '<span class="case-time">'+escapeHtml(when)+'</span></div>'
       +   (detail ? '<div class="case-detail'+(meta.quote?' quoted':'')+'">'+escapeHtml(detail)+'</div>' : '')
       +   gate
@@ -1189,11 +1296,34 @@ function renderCaseFile(body){
   }).join('');
 }
 
+// Which conversation the case file is showing. Both bots report the same
+// Telegram chat id -- the store namespaces the subscription thread as
+// "sub:<id>" -- so without this the two demos share one case file and a
+// subscription alert appears inside the b2b story.
+var caseThread = 'all';
+var DEMO_CHAT_ID = null;   // learned from the first timeline response
+
+function threadConversationId(){
+  if (caseThread === 'b2b') return DEMO_CHAT_ID || null;
+  if (caseThread === 'sub') return DEMO_CHAT_ID ? 'sub:' + DEMO_CHAT_ID : null;
+  return null;
+}
+
+function setThread(name){
+  caseThread = name;
+  document.querySelectorAll('.thr').forEach(function(b){
+    b.classList.toggle('active', b.getAttribute('data-thread') === name);
+  });
+  refreshCaseFile();
+}
+
 async function refreshCaseFile(){
   var url = document.getElementById('backendUrl').value.trim().replace(/\/$/, '');
   if (!url) return;
+  var cid = threadConversationId();
+  var q = '/demo/timeline?limit=80' + (cid ? '&conversation_id=' + encodeURIComponent(cid) : '');
   try{
-    var res = await fetch(url + '/demo/timeline?limit=80', {method:'GET'});
+    var res = await fetch(url + q, {method:'GET'});
     if (!res.ok) return;
     renderCaseFile(await res.json());
   }catch(e){
@@ -1205,7 +1335,7 @@ async function refreshCaseFile(){
 // ---- tabs ----
 
 function showTab(name){
-  ['live','history','debtors'].forEach(function(t){
+  ['live','history','debtors','subs'].forEach(function(t){
     document.getElementById('panel-' + t).hidden = (t !== name);
   });
   document.querySelectorAll('.tab').forEach(function(btn){
@@ -1216,6 +1346,7 @@ function showTab(name){
   try{ localStorage.setItem('truecommit.tab', name); }catch(e){}
   if (name === 'debtors'){ refreshDebtors(); }
   if (name === 'history'){ refreshCaseFile(); }
+  if (name === 'subs'){ scanPortfolio(); }
 }
 
 // ---- debtors & scores ----
@@ -1315,6 +1446,128 @@ async function openDebtor(id){
   }catch(e){ /* cold start -- the Refresh button retries */ }
 }
 
+// ---- subscriptions: failures predicted before they happen ----
+
+var FAILURES = [
+  {k:'headroom', n:'Mandate ceiling too low',   c:'HEADROOM_BREACH',
+   d:'The authorization is smaller than the debit. The bank refuses it — not for want of funds.'},
+  {k:'expiry',   n:'Expires before the debit',  c:'EXPIRY_BEFORE_DEBIT',
+   d:'The mandate lapses before the next charge date. Nothing left to charge against.'},
+  {k:'afa',      n:'Over the AFA ceiling',      c:'AFA_THRESHOLD_BREACH',
+   d:'Above ₹15,000 with no authentication scheduled. RBI requires one.'},
+  {k:'nsf',      n:'Repeat insufficient funds', c:'REPEAT_NSF',
+   d:'Returned twice already. Presenting again on the same date invites a third.'},
+  {k:'revoked',  n:'Silently revoked',          c:'SILENT_REVOCATION',
+   d:'Cancelled at the bank, and the last cycle was never even attempted.'},
+  {k:'rail',     n:'Issuer degraded',           c:'RAIL_DEGRADED',
+   d:'This bank is returning an elevated share of mandate debits right now.'}
+];
+
+function renderFailureButtons(){
+  var grid = document.getElementById('failGrid');
+  if (!grid) return;
+  grid.innerHTML = FAILURES.map(function(f){
+    return '<button class="fail-btn" data-failure="' + f.k + '">'
+      + '<span class="n">' + escapeHtml(f.n) + '</span>'
+      + '<span class="d">' + escapeHtml(f.d) + '</span>'
+      + '<span class="code">' + escapeHtml(f.c) + '</span>'
+      + '</button>';
+  }).join('');
+  grid.querySelectorAll('[data-failure]').forEach(function(btn){
+    btn.addEventListener('click', function(){ triggerFailure(btn.getAttribute('data-failure'), btn); });
+  });
+}
+
+function renderScan(body){
+  document.getElementById('scanSummary').innerHTML =
+      '<div class="stat"><span class="n">' + body.scanned + '</span><span class="l">mandates scanned</span></div>'
+    + '<div class="stat bad"><span class="n">' + body.defective + '</span><span class="l">will fail</span></div>'
+    + '<div class="stat good"><span class="n">' + (body.scanned - body.defective) + '</span><span class="l">healthy</span></div>'
+    + '<div class="stat money"><span class="n">' + inr(body.at_risk_paise) + '</span><span class="l">at risk, next cycle</span></div>'
+    + '<p class="scan-note">' + escapeHtml(body.note || '') + '</p>';
+
+  document.getElementById('subEmpty').style.display = body.mandates.length ? 'none' : 'block';
+  document.getElementById('mandateList').innerHTML = body.mandates.map(function(m){
+    var defects = (m.defects || []).map(function(d){
+      return '<div class="defect">'
+        + '<span class="name">' + escapeHtml(d.defect) + '</span>'
+        + '<span class="math">' + escapeHtml(d.detail) + '</span>'
+        + '<span class="fix"><b>Repair:</b> ' + escapeHtml(d.repair) + '</span>'
+        + '</div>';
+    }).join('');
+    return '<div class="mrow ' + (m.healthy ? 'ok' : 'bad') + '">'
+      + '<span class="who">' + escapeHtml(m.customer) + '</span>'
+      + '<span class="plan">' + escapeHtml(m.plan) + ' · ' + inr(m.upcoming_debit_paise)
+      +   ' due ' + escapeHtml(String(m.next_debit_date).slice(0, 10))
+      +   ' · ceiling ' + inr(m.max_amount_paise) + '</span>'
+      + '<span class="verdict">' + (m.healthy ? '✓ clears' : '✗ will fail') + '</span>'
+      + defects
+      + '</div>';
+  }).join('');
+}
+
+async function scanPortfolio(){
+  var url = document.getElementById('backendUrl').value.trim().replace(/\/$/, '');
+  if (!url) return;
+  try{
+    var res = await fetch(url + '/demo/mandate-health', {method:'GET'});
+    if (!res.ok) return;
+    renderScan(await res.json());
+  }catch(e){
+    document.getElementById('subEmpty').textContent =
+      'Could not reach the backend — it may be cold-starting. Try Scan again in a moment.';
+  }
+}
+
+async function triggerFailure(kind, btn){
+  var to = document.getElementById('subRecipient').value.trim();
+  var original = btn.innerHTML;
+  btn.disabled = true;
+  btn.querySelector('.n').textContent = 'Sending…';
+
+  try{
+    var res = await fetch('/api/demo-subscription-alert', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({failure: kind, to: to || undefined, call: true})
+    });
+    var body = await res.json();
+
+    if (res.ok && body.status === 'sent'){
+      var pills = [
+        {text: body.defect, tone:'bad'},
+        {text: body.bounds_checks.length + '/' + body.bounds_total + ' bounds rules passed', tone:'good'}
+      ];
+      if (body.days_until_debit !== undefined){
+        pills.push({text: 'fails in ' + body.days_until_debit + ' days'});
+      }
+      if (body.call_ref){ pills.push({text: 'call placed · ' + body.call_ref}); }
+
+      addActivity({
+        kind:'err', channel:'telegram',
+        title:'Failure predicted before it happened — ' + body.customer,
+        text: body.why, pills: pills
+      });
+      if (body.fix_url){
+        addActivity({kind:'ok', channel:'telegram',
+          title:'Real replacement mandate issued — theirs to authorize',
+          text: body.fix_url});
+      }
+      addLedgerRow('DETECT', 'mandate:' + body.mandate_id, 'pass');
+      scanPortfolio();
+      refreshCaseFile();
+    } else {
+      addActivity({kind:'err', channel:'telegram',
+        title:'Refused (HTTP ' + res.status + ')',
+        text: body.detail ? String(body.detail) : 'no detail given'});
+    }
+  }catch(e){
+    addActivity({kind:'err', channel:'telegram', title:'Could not reach the backend', text:String(e)});
+  }finally{
+    btn.disabled = false;
+    btn.innerHTML = original;
+  }
+}
+
 function hashLike(seed){
   var s = (seed * 2654435761) >>> 0;
   return s.toString(16).padStart(8,'0');
@@ -1387,7 +1640,12 @@ document.getElementById('backendUrl').addEventListener('change', function(){
   saveSettings(); refreshCaseFile();
 });
 document.getElementById('caseRefreshBtn').addEventListener('click', refreshCaseFile);
+document.querySelectorAll('.thr').forEach(function(btn){
+  btn.addEventListener('click', function(){ setThread(btn.getAttribute('data-thread')); });
+});
 document.getElementById('debtorRefreshBtn').addEventListener('click', refreshDebtors);
+document.getElementById('scanBtn').addEventListener('click', scanPortfolio);
+renderFailureButtons();
 document.getElementById('debtorCloseBtn').addEventListener('click', function(){
   document.getElementById('debtorDetailCard').hidden = true;
 });

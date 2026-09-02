@@ -1,11 +1,11 @@
-// Proxies the frontend's live-trigger button to the real Render backend's
-// POST /demo/trigger, attaching DEMO_TRIGGER_SECRET server-side (a Netlify
+// Proxies the dashboard's subscription failure buttons to the real Render backend's
+// POST /demo/subscription-alert, attaching DEMO_TRIGGER_SECRET server-side (a Netlify
 // Function's own env vars never reach the browser, unlike a static page's
 // JS -- this is the actual fix for the secret-in-public-source problem,
 // not the "auto-fill it and accept the tradeoff" version shipped earlier).
 //
-// The browser sends only { channel, scenario } -- no secret. This function
-// adds the real secret and forwards to BACKEND_URL/demo/trigger, then
+// The browser sends { failure, to, call } -- no secret. This function
+// adds the real secret and forwards to BACKEND_URL/demo/subscription-alert, then
 // relays the backend's response (status code included) straight back.
 
 const BACKEND_URL = process.env.BACKEND_URL || 'https://track-03.onrender.com';
@@ -39,13 +39,13 @@ exports.handler = async (event) => {
   }
 
   try {
-    const res = await fetch(BACKEND_URL.replace(/\/$/, '') + '/demo/trigger', {
+    const res = await fetch(BACKEND_URL.replace(/\/$/, '') + '/demo/subscription-alert', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         secret: DEMO_TRIGGER_SECRET,
-        channel: payload.channel,
-        scenario: payload.scenario,
+        failure: payload.failure,
+        call: payload.call !== false,
         // `to` is forwarded, and was not until 2026-09-02. The dashboard has
         // a "message my own number" field, the browser sent it, and this
         // proxy quietly dropped it -- so on a deployed site that field did

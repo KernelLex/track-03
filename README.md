@@ -112,7 +112,15 @@ regime, not sending another message.
 3. **`no_action` is a logged, first-class decision**, not silence — the
    bounds gate's `EV_FLOOR` rule exists specifically so "doing nothing" is
    an auditable choice, not an omission.
-4. **It negotiates, and the negotiation ends in a real instrument.** "I can
+4. **It warns before the failure, not after it.** Every dunning system
+   messages someone once a payment has failed. `check_mandate_health()` reads
+   a recurring mandate's own fields and finds debits that *cannot* succeed —
+   a ceiling below the debit, an expiry before the cycle — then says so while
+   there is still time, with the arithmetic and a real corrected mandate. It
+   is a comparison, not a prediction: no persona, no fitted probability. The
+   seeded book is B2B recurring; the detector is amount-agnostic and the same
+   check works unchanged on consumer subscriptions.
+5. **It negotiates, and the negotiation ends in a real instrument.** "I can
    do 21,000 on the 5th and the rest later" becomes a dated, priced plan
    (`agent/mandate/payment_plan.py`) and then **real, authorizable Razorpay
    e-mandate links** (`agent/mandate/emandate.py`) — scheduled for the date
@@ -125,7 +133,7 @@ regime, not sending another message.
 ```
 uv sync
 uv run trucommit demo     # a small, real, end-to-end walk of one debtor
-uv run pytest             # 1,092 collected: 1,081 run without credentials, 11 skipped (they run live with Razorpay test keys set)
+uv run pytest             # 1,119 collected: 1,108 run without credentials, 11 skipped (they run live with Razorpay test keys set)
 ```
 
 CI runs that same suite on every push (`.github/workflows/ci.yml`), on

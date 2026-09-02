@@ -106,6 +106,7 @@ driver, keeping the "no stage imports another stage" rule intact.
 | `agent/debtor/score.py` | `promise_credibility` from kept/broken history, and the published bands it earns | The bounds gate has scaled `PROMISE_COOLDOWN` by this value since it was written, and nothing ever computed it -- every context used the `1.0` default |
 | `agent/debtor/invoices.py` | A debtor's invoices and what has happened to each | The conversation was about one hardcoded invoice, so "which of these do I still owe" could not be asked at all |
 | `agent/notify/intents.py` | The handful of things a debtor says that are commands, not prose | "2" and "dispute" need no language model, and routing them through one costs four seconds and risks reading them as something they did not ask for |
+| `agent/mandate/portfolio.py` | The book of recurring mandates the detector reads, and the money already lost inside it | `check_mandate_health()` was reachable from no endpoint -- an offline tool ran it once and wrote a markdown file, and that was the whole demonstration of the project's strongest claim |
 | `agent/clock.py` | What "today" means to an Indian business | `date.today()` is UTC on Render, so for five and a half hours a day every relative date resolved one day early |
 | `agent/debtor/registry.py` | Who owes what, and every promise behind their score | There was no way to ask "what has this debtor done before", which is the question `promise_credibility` was designed around |
 
@@ -124,6 +125,14 @@ alongside the chosen action, so the dashboard can render the gate's verdict
 as a state rather than a sentence (`docs/DEMO_UI.md`). No new decision
 logic -- the reason was already on `BoundsVerdict` and was being discarded
 at the API boundary.
+
+**The subscription side is now reachable.** `GET /demo/mandate-health`
+runs the real `check_mandate_health()` over a seeded book;
+`POST /demo/subscription-alert` warns a subscriber that a specific debit
+cannot succeed, with the detector's own arithmetic, a real corrected mandate
+and a voice call. It is the same detector the headline evidence and the
+repair lifecycle call -- not a demo-shaped copy -- and the alert passes the
+same 20-rule gate as any other outbound contact.
 
 **A capture now moves a debtor's record.** `payment.captured` settles the
 oldest open promise through the same webhook that INGEST and SETTLE already

@@ -45,6 +45,13 @@ export async function POST(request) {
         secret: DEMO_TRIGGER_SECRET,
         channel: payload.channel,
         scenario: payload.scenario,
+        // `to` is forwarded, and was not until 2026-09-02. The dashboard has
+        // a "message my own number" field, the browser sent it, and this
+        // proxy quietly dropped it -- so on a deployed site that field did
+        // nothing and every call went to the server's own configured
+        // contact. The backend validates it as E.164 and applies a
+        // per-number cooldown; this only has to stop discarding it.
+        to: payload.to || undefined,
       }),
     });
     const body = await res.text();

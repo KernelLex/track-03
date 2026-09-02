@@ -350,3 +350,48 @@ beforehand. One request wakes it, and normal demo traffic keeps it up.
 
 If none of this is worth the bother, Render's Starter tier ($7/month) does
 not spin down.
+
+## The second Telegram bot (the subscription demo)
+
+The subscription demo runs on its own bot so the two conversations are
+visually separate in Telegram. Setup mirrors the first bot, with one trap
+worth knowing about in advance.
+
+```bash
+# 1. BotFather -> /newbot -> copy the token
+# 2. Message the new bot once, so it has a chat id
+# 3. On the server (Render -> Environment)
+TELEGRAM_SUBSCRIPTION_BOT_TOKEN=<the token>
+TELEGRAM_SUBSCRIPTION_WEBHOOK_SECRET=<a long random string, no trailing punctuation>
+DEMO_CONTACT_SUBSCRIPTION_CHAT_ID=<the chat id>
+
+# 4. Point Telegram at the subscription path -- note it is NOT the same
+#    endpoint as the b2b bot's
+curl -X POST "https://api.telegram.org/bot$TELEGRAM_SUBSCRIPTION_BOT_TOKEN/setWebhook" \
+  -d "url=https://<your-host>/demo/telegram-webhook/subscription" \
+  -d "secret_token=$TELEGRAM_SUBSCRIPTION_WEBHOOK_SECRET" \
+  -d 'allowed_updates=["message","edited_message"]'
+```
+
+**The trap: the chat id will probably be identical to the b2b one.**
+Telegram's private-chat id is the *user's* id, not a per-bot id, so the same
+person messaging two different bots yields the same number both times. That
+is expected and correct -- the conversation store namespaces the
+subscription thread as `sub:<chat_id>` so the two do not merge
+(`SUBSCRIPTION_THREAD_PREFIX` in `agent/api/demo.py`, and
+docs/WHAT_BROKE.md #24 for what happens without it).
+
+Verify the same way as the first bot, and read the URL in the response --
+that is what tells you which bot a failure belongs to:
+
+```bash
+curl "https://api.telegram.org/bot$TELEGRAM_SUBSCRIPTION_BOT_TOKEN/getWebhookInfo"
+```
+
+## Environment variables for the subscription demo
+
+| Variable | Default | What it is |
+|---|---|---|
+| `TELEGRAM_SUBSCRIPTION_BOT_TOKEN` | *(unset)* | The second bot. Unset makes `/demo/subscription-alert` return 503 rather than fall back to the b2b bot. |
+| `TELEGRAM_SUBSCRIPTION_WEBHOOK_SECRET` | *(unset)* | Shared with that bot's `setWebhook`. Unset makes its webhook return 503 rather than accept unverified deliveries. |
+| `DEMO_CONTACT_SUBSCRIPTION_CHAT_ID` | *(unset)* | Usually the same number as `DEMO_CONTACT_TELEGRAM_CHAT_ID` -- see the trap above. |

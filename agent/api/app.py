@@ -36,6 +36,7 @@ from agent.ingest.listen import UnrecognizedWebhookEvent, facts_from_webhook
 from agent.ingest.webhooks import EventStore, MalformedWebhook, SignatureInvalid, verify_and_ingest
 from agent.debtor.registry import DebtorRegistry
 from agent.debtor.invoices import InvoiceStore
+from agent.mandate.portfolio import MandatePortfolio, seed_portfolio
 from agent.debtor.seed import seed_invoices, seed_registry
 from agent.ledger.store import Ledger
 from agent.money import to_rupees_display
@@ -135,6 +136,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             seed_invoices(store)
         finally:
             store.close()
+        portfolio = MandatePortfolio(os.environ.get("TRUECOMMIT_DEBTORS_DB", "debtors.db"))
+        try:
+            seed_portfolio(portfolio)
+        finally:
+            portfolio.close()
     except Exception:
         _log.warning("could not seed the debtor register", exc_info=True)
 
