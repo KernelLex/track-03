@@ -299,22 +299,47 @@ def _create_real_payment_link(scenario: dict[str, object]) -> str | None:
         return None
 
 
-def _agent_reply_for(family: Family) -> str:
+def _agent_reply_for(family: Family, *, mandate_links: list[dict] | None = None) -> str:
     """A real follow-up sent back over the same channel after diagnosing a
     reply -- the piece that turns this from a one-shot "send and diagnose"
     into an actual two-way exchange. Family-level, not per-DiagnosisClass:
     29 classes' worth of bespoke replies would be a lot of surface for a
     demo follow-up to get subtly wrong, and the family-level distinction
     (instrument / blocker / liquidity / dispute) is already what the
-    dashboard's own scripted Diagnose stage explains to a viewer."""
+    dashboard's own scripted Diagnose stage explains to a viewer.
+
+    **`mandate_links` exists because the bland version was worse than
+    bland -- it was wrong.** Observed live on 2026-09-02: a debtor said "I
+    can pay 21,000 on the 5th and the rest by month end", the pipeline
+    diagnosed PROMISE_STATED at 0.88, built the plan, and issued a real
+    Razorpay e-mandate (`sub_TXBeQY5swx95DX`). Then `compose_reply` came
+    back empty, and this function -- which knew only the family -- replied
+    "Understood, no rush, it'll confirm itself once it's paid."
+
+    The debtor was never given the authorization link the agent had just
+    created for them. A fallback is allowed to be bland; it is not allowed
+    to withhold the one artifact the exchange produced, or to imply nothing
+    is required when a signature is. So when a mandate was issued, the
+    fallback says so and carries the link.
+    """
     if family == Family.A:
         return "Got it -- flagging that for repair on our end so it doesn't fail the same way again."
     if family == Family.B:
         return "Understood -- pausing automated contact on this invoice while that's sorted out on your end."
     if family == Family.D:
         return "This needs a person to review, not another automated message -- flagging your case now, and pausing automated contact on this invoice."
-    # Family C: liquidity/willingness -- the one case where resending the
-    # real link (if one exists from this run) is actually the right response.
+
+    # Family C: liquidity/willingness. If this exchange produced something
+    # the debtor has to act on, that outranks every bland acknowledgement
+    # below it.
+    urls = [str(link["short_url"]) for link in (mandate_links or []) if link.get("short_url")]
+    if urls:
+        joined = " and ".join(urls) if len(urls) <= 2 else ", ".join(urls)
+        plural = "these links" if len(urls) > 1 else "this link"
+        return (
+            f"Noted -- that works. To set it up, please authorize {plural}: {joined} "
+            "-- this only schedules the debit, it doesn't take any money now."
+        )
     if _last_payment_link_url:
         return f"No problem -- here's the link again whenever you're ready: {_last_payment_link_url}"
     return "Understood -- no rush, it'll confirm itself once it's paid."
@@ -998,7 +1023,13 @@ def _compose_or_fallback(
         # the same invisible-absence problem a refused action has.
         _log.warning("demo: contextual reply composition failed, falling back to the fixed line: %s", exc)
         _last_compose_failure["reason"] = f"{type(exc).__name__}: {exc}"[:500]
-        return _agent_reply_for(family)
+        # Hand the fallback whatever this exchange actually produced. The
+        # previous version passed only the family, and a live run proved
+        # what that costs: a real mandate was issued and never mentioned.
+        return _agent_reply_for(
+            family,
+            mandate_links=None if plan is None else (plan.get("mandate_links") or None),
+        )
 
 
 def _bounds_gate_followup(scenario: dict[str, object], channel: str) -> list[str] | None:

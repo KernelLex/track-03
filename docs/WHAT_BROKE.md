@@ -1182,6 +1182,67 @@ real rail in this project has found a defect the test suite missed —
 the tests, which are extensive; it is the argument for the real batch
 existing at all.
 
+## 29. The agent issued a real mandate and then told the debtor to relax
+
+**Symptom.** The first real WhatsApp exchange after inbound was wired up.
+The debtor said *"I can pay 21,000 on the 5th and the rest by month end"*,
+and the timeline shows the pipeline doing everything right:
+
+```
+13:35:57  reply_received   "I can pay 21,000 on the 5th and the rest by month end"
+13:36:05  diagnosed        C / PROMISE_STATED  confidence 0.88  promise.date 2026-09-05
+13:36:05  decided          escalate_human (proposed send_reminder, allowed: False)
+13:36:09  plan_built       shape=stated  band=trusted  instalment_plan_offered
+13:36:09  mandate_issued   sub_TXBeQY5swx95DX  https://rzp.io/rzp/0XUkcMiB
+13:36:15  compose_failed   ComposeFailed: model returned no text
+13:36:15  agent_replied    "Understood -- no rush, it'll confirm itself once it's paid."
+```
+
+Extraction, the gate, the plan, and a **real Razorpay e-mandate** — all
+correct. Then the reply threw the mandate away and told the debtor there
+was nothing to do.
+
+**Root cause.** `_agent_reply_for()` took exactly one argument: the
+diagnosis family. It could not mention a mandate because it was never told
+one existed. When `compose_reply()` failed, `_compose_or_fallback()` called
+it with the family alone and discarded `plan`, which held the links.
+
+**Why this is worse than a bland fallback.** A fallback is allowed to be
+bland. This one was *false*: "no rush, it'll confirm itself once it's paid"
+tells someone no action is required at the exact moment an authorization is
+waiting for their signature. The agent had done the entire job and then
+withheld the only artifact that mattered. From the debtor's side the system
+looks like it ignored a concrete offer.
+
+There is a comment three lines above the bug, added by an earlier fix, that
+describes this precise scenario as the reason compose failures are now
+recorded rather than only logged. That fix made the degradation *visible*.
+It did not make it *correct*, and nobody noticed the difference until a real
+message went out.
+
+**Fix.** `_agent_reply_for(family, *, mandate_links=None)`. When the
+exchange produced something the debtor must act on, that outranks every
+bland acknowledgement: the fallback names the links, says they need
+authorizing, and keeps the "this only schedules the debit, it doesn't take
+any money now" reassurance -- which is the sentence that makes someone
+actually click.
+
+**Why no test caught it.** `_agent_reply_for` had no tests at all. It was
+treated as a constant lookup table rather than as the thing a debtor reads
+when the model is unavailable. It has 14 now, including one asserting
+Family D never receives a payment link under any argument -- answering a
+disputed debt with "authorize this debit" is the Fair Practices problem the
+bounds gate exists to prevent, and the fallback path bypasses the composer
+entirely.
+
+**Still unexplained: why compose returned nothing.** Reproduced locally with
+the same inputs and it works — `stop_reason: end_turn`, 96 output tokens, a
+correct reply naming both legs and the link. Extraction had succeeded on
+Render seconds earlier, so the API was reachable. The empty response was
+transient and I could not reproduce it, so I have not claimed a cause. What
+changed is that a transient composer failure no longer costs the debtor the
+mandate link.
+
 ## What this list is for
 
 I found every one of these by actually building against DEVDOC_v6, not by

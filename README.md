@@ -133,7 +133,7 @@ regime, not sending another message.
 ```
 uv sync
 uv run trucommit demo     # a small, real, end-to-end walk of one debtor
-uv run pytest             # 1,370 collected: 1,359 run without credentials, 11 skipped (they run live with Razorpay test keys set)
+uv run pytest             # 1,384 collected: 1,373 run without credentials, 11 skipped (they run live with Razorpay test keys set)
 ```
 
 CI runs that same suite on every push (`.github/workflows/ci.yml`), on
