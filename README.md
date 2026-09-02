@@ -133,7 +133,7 @@ regime, not sending another message.
 ```
 uv sync
 uv run trucommit demo     # a small, real, end-to-end walk of one debtor
-uv run pytest             # 1,318 collected: 1,307 run without credentials, 11 skipped (they run live with Razorpay test keys set)
+uv run pytest             # 1,329 collected: 1,318 run without credentials, 11 skipped (they run live with Razorpay test keys set)
 ```
 
 CI runs that same suite on every push (`.github/workflows/ci.yml`), on
@@ -153,7 +153,24 @@ uv run python tools/run_dry_run_batch.py           # docs/evidence/DRY_RUN_BATCH
 uv run python -m eval.golden.score --baseline      # keyword baseline, no API calls
 uv run python -m eval.golden.score --extractor     # 50 live extractions
 uv run python -m eval.golden.score --report        # docs/evidence/EXTRACTION_ACCURACY.md
+
+uv run python tools/run_real_batch.py --n 10       # creates REAL invoices on the test account
+uv run python tools/report_real_batch.py           # docs/evidence/REAL_BATCH.md
 ```
+
+**A batch of real decisions produced real, paid objects.** Ten Family B
+diagnoses run through the actual pipeline with `dry_run=False`: the agent
+chose, `check_bounds()` gated, ACT called Razorpay, and every resulting
+invoice was paid and then confirmed `paid` by fetching its status *back* from
+Razorpay rather than trusting what the agent recorded
+([`docs/evidence/REAL_BATCH.md`](docs/evidence/REAL_BATCH.md), ₹215,867 across
+5 invoices). It measures **pipeline completeness, not a recovery rate** — I
+paid them myself, and the report says so in its first paragraph.
+
+The first run of it failed five of ten on a Razorpay rate limit no test could
+have caught, and the generated report then blamed `check_bounds()` for the
+failures. Both are `docs/WHAT_BROKE.md` #28 — and the seventh instance of the
+pattern that every run against a real rail finds something the suite missed.
 
 **Extraction accuracy is measured against a pre-registered golden set**, not
 demonstrated: 50 labelled debtor replies whose labels are committed in their

@@ -1,0 +1,125 @@
+{
+  "run_tag": "09021254",
+  "created_at": "2026-09-02T12:54:23.196298+00:00",
+  "key_id": "rzp_test_TW4JOVciFNWMJ3",
+  "n": 10,
+  "seed": 20260902,
+  "ledger_chain_verified": true,
+  "results": [
+    {
+      "debtor_id": "realbatch_09021254_00",
+      "invoice_id": "RB-09021254-00",
+      "amount_paise": 6676700,
+      "class": "INVOICE_NOT_RECEIVED",
+      "confidence": 0.9,
+      "action_type": "reissue_artifact",
+      "ev_paise": 3284111,
+      "bounds_passed": true,
+      "refusal_reasons": [],
+      "external_ref": "inv_TXAwJ5FkfpuzHw",
+      "short_url": "https://rzp.io/rzp/gFLYyXN",
+      "rail_status": "issued"
+    },
+    {
+      "debtor_id": "realbatch_09021254_01",
+      "invoice_id": "RB-09021254-01",
+      "amount_paise": 1242400,
+      "class": "PO_MISMATCH",
+      "confidence": 0.92,
+      "action_type": "reissue_artifact",
+      "ev_paise": 607497,
+      "bounds_passed": true,
+      "refusal_reasons": [],
+      "external_ref": "inv_TXAwJwVRunnyIK",
+      "short_url": "https://rzp.io/rzp/64K7XrDJ",
+      "rail_status": "issued"
+    },
+    {
+      "debtor_id": "realbatch_09021254_02",
+      "invoice_id": "RB-09021254-02",
+      "amount_paise": 6271700,
+      "class": "GST_DEFECT",
+      "confidence": 0.83,
+      "action_type": "reissue_artifact",
+      "ev_paise": 3084345,
+      "bounds_passed": true,
+      "refusal_reasons": [],
+      "external_ref": "inv_TXAwKl5yB6KOFa",
+      "short_url": "https://rzp.io/rzp/Ct8Euru",
+      "rail_status": "issued"
+    },
+    {
+      "debtor_id": "realbatch_09021254_03",
+      "invoice_id": "RB-09021254-03",
+      "amount_paise": 4772900,
+      "class": "APPROVAL_BOTTLENECK",
+      "confidence": 0.96,
+      "action_type": "reissue_artifact",
+      "ev_paise": 2345339,
+      "bounds_passed": true,
+      "refusal_reasons": [],
+      "external_ref": "inv_TXAwLZTkVIVsmW",
+      "short_url": "https://rzp.io/rzp/gznfce2",
+      "rail_status": "issued"
+    },
+    {
+      "debtor_id": "realbatch_09021254_04",
+      "invoice_id": "RB-09021254-04",
+      "amount_paise": 2623000,
+      "class": "DOCUMENT_MISSING",
+      "confidence": 0.81,
+      "action_type": "reissue_artifact",
+      "ev_paise": 1286359,
+      "bounds_passed": true,
+      "refusal_reasons": [],
+      "external_ref": "inv_TXAwMM9q8aKYVC",
+      "short_url": "https://rzp.io/rzp/idfbhKuB",
+      "rail_status": "issued"
+    },
+    {
+      "debtor_id": "realbatch_09021254_05",
+      "invoice_id": "RB-09021254-05",
+      "amount_paise": 2756800,
+      "class": "BANK_DETAIL_MISMATCH",
+      "confidence": 0.88,
+      "error": "BadRequestError: Too many requests",
+      "action_type": null
+    },
+    {
+      "debtor_id": "realbatch_09021254_06",
+      "invoice_id": "RB-09021254-06",
+      "amount_paise": 4033900,
+      "class": "ALREADY_PAID_UNRECONCILED",
+      "confidence": 0.98,
+      "error": "BadRequestError: Too many requests",
+      "action_type": null
+    },
+    {
+      "debtor_id": "realbatch_09021254_07",
+      "invoice_id": "RB-09021254-07",
+      "amount_paise": 250000,
+      "class": "INVOICE_NOT_RECEIVED",
+      "confidence": 0.72,
+      "error": "BadRequestError: Too many requests",
+      "action_type": null
+    },
+    {
+      "debtor_id": "realbatch_09021254_08",
+      "invoice_id": "RB-09021254-08",
+      "amount_paise": 1831000,
+      "class": "PO_MISMATCH",
+      "confidence": 0.71,
+      "error": "BadRequestError: Too many requests",
+      "action_type": null
+    },
+    {
+      "debtor_id": "realbatch_09021254_09",
+      "invoice_id": "RB-09021254-09",
+      "amount_paise": 1541000,
+      "class": "GST_DEFECT",
+      "confidence": 0.97,
+      "error": "BadRequestError: Too many requests",
+      "action_type": null
+    }
+  ]
+}

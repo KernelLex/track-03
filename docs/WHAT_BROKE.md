@@ -1112,6 +1112,76 @@ I would have published a comparison against a strawman I had built without
 realising it. The overfitting is what made the number implausible enough to
 check.
 
+## 28. Half the first real batch failed, and the report blamed the safety gate
+
+**Symptom.** The very first run of `tools/run_real_batch.py` against the live
+account, ten decisions:
+
+```
+RB-09021254-00  INVOICE_NOT_RECEIVED  reissue_artifact  inv_TXAwJ5FkfpuzHw  PASS
+...
+RB-09021254-05  ERROR  BadRequestError: Too many requests
+RB-09021254-06  ERROR  BadRequestError: Too many requests
+RB-09021254-07  ERROR  BadRequestError: Too many requests
+RB-09021254-08  ERROR  BadRequestError: Too many requests
+RB-09021254-09  ERROR  BadRequestError: Too many requests
+```
+
+**Root cause one: Razorpay rate-limits invoice creation, and the batch had
+no spacing and no backoff.** Five creates in rapid succession went through;
+the sixth did not.
+
+**Why no test caught it, and why none could have.** `SimulatedRail` has no
+rate limit. There is no quota to exceed, so the failure mode does not exist
+in the test double — the bug lived in precisely the place the doubles do not
+model. The tempting fix is to teach `SimulatedRail` a quota, and that is
+wrong: `docs/SIMULATOR_PROVENANCE.md` forbids putting a number in the
+simulator that I have not measured, and I do not know Razorpay's actual
+limit. `tests/test_real_batch_rate_limiting.py` injects the exception
+instead, with the message string copied from the live traceback. Injecting
+an observed failure is not an invention; inventing a threshold would be.
+
+Fixed with two seconds between creates plus up to three retries with linear
+backoff, and `_is_rate_limit()` so that only a rate limit retries. That last
+part matters: the payment-link lifetime cap returns a *permanent* error, and
+retrying it three times would produce the same answer three times while
+making a blocked account look like a flaky one.
+
+**Root cause two, found while writing this up: the generated report blamed
+`check_bounds()` for it.** `REAL_BATCH.md` rendered all five errored rows as
+`REFUSED:` with an empty reason list, because the gate column was written as
+
+```python
+gate = "pass" if r.get("bounds_passed") else "REFUSED: " + ...
+```
+
+and `bounds_passed` is simply *absent* on a row that raised before the gate
+ran. So a published evidence document asserted that the safety gate refused
+five actions it had never seen — while its own summary table two rows above
+said `refused by check_bounds(): 0` and `rail errors: 5`. The document
+contradicted itself, and the half that was wrong was the half that made the
+gate look busy.
+
+This is the more embarrassing of the two. A missing rate limiter is an
+ordinary integration gap; a report that misattributes an infrastructure
+failure to the component whose entire job is refusing things is the kind of
+error that corrupts the evidence rather than the code. Absent is now a third
+state (`n/a — rail error before dispatch`), distinct from both pass and
+refuse.
+
+**What held up.** On a run that was half errors: the per-row exception
+handler recorded each failure with its type rather than stranding
+half-created objects, the batch continued to completion, the ledger hash
+chain verified, and all five created invoices were subsequently paid and
+confirmed `paid` by fetching status back from Razorpay rather than trusting
+what the agent recorded at creation time.
+
+**The pattern this is the seventh instance of.** Every single run against a
+real rail in this project has found a defect the test suite missed —
+#13, #16, #22, #23, #24, #25, #26, and now this. That is not a comment on
+the tests, which are extensive; it is the argument for the real batch
+existing at all.
+
 ## What this list is for
 
 I found every one of these by actually building against DEVDOC_v6, not by

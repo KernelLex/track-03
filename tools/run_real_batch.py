@@ -44,6 +44,7 @@ import json
 import os
 import random
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -126,31 +127,67 @@ def build_batch(n: int, *, seed: int, run_tag: str) -> list[dict]:
     return rows
 
 
+SPACING_SECONDS = 2.0
+"""Razorpay rate-limits invoice creation. The first run of this tool fired
+ten creates back to back: five succeeded and five came back `BadRequestError:
+Too many requests` (docs/WHAT_BROKE.md #28). No test caught it because
+SimulatedRail has no rate limit to hit.
+
+Two seconds between creates, plus the retry below. Deliberately a plain
+sleep rather than anything adaptive -- a batch of ten is not worth a token
+bucket, and an honest 20-second run beats a clever one that fails at n=50."""
+
+MAX_RETRIES = 3
+RETRY_BACKOFF_SECONDS = 5.0
+
+
+def _is_rate_limit(exc: Exception) -> bool:
+    return "too many requests" in str(exc).lower()
+
+
 def run_batch(rows: list[dict], *, rail: RazorpayRail) -> tuple[list[dict], bool]:
     ledger = Ledger(str(LEDGER_PATH))
     outbound_store = OutboundActionStore(str(OUTBOUND_PATH))
     results = []
     try:
-        for row in rows:
+        for index, row in enumerate(rows):
+            if index:
+                time.sleep(SPACING_SECONDS)
             record = {
                 "debtor_id": row["debtor_id"], "invoice_id": row["invoice_id"],
                 "amount_paise": row["amount_paise"],
                 "class": row["diagnosis"].class_.value,
                 "confidence": row["diagnosis"].confidence,
             }
-            try:
-                result = run_pipeline(
-                    debtor_id=row["debtor_id"], invoice_id=row["invoice_id"],
-                    amount_paise=row["amount_paise"], diagnosis=row["diagnosis"],
-                    channel_tag="telegram", ledger=ledger, outbound_store=outbound_store,
-                    rail=rail, dry_run=False,
-                )
-            except Exception as exc:
+            result, failure = None, None
+            for attempt in range(1, MAX_RETRIES + 1):
+                try:
+                    result = run_pipeline(
+                        debtor_id=row["debtor_id"], invoice_id=row["invoice_id"],
+                        amount_paise=row["amount_paise"], diagnosis=row["diagnosis"],
+                        channel_tag="telegram", ledger=ledger, outbound_store=outbound_store,
+                        rail=rail, dry_run=False,
+                    )
+                    break
+                except Exception as exc:
+                    failure = exc
+                    # Only a rate limit is worth retrying. Anything else --
+                    # a validation error, an exhausted quota -- will fail
+                    # identically three times and just slow the batch down
+                    # on its way to the same answer.
+                    if not _is_rate_limit(exc) or attempt == MAX_RETRIES:
+                        break
+                    wait = RETRY_BACKOFF_SECONDS * attempt
+                    print(f"  {record['invoice_id']}  rate-limited, retrying in {wait:.0f}s "
+                          f"(attempt {attempt}/{MAX_RETRIES})")
+                    time.sleep(wait)
+
+            if result is None:
                 # A rail error on one row must not strand the other nine as
                 # half-created objects with no record of why.
-                record.update({"error": f"{type(exc).__name__}: {exc}", "action_type": None})
+                record.update({"error": f"{type(failure).__name__}: {failure}", "action_type": None})
                 results.append(record)
-                print(f"  {record['invoice_id']}  ERROR  {type(exc).__name__}: {exc}")
+                print(f"  {record['invoice_id']}  ERROR  {type(failure).__name__}: {failure}")
                 continue
 
             outcome = result.action_outcome

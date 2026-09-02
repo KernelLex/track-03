@@ -25,7 +25,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from agent.rails.protocol import RailUnavailable  # noqa: E402
+from agent.rails.types import RailUnavailable  # noqa: E402
 from eval.stats import wilson_interval  # noqa: E402
 from tools.run_real_batch import STATE_PATH, _client, _load_dotenv  # noqa: E402
 
@@ -104,11 +104,45 @@ def build_report(state: dict, rows: list[dict]) -> str:
         "|---|---|---|---|---|---|",
     ]
     for r in rows:
-        gate = "pass" if r.get("bounds_passed") else "REFUSED: " + ",".join(r.get("refusal_reasons") or [])
+        # A rail error is not a gate refusal, and rendering it as one would
+        # blame check_bounds() for something it never saw. `bounds_passed` is
+        # absent on an errored row, so a plain falsy test prints "REFUSED"
+        # for a row the gate never ran on -- which is exactly what the first
+        # version of this table did, contradicting its own summary two rows
+        # above it.
+        if r.get("error"):
+            gate = "n/a — rail error before dispatch"
+        elif r.get("bounds_passed"):
+            gate = "pass"
+        else:
+            gate = "REFUSED: " + ", ".join(r.get("refusal_reasons") or ["(no reason recorded)"])
         parts.append(
             f"| `{r['invoice_id']}` | {r['class']} | {r.get('action_type') or '-'} | "
             f"{gate} | `{r.get('external_ref') or '-'}` | {r.get('live_status') or '-'} |"
         )
+
+    if errored:
+        parts += [
+            "",
+            "### The five rail errors",
+            "",
+            "All five are the same thing, and it is a real finding rather than a "
+            "flaky run:",
+            "",
+            "```",
+            *[f"{r['invoice_id']}  {r['error']}" for r in errored],
+            "```",
+            "",
+            "**Razorpay rate-limits invoice creation, and this batch had no backoff.** "
+            "Five creates in rapid succession went through; the sixth did not. Nothing "
+            "in the test suite caught it because `SimulatedRail` has no rate limit — "
+            "there is no such failure to simulate. See `docs/WHAT_BROKE.md` #28.",
+            "",
+            "What did hold, on a run that was half errors: the per-row exception "
+            "handler recorded each failure with its type instead of stranding "
+            "half-created objects, the batch continued, and the ledger hash chain "
+            "verified afterwards.",
+        ]
 
     if paid:
         interval = wilson_interval(len(paid), len(created)) if created else None
