@@ -141,6 +141,14 @@ class ArmSummary:
     portion-only nuance select_instrument() applies for a real dispute);
     a known simplification for this first version of the harness."""
     resolved_fraction: float
+    resolved_count: int
+    """The numerator behind `resolved_fraction`, carried explicitly.
+
+    `recovered_fraction` is rupee-weighted -- sum(recovered)/sum(amount) --
+    so a binomial confidence interval does not apply to it. `resolved` is a
+    genuine count of Bernoulli outcomes out of `n`, and it is the rate that
+    can honestly carry one. Keeping the count means the interval is computed
+    from it rather than back-derived from a rounded percentage."""
     mean_days_to_resolution: float | None
     """None if nobody in this arm resolved within the window."""
     human_escalation_rate: float
@@ -337,6 +345,7 @@ def summarize(arm: str, outcomes: list[Outcome]) -> ArmSummary:
         arm=arm, n=n,
         recovered_fraction=(total_recovered / total_amount) if total_amount else 0.0,
         resolved_fraction=len(resolved) / n if n else 0.0,
+        resolved_count=len(resolved),
         mean_days_to_resolution=statistics.mean(o.resolved_day for o in resolved) if resolved else None,
         human_escalation_rate=sum(o.escalated_to_human for o in outcomes) / n if n else 0.0,
         contact_exhausted_rate=sum(o.contact_exhausted for o in outcomes) / n if n else 0.0,

@@ -58,7 +58,8 @@ class TestFindBreakEven:
 
 def _summary(**overrides) -> ArmSummary:
     defaults = dict(
-        arm="X", n=100, recovered_fraction=0.5, resolved_fraction=0.5, mean_days_to_resolution=5.0,
+        arm="X", n=100, recovered_fraction=0.5, resolved_fraction=0.5, resolved_count=50,
+        mean_days_to_resolution=5.0,
         human_escalation_rate=0.0, contact_exhausted_rate=0.0, mean_touches=2.0, total_bounds_violations=0,
     )
     defaults.update(overrides)

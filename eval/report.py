@@ -20,6 +20,7 @@ from pathlib import Path
 
 from agent.decide.ev import Prior, decision_flips_under_perturbation
 from eval.simulate import DEFAULT_TOUCH_COST_PAISE, family_b_only, run_comparison_raw, summarize
+from eval.stats import two_proportion_test, wilson_interval
 
 OUTPUT_PATH = Path(__file__).resolve().parents[1] / "docs" / "RESULTS.md"
 
@@ -248,6 +249,82 @@ def _arm_table(summaries: dict) -> list[str]:
     return lines
 
 
+def _uncertainty_section(primary: dict) -> list[str]:
+    """Confidence intervals and a difference test on the arm rates.
+
+    Every rate in this report used to be a bare point estimate, which is the
+    one kind of number a reader cannot check -- in a document whose whole
+    argument is checkability.
+
+    **Only `resolved` gets an interval, and that is deliberate.**
+    `recovered_fraction` is rupee-weighted (`sum(recovered)/sum(amount)`),
+    so it is not a proportion of Bernoulli trials and a binomial interval
+    does not apply to it. `resolved` is a genuine count out of n. Putting a
+    Wilson interval on the rupee ratio would look more rigorous and be less
+    correct.
+    """
+    lines = ["## Uncertainty on the arm rates (§17.7)", ""]
+    lines.append(
+        "Wilson score intervals, 95%, on the **resolved** rate -- a count of "
+        "personas out of n, so a binomial interval genuinely applies. "
+        "`recovered` is rupee-weighted (`sum(recovered)/sum(amount)`) rather than a "
+        "count, so it carries no interval here: a Wilson bound on a weighted ratio "
+        "would look more rigorous and be less correct. Wilson rather than the normal "
+        "approximation because at these rates the textbook interval produces upper "
+        "bounds above 100%."
+    )
+    lines.append("")
+    lines.append("| Arm | Resolved | 95% CI | n |")
+    lines.append("|---|---|---|---|")
+    for arm in ("A", "B2", "C"):
+        s = primary[arm]
+        iv = wilson_interval(s.resolved_count, s.n)
+        lines.append(f"| {arm} | {s.resolved_fraction:.1%} | "
+                     f"[{iv.low:.1%}, {iv.high:.1%}] | {s.n} |")
+    lines.append("")
+
+    lines.append("Two-proportion z-tests on the same counts, pooled under the null that "
+                 "the two arms share one underlying rate:")
+    lines.append("")
+    lines.append("| Comparison | Difference | z | p | Verdict |")
+    lines.append("|---|---|---|---|---|")
+    marginal = None
+    for low_arm, high_arm in (("A", "C"), ("B2", "C"), ("A", "B2")):
+        a, b = primary[low_arm], primary[high_arm]
+        t = two_proportion_test(a.resolved_count, a.n, b.resolved_count, b.n)
+        verdict = "significant" if t.significant_at_05 else "**not** significant"
+        if t.significant_at_05 and t.p_value > 0.01:
+            verdict = "significant, but *marginally*"
+            marginal = (low_arm, high_arm, t)
+        lines.append(f"| {low_arm} vs {high_arm} | {t.difference_pp:+.1f} pp | "
+                     f"{t.z:.2f} | {t.p_value:.4g} | {verdict} |")
+    lines.append("")
+
+    if marginal is not None:
+        low_arm, high_arm, t = marginal
+        lines.append(
+            f"**The {low_arm}-vs-{high_arm} row is the one worth reading carefully, and it is "
+            f"the weakest claim in this report.** p = {t.p_value:.4g} clears 0.05 and would not "
+            f"clear 0.01. Arm {low_arm} is the *policy-aware* chaser -- the hardest comparison "
+            f"here, and the one the headline actually rests on, since beating an unpolicied "
+            f"fixed schedule is a much easier bar. At n={primary[high_arm].n} a "
+            f"{t.difference_pp:+.1f} pp gap is real on this evidence and would not survive being "
+            f"described as decisive. A p-value this close to the threshold is one draw away from "
+            f"crossing it, and reporting it as anything stronger would be the kind of claim this "
+            f"project exists to avoid making."
+        )
+        lines.append("")
+
+    lines.append(
+        "These intervals quantify **sampling** uncertainty only -- how much this number would "
+        "move on a different draw of 500 from the same generator. They say nothing about whether "
+        "the generator resembles reality, which is a much larger uncertainty and one no interval "
+        "can address. §17.1's declared priors are still declared priors."
+    )
+    lines.append("")
+    return lines
+
+
 def render_markdown(
     *, commit_hash, primary, family_b, sweep_primary_cost, sweep_stress_cost,
     break_even_primary, break_even_stress, flip_rate_primary, flip_rate_stress, economics,
@@ -319,6 +396,7 @@ def render_markdown(
     lines.append("")
     lines.extend(_arm_table(primary))
     lines.append("")
+    lines.extend(_uncertainty_section(primary))
     a_r, b2_r, c_r = primary["A"].recovered_fraction, primary["B2"].recovered_fraction, primary["C"].recovered_fraction
     lines.append(
         f"**Result**: Arm C recovers {_fmt_pct(c_r)} vs Arm A's {_fmt_pct(a_r)} and Arm B2's "

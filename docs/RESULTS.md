@@ -22,6 +22,28 @@ I locked this *because* it needs no assumed behavioural uplift to be interesting
 | B2 | 500 | 96.2% | 96.4% | 7.1 | 0.0% | 3.2% | 1.89 | **250** |
 | C | 500 | 98.4% | 98.4% | 6.8 | 8.0% | 0.6% | 1.80 | **0** |
 
+## Uncertainty on the arm rates (§17.7)
+
+Wilson score intervals, 95%, on the **resolved** rate -- a count of personas out of n, so a binomial interval genuinely applies. `recovered` is rupee-weighted (`sum(recovered)/sum(amount)`) rather than a count, so it carries no interval here: a Wilson bound on a weighted ratio would look more rigorous and be less correct. Wilson rather than the normal approximation because at these rates the textbook interval produces upper bounds above 100%.
+
+| Arm | Resolved | 95% CI | n |
+|---|---|---|---|
+| A | 77.2% | [73.3%, 80.7%] | 500 |
+| B2 | 96.4% | [94.4%, 97.7%] | 500 |
+| C | 98.4% | [96.9%, 99.2%] | 500 |
+
+Two-proportion z-tests on the same counts, pooled under the null that the two arms share one underlying rate:
+
+| Comparison | Difference | z | p | Verdict |
+|---|---|---|---|---|
+| A vs C | +21.2 pp | 10.24 | 1.287e-24 | significant |
+| B2 vs C | +2.0 pp | 1.99 | 0.0469 | significant, but *marginally* |
+| A vs B2 | +19.2 pp | 8.97 | 3.003e-19 | significant |
+
+**The B2-vs-C row is the one worth reading carefully, and it is the weakest claim in this report.** p = 0.0469 clears 0.05 and would not clear 0.01. Arm B2 is the *policy-aware* chaser -- the hardest comparison here, and the one the headline actually rests on, since beating an unpolicied fixed schedule is a much easier bar. At n=500 a +2.0 pp gap is real on this evidence and would not survive being described as decisive. A p-value this close to the threshold is one draw away from crossing it, and reporting it as anything stronger would be the kind of claim this project exists to avoid making.
+
+These intervals quantify **sampling** uncertainty only -- how much this number would move on a different draw of 500 from the same generator. They say nothing about whether the generator resembles reality, which is a much larger uncertainty and one no interval can address. §17.1's declared priors are still declared priors.
+
 **Result**: Arm C recovers 98.4% vs Arm A's 77.6% and Arm B2's 96.2% — the highest of the three, **and it does this with 0 real bounds-rule violations against 399 for Arm A and 250 for Arm B2** — every one of those a real, triggerable `DISPUTE_FREEZE` refusal (a plain collection touch against a genuinely disputed persona), not a hypothetical. My harness's Arm B2 is not a fully unbounded chaser (it already respects each persona's own contact-tolerance opt-out threshold, same as Arm A) — a literally unbounded bot would likely out-recover Arm C on raw rupees the way DEVDOC_v6 §17.4 anticipates; my harness's more conservative B2 does not, and I report that honestly rather than adjust it to match the anticipated shape.
 
 ## Family B breakout — the identification argument (§17.7, §26.1)
