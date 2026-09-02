@@ -58,15 +58,44 @@ credentials are required to run the main suite). It's still **not**:
   polled to a terminal status of **`delivered`** rather than reported at
   `queued`. WhatsApp is now the third live outbound channel.
 
-  Two things this does *not* cover, stated so the row is not read as more
+  Verified on three separate paths, each polled to a terminal status rather
+  than reported at `queued`: the raw Twilio API
+  (`MM8227e461795d36d03ca12dd3e2553ade`), the agent's own
+  `TwilioWhatsAppChannel.send_template()`
+  (`MM7185bef793d26eeece03b137aeaf8ac1`), and the deployed Render demo
+  endpoint a judge actually clicks (`MM75ba9ac1da51f116b6a81326ef324670`,
+  with all 20 bounds rules evaluated including `WHATSAPP_SESSION_WINDOW`).
+
+  Three things this does *not* cover, stated so the row is not read as more
   than it is. **`agent/notify/whatsapp.py` still has not touched Meta's
   API** — that module is the direct Meta Cloud API path, it remains tested
   only against `httpx.MockTransport` (37 tests), and it is still blocked on
   Meta business verification. The live sends go through Twilio, which is a
-  different code path. And **no inbound WhatsApp reply has been wired into
+  different code path. **No inbound WhatsApp reply has been wired into
   the pipeline**: a reply carries a `wa_id`, and resolving that to a debtor
   and an invoice needs the merchant AR lookup documented in
   `docs/ORCHESTRATION.md`. See `docs/WHATSAPP.md`.
+
+  And — found while running the tests above — **the orchestrated pipeline
+  cannot send a template; only the demo path can.**
+  `agent/act/executor.py`'s message branch calls exactly one method,
+  `channel.send(to=..., text=...)`, which is free-form. `send_template()` is
+  reached only from `agent/api/demo.py`, which sets
+  `uses_approved_template=True` on the bounds context and supplies the
+  `ContentSid`.
+
+  This is a capability gap, not a silent failure. If `run_pipeline` chose a
+  cold WhatsApp send outside the 24-hour window, rule 20
+  (`WHATSAPP_SESSION_WINDOW`) would **refuse it** rather than hand it to a
+  channel that would drop it with error 63016 — the gate doing precisely its
+  job. But it means autonomous cold WhatsApp outreach is not currently
+  possible: ACT has no template path to fall back to once the gate refuses
+  the free-form one. Closing it needs a payload carrying `content_sid` and
+  its variables, a `MessageChannel` protocol that admits template sends
+  without forcing every channel to implement one, and `orchestrate`
+  populating `uses_approved_template` so the gate sees the truth. That is
+  real work and is deliberately not being rushed in at submission time. The
+  judge-facing demo path is unaffected and fully live.
 
 ## Webhook receiver (§19) — permanently deployed now, not a tunnel
 
