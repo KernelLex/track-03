@@ -9,7 +9,7 @@ I've built a tested, working implementation of TrueCommit's **pure-logic
 safety and compliance core** (DEVDOC_v6 §5.2's "the judgment"), **now also
 wired to a real, live Razorpay test-mode account** (as of 2026-08-30) for
 the capabilities that account actually has, plus a real (if minimal) HTTP
-webhook receiver. **1,329 collected / 1,318 passing / 11 skipped as of 2026-09-02**,
+webhook receiver. **1,370 collected / 1,359 passing / 11 skipped as of 2026-09-02**,
 measured without live credentials in the shell (the 11 skipped are the
 Razorpay-live-only suite, which skips cleanly rather than failing — no
 credentials are required to run the main suite). It's still **not**:
@@ -66,18 +66,37 @@ credentials are required to run the main suite). It's still **not**:
   endpoint a judge actually clicks (`MM75ba9ac1da51f116b6a81326ef324670`,
   with all 20 bounds rules evaluated including `WHATSAPP_SESSION_WINDOW`).
 
-  Three things this does *not* cover, stated so the row is not read as more
+  **Inbound now works too, as of the same day.**
+  `POST /demo/whatsapp-webhook` receives a debtor's reply from Twilio and
+  answers it, delegating to `handle_inbound_message()` — the same function
+  the Telegram webhook and the dashboard poller already call, so a reply is
+  diagnosed, decided, planned and answered identically however it arrived.
+  Only three things in that route are WhatsApp-specific: Twilio's signature
+  scheme (`agent/notify/twilio_signing.py`, HMAC-SHA1 over the request URL
+  plus sorted form params — a completely different scheme from Meta's
+  body-HMAC-SHA256), its form-encoded body, and the `whatsapp:` prefix.
+
+  The reply goes out **free-form**, correctly: a debtor who has just
+  messaged has opened Meta's 24-hour window, which is exactly the condition
+  `WHATSAPP_SESSION_WINDOW` encodes. The template is for the cold open,
+  which `/demo/trigger` handles.
+
+  Two things this does *not* cover, stated so the row is not read as more
   than it is. **`agent/notify/whatsapp.py` still has not touched Meta's
   API** — that module is the direct Meta Cloud API path, it remains tested
   only against `httpx.MockTransport` (37 tests), and it is still blocked on
-  Meta business verification. The live sends go through Twilio, which is a
-  different code path. **No inbound WhatsApp reply has been wired into
-  the pipeline**: a reply carries a `wa_id`, and resolving that to a debtor
-  and an invoice needs the merchant AR lookup documented in
-  `docs/ORCHESTRATION.md`. See `docs/WHATSAPP.md`.
+  Meta business verification. Everything live goes through Twilio, a
+  different code path. And **a WhatsApp conversation is a different debtor
+  record from the same person's Telegram thread** — an E.164 number and a
+  Telegram chat id are disjoint address spaces, so credibility built in one
+  does not carry to the other. Linking them needs the identity resolution
+  this build does not have, the same missing merchant AR lookup that kept
+  inbound unwired until now. See `docs/WHATSAPP.md`.
 
   And — found while running the tests above — **the orchestrated pipeline
-  cannot send a template; only the demo path can.**
+  cannot send a template; only the demo path can.** This is about the *cold
+  open* only: inbound replies are answered free-form inside the session
+  window by the webhook above and are unaffected.
   `agent/act/executor.py`'s message branch calls exactly one method,
   `channel.send(to=..., text=...)`, which is free-form. `send_template()` is
   reached only from `agent/api/demo.py`, which sets

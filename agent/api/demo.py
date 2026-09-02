@@ -49,8 +49,9 @@ import os
 import re
 import time
 from datetime import date, datetime, timedelta
+from urllib.parse import parse_qsl
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from agent.auditor.extraction_log import ExtractionLog
@@ -77,6 +78,7 @@ from agent.notify.compose import ComposeFailed, compose_reply
 from agent.notify.protocol import ChannelUnavailable
 from agent.notify.telegram import TelegramChannel
 from agent.notify.twilio_voice import TwilioVoiceChannel
+from agent.notify.twilio_signing import public_url_for, verify_twilio_signature
 from agent.notify.twilio_whatsapp import TwilioWhatsAppChannel
 from agent.rails.razorpay_rail import RazorpayRail
 from agent.rails.types import InvoiceSpec, LinkSpec, MandateSpec
@@ -1735,6 +1737,129 @@ async def telegram_webhook(request: Request) -> dict[str, object]:
         channel_obj.close()
 
     return {"ok": True, **result}
+
+
+@router.post("/whatsapp-webhook")
+async def whatsapp_webhook(request: Request) -> Response:
+    """Twilio pushes a debtor's WhatsApp reply here, and the system answers.
+
+    Before this existed, WhatsApp was outbound-only: an approved template
+    went out, the debtor could reply, and nothing happened -- which is the
+    one behaviour this project argues hardest against. Telegram had had the
+    full loop since 2026-08-31; WhatsApp had the send half and no receiver.
+
+    It delegates to `handle_inbound_message()`, the same function the
+    Telegram webhook and the dashboard poller call, so a reply is diagnosed,
+    decided, planned and answered **identically however it arrived**. Only
+    three things here are actually WhatsApp-specific: Twilio's signature
+    scheme, its form-encoded body, and the `whatsapp:` address prefix.
+
+    **The reply goes out free-form, and that is correct rather than a
+    shortcut.** A debtor who has just messaged us has opened Meta's 24-hour
+    customer-service window, so `send()` is permitted and no template is
+    needed -- which is exactly the condition `WHATSAPP_SESSION_WINDOW`
+    (bounds rule 20) encodes. The template path exists for the *cold* open,
+    which is a different problem and is handled by `/demo/trigger`.
+
+    Authenticated by Twilio's `X-Twilio-Signature` (HMAC-SHA1 over the
+    request URL plus its sorted form parameters). This endpoint is public,
+    so an unauthenticated caller could otherwise fabricate a debtor reply
+    and make the system answer a message nobody sent.
+
+    Always returns 200 with TwiML. Twilio retries a non-2xx delivery, and a
+    retry of something that failed for a non-transient reason would fail
+    forever; genuine duplicates are stopped by the claim inside
+    `handle_inbound_message`, keyed on Twilio's own `MessageSid`.
+    """
+    empty_twiml = Response(content="<Response/>", media_type="application/xml")
+
+    # Parsed directly rather than via `request.form()`, which pulls in
+    # `python-multipart` even for urlencoded bodies. Twilio posts
+    # `application/x-www-form-urlencoded` for webhooks and never multipart,
+    # so this needs no dependency -- and not adding one to the deployed
+    # server's requirements is worth more than the convenience.
+    #
+    # keep_blank_values matters: Twilio signs over every parameter it sends,
+    # empty ones included, so dropping `Body=` would change the payload and
+    # fail verification on exactly the messages that have no text.
+    raw = (await request.body()).decode("utf-8", errors="replace")
+    params = dict(parse_qsl(raw, keep_blank_values=True))
+
+    auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+    if not auth_token:
+        _log.warning("whatsapp webhook: TWILIO_AUTH_TOKEN is not configured -- refusing")
+        return empty_twiml
+    # Twilio signs the URL *it* requested, which is https for any public
+    # deployment; behind Render's TLS terminator the app sees http and every
+    # signature would fail. See agent/notify/twilio_signing.py.
+    url = public_url_for(
+        request_url=str(request.url),
+        forwarded_proto=request.headers.get("x-forwarded-proto"),
+    )
+    if not verify_twilio_signature(
+        url=url, params=params,
+        signature=request.headers.get("x-twilio-signature"),
+        auth_token=auth_token,
+    ):
+        raise HTTPException(status_code=403, detail="bad or missing Twilio signature")
+
+    text = (params.get("Body") or "").strip()
+    sender = params.get("From") or ""          # "whatsapp:+919611550053"
+    message_sid = params.get("MessageSid") or ""
+    if not text or not sender or not message_sid:
+        # Media without a caption, a status callback, a reaction. Acknowledged
+        # and ignored rather than treated as a debtor reply.
+        return empty_twiml
+
+    phone = sender.removeprefix("whatsapp:")
+
+    # Only the configured demo contact. Fail closed when unset: an
+    # unconfigured deployment must not accept a message from any number,
+    # spend a real model call on it and reply. This is the same fail-open
+    # bug the Telegram guard shipped with once (docs/WHAT_BROKE.md #25),
+    # written the right way round from the start here.
+    demo_contact = os.environ.get("DEMO_CONTACT_PHONE_NUMBER")
+    if not demo_contact:
+        _log.warning("whatsapp webhook: DEMO_CONTACT_PHONE_NUMBER is not configured -- refusing")
+        return empty_twiml
+    if phone != demo_contact:
+        _log.info("whatsapp webhook: ignoring a message from a non-demo number")
+        return empty_twiml
+
+    whatsapp_from = os.environ.get("TWILIO_WHATSAPP_FROM")
+    sid = os.environ.get("TWILIO_ACCOUNT_SID")
+    api_key_sid = os.environ.get("TWILIO_API_KEY_SID")
+    api_key_secret = os.environ.get("TWILIO_API_KEY_SECRET")
+    if not whatsapp_from or not sid:
+        _log.warning("whatsapp webhook: Twilio sender not configured -- refusing")
+        return empty_twiml
+    secret_value, username = (api_key_secret, api_key_sid) if api_key_secret else (auth_token, None)
+
+    channel_obj = TwilioWhatsAppChannel(sid, secret_value, whatsapp_from, auth_username=username)
+    try:
+        # The phone number is the conversation id directly. It needs no
+        # `sub:`-style namespacing because an E.164 number and a Telegram
+        # chat id are already disjoint address spaces.
+        #
+        # Consequence, stated rather than glossed: this is a *different
+        # debtor record* from the same person's Telegram thread, so
+        # credibility built there does not carry here. Linking them needs
+        # the identity resolution this build does not have -- the same
+        # missing merchant AR lookup that kept inbound WhatsApp unwired in
+        # the first place (docs/WHATSAPP.md).
+        handle_inbound_message(
+            conversation_id=phone,
+            external_id=message_sid,
+            text=text,
+            channel="whatsapp",
+            send=lambda reply: channel_obj.send(to=phone, text=reply),
+        )
+    finally:
+        channel_obj.close()
+
+    # The reply was already sent over the API above, so the TwiML body stays
+    # empty -- returning a <Message> here would send it a second time.
+    return empty_twiml
 
 
 # --------------------------------------------------------------------------

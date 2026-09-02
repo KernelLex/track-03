@@ -201,6 +201,39 @@ the template path it points a refused free-form send toward now actually
 exists and works, so the rule routes to a real capability instead of a
 documented intention.
 
+**Update, 2026-09-02 — WhatsApp now reads and replies, not just sends.**
+Until this point WhatsApp was outbound-only: a template went out, the debtor
+could reply, and nothing happened — the exact silence this project argues
+hardest against, and which Telegram had not had since 2026-08-31.
+
+`POST /demo/whatsapp-webhook` closes it. It verifies Twilio's
+`X-Twilio-Signature`, guards to the configured demo contact, and hands the
+message to `handle_inbound_message()` — the same function the Telegram
+webhook and the dashboard poller call. A reply is therefore diagnosed,
+decided, planned and answered **identically however it arrived**; only three
+things in the route are WhatsApp-specific:
+
+| | Telegram | Twilio WhatsApp |
+|---|---|---|
+| auth | `secret_token` header, compared directly | `X-Twilio-Signature`: HMAC-SHA1 over the request URL **plus its sorted form params** |
+| body | JSON `update` | `application/x-www-form-urlencoded` |
+| address | numeric chat id | `whatsapp:+E164`, prefix stripped |
+
+Note the signature row: this is **not** Meta's scheme. Meta signs the raw
+body with HMAC-SHA256 (`agent/notify/whatsapp.py`); Twilio signs a
+URL-plus-params string with SHA1. Two integrations both called "WhatsApp",
+with incompatible signing — the confusion `docs/WHATSAPP.md` warns about.
+
+One deployment trap is handled explicitly in `agent/notify/twilio_signing.py`:
+Twilio signs the URL *it* requested, which is `https://`, but behind Render's
+TLS terminator the app sees `http://`. A naive `str(request.url)` fails every
+signature. `public_url_for()` prefers `TRUECOMMIT_PUBLIC_BASE_URL` (a header
+cannot spoof it) and falls back to `X-Forwarded-Proto`.
+
+The reply goes out free-form, which is correct rather than a shortcut: a
+debtor who has just messaged has opened the 24-hour window, which is exactly
+what `WHATSAPP_SESSION_WINDOW` encodes. The template is for the cold open.
+
 Error 63016 is why this rule is better sourced than most: it was not only
 read in Meta's documentation, it was *hit*, by a real send from this
 account. The rule models a constraint this project has actually been
