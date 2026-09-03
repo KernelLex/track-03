@@ -185,8 +185,13 @@ code, .mono{font-family:var(--font-mono);}
 .console-head h2{font-size:1.05rem; font-family:var(--font-body); font-weight:600;}
 .console-head .sub{font-size:0.8rem; color:var(--ink-faint);}
 .console-body{padding:1.1rem 1.15rem;}
-.recipient-row{display:flex; gap:0.7rem; align-items:flex-end; flex-wrap:wrap; margin-bottom:1rem;}
+.recipient-row{display:flex; gap:0.7rem; align-items:flex-end; flex-wrap:wrap; margin-bottom:0.85rem;}
 .recipient-row .field{flex:1 1 260px;}
+.runall-row{display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; margin-bottom:1.1rem;}
+.btn-runall{background:linear-gradient(180deg,#ff9f5a,#f97316); color:#1b1005; border:none;
+  font-weight:700; letter-spacing:0.01em; padding:0.62rem 1.05rem; white-space:nowrap;}
+.btn-runall:hover:not(:disabled){filter:brightness(1.07);}
+.runall-note{flex:1 1 280px; font-size:0.79rem; color:var(--muted); line-height:1.45;}
 .channel-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:0.7rem;}
 @media (max-width:720px){.channel-grid{grid-template-columns:1fr;}}
 .channel-card{border:1px solid var(--line); border-radius:10px; background:var(--surface-2); padding:0.9rem 0.95rem; display:flex; flex-direction:column; gap:0.55rem;}
@@ -461,9 +466,18 @@ code, .mono{font-family:var(--font-mono);}
     <div class="console-body">
       <div class="recipient-row">
         <div class="field">
-          <label for="recipient">Recipient number (WhatsApp &amp; call only) — E.164, e.g. +919876543210</label>
-          <input id="recipient" type="tel" placeholder="+91…  — leave blank to use the demo's own configured number" autocomplete="off" spellcheck="false">
+          <label for="recipient">Phone number — WhatsApp &amp; call. E.164, e.g. +919876543210</label>
+          <input id="recipient" type="tel" placeholder="+91…  — blank uses the demo's own number" autocomplete="off" spellcheck="false">
         </div>
+        <div class="field">
+          <label for="tgChatId">Telegram chat id — <a href="https://t.me/TrueCommit_bot" target="_blank" rel="noopener">message @TrueCommit_bot</a> first</label>
+          <input id="tgChatId" type="text" inputmode="numeric" placeholder="e.g. 8327566456 — blank uses the demo's own chat" autocomplete="off" spellcheck="false">
+        </div>
+      </div>
+
+      <div class="runall-row">
+        <button class="btn btn-runall" id="runEverything">▶︎ Run the whole thing — Telegram + WhatsApp + call</button>
+        <span class="runall-note">Fires all three channels at once, to whatever is filled in above. Each is reported separately; one failing doesn't stop the others.</span>
       </div>
 
       <div class="channel-grid">
@@ -485,12 +499,18 @@ code, .mono{font-family:var(--font-mono);}
       </div>
 
       <p class="console-note">
-        <strong>Telegram — do this first:</strong> a Telegram bot can only message someone who has messaged it first, so
-        there's no phone number to address and the recipient field above doesn't apply to it. To receive the Telegram
-        message yourself: open Telegram, search <code>@TrueCommit_bot</code>, send it any message (<code>hi</code> is
-        enough), and tell the demo owner your chat is live — otherwise the Telegram button messages the demo's own
-        configured chat. WhatsApp and calls have no such restriction: put any real number in the field above and it goes
-        there.
+        <strong>To get all three on your own devices:</strong> put your number in the first field, then open Telegram,
+        message <code>@TrueCommit_bot</code> (<code>hi</code> is enough) — it replies with your chat id. Paste that in
+        the second field. Now every button, including <em>Run the whole thing</em>, reaches you, and replies you send
+        on either text channel are answered.
+      </p>
+      <p class="console-note">
+        <strong>Why Telegram needs an id rather than a number:</strong> a bot can only message someone who has messaged
+        it first. That's a Telegram platform rule, not a limitation here — and it's also what stops this field being a
+        way to message strangers, since an id you don't own simply won't accept anything from this bot. WhatsApp and
+        calls have no such restriction. One caveat worth knowing: WhatsApp will accept a message for a number that has
+        no WhatsApp account, and it will never arrive — so the status below shows Twilio's real delivery state, not
+        just that the send was accepted.
       </p>
     </div>
   </section>
@@ -959,13 +979,48 @@ function renderWaiting(){
   });
 }
 
+// Twilio accepting a message is not the handset receiving one. A WhatsApp
+// message addressed to a number with no WhatsApp account is accepted, moves
+// to "sent", and never arrives -- so the dashboard used to show a green tick
+// for a message nobody got. This asks Twilio what actually happened.
+async function confirmDelivery(channel, ref){
+  if (!ref || (ref[0] !== 'M' && ref[0] !== 'S' && ref[0] !== 'C')) return;
+  var url = document.getElementById('backendUrl').value.trim().replace(/\/$/, '');
+  for (var i = 0; i < 8; i++){
+    await new Promise(function(r){ setTimeout(r, 4000); });
+    try{
+      var res = await fetch(url + '/demo/message-status?ref=' + encodeURIComponent(ref));
+      if (!res.ok) return;
+      var s = await res.json();
+      if (s.arrived){
+        addActivity({kind:'ok', channel:channel, title:'Confirmed on the handset',
+          text:'Twilio reports ' + s.status, pills:[{text:s.status, tone:'good'}]});
+        return;
+      }
+      if (s.terminal){
+        addActivity({kind:'err', channel:channel, title:'Never arrived',
+          text:'Twilio reports ' + s.status + (s.error_message ? ' — ' + s.error_message : '')
+             + (s.error_code ? ' (code ' + s.error_code + ')' : '')});
+        return;
+      }
+    }catch(e){ return; }
+  }
+  // Ran out of polls without a terminal state. Say so rather than implying
+  // either outcome -- "sent" is exactly where an undeliverable WhatsApp
+  // message comes to rest.
+  addActivity({kind:'warn', channel:channel, title:'Still not confirmed delivered',
+    text:'Twilio accepted it but has not reported delivery. If this number has no WhatsApp account, it never will.'});
+}
+
 async function triggerChannel(channel, btn){
   var to = document.getElementById('recipient').value.trim();
+  var tgChat = document.getElementById('tgChatId').value.trim();
   var payload = { channel: channel, scenario: 'b2b' };
-  // Telegram has no number to address (a bot can only message someone who
-  // messaged it first) -- sending `to` there is a 400 by design, so the
-  // recipient field simply doesn't apply to it.
-  if (to && channel !== 'telegram'){ payload.to = to; }
+  // Telegram addresses a chat id, not a phone number -- a bot can only
+  // message someone who has messaged it first. So it takes its own field,
+  // and the phone number never goes there.
+  if (channel === 'telegram'){ if (tgChat){ payload.to = tgChat; } }
+  else if (to){ payload.to = to; }
 
   var original = btn.textContent;
   btn.disabled = true;
@@ -991,6 +1046,8 @@ async function triggerChannel(channel, btn){
       addLedgerRow('ACT', 'sent:'+channel, 'pass');
       refreshCaseFile();
       if (channel === 'telegram' || channel === 'whatsapp'){ startPolling(channel); }
+      // Telegram's API is synchronous about delivery; Twilio's is not.
+      if (channel !== 'telegram' && body.external_ref){ confirmDelivery(channel, body.external_ref); }
     } else if (res.ok && body.status === 'failed'){
       // The request worked (bounds passed, the channel was reached) and the
       // channel's own API said no -- distinct from the errors below.
@@ -1631,6 +1688,58 @@ document.getElementById('resetBtn').addEventListener('click', function(){
   state.revealed = 0; state.openStage = -1; resetLedger(); renderPipeline();
   renderConvo(document.getElementById('convoContainer'));
 });
+document.getElementById('runEverything').addEventListener('click', async function(){
+  var btn = this;
+  var to = document.getElementById('recipient').value.trim();
+  var tgChat = document.getElementById('tgChatId').value.trim();
+  var url = document.getElementById('backendUrl').value.trim().replace(/\/$/, '');
+  var original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Running all three…';
+  addActivity({kind:'info', title:'Running every channel',
+    text:(to ? 'phone ' + to : 'the demo’s own number') + ' · ' + (tgChat ? 'chat ' + tgChat : 'the demo’s own chat')});
+  try{
+    // Through the proxy, like every other triggering call: the secret is
+    // attached server-side and never reaches the browser.
+    var res = await fetch('/api/demo-run-everything', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({to: to || undefined,
+                            telegram_chat_id: tgChat || undefined, scenario:'b2b'}),
+    });
+    var body = await res.json();
+    if (!res.ok){
+      addActivity({kind:'err', title:'Run-everything refused (HTTP '+res.status+')',
+                   text: body.detail ? String(body.detail) : 'no detail given'});
+      return;
+    }
+    // Each channel is reported on its own. A partial run is the normal case
+    // -- Telegram is skipped without a chat id -- and flattening that into
+    // one success/failure would hide which channels actually went.
+    Object.keys(body.results || {}).forEach(function(ch){
+      var r = body.results[ch];
+      if (r && r.skipped){
+        addActivity({kind:'warn', channel:ch, title:'Skipped', text:String(r.skipped)});
+      } else if (r && r.error){
+        addActivity({kind:'err', channel:ch, title:'Failed', text:String(r.error)});
+      } else if (r){
+        var passed = r.bounds_checks ? r.bounds_checks.length : 0;
+        addActivity({kind:'ok', channel:ch,
+          title: ch === 'ivr' ? 'Call placed for real' : 'Message sent for real',
+          pills: [{text: passed + '/' + (r.bounds_total || passed) + ' bounds rules passed', tone:'good'}]});
+        addLedgerRow('ACT', 'sent:'+ch, 'pass');
+        if (ch === 'telegram' || ch === 'whatsapp'){ startPolling(ch); }
+        if (ch !== 'telegram' && r.external_ref){ confirmDelivery(ch, r.external_ref); }
+      }
+    });
+    refreshCaseFile();
+  }catch(e){
+    addActivity({kind:'err', title:'Could not reach the backend', text:String(e)});
+  }finally{
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+});
+
 document.querySelectorAll('[data-channel]').forEach(function(btn){
   btn.addEventListener('click', function(){ triggerChannel(btn.getAttribute('data-channel'), btn); });
 });

@@ -51,9 +51,11 @@ import time
 from datetime import date, datetime, timedelta
 from urllib.parse import parse_qsl
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
+from agent.api.demo_allowlist import TelegramAllowlist
 from agent.auditor.extraction_log import ExtractionLog
 from agent.bounds.context import ActionCtx, BoundsContext, ConfigCtx, DebtorCtx, DecisionCtx, InvoiceCtx, MandateCtx
 from agent.bounds.engine import check_bounds
@@ -114,6 +116,10 @@ payment link. v2 puts real text after the link."""
 # trying the project can have it reach their own phone). These two limits
 # are what bound that instead -- see this module's docstring.
 E164_RE = re.compile(r"^\+[1-9]\d{7,14}$")
+_TELEGRAM_CHAT_ID_RE = re.compile(r"^-?\d{5,20}$")
+"""A Telegram chat id: digits, optionally negative for a group. Deliberately
+distinct from E164_RE so a phone number typed into the Telegram field is
+rejected with an explanation rather than silently failing at the API."""
 PER_NUMBER_COOLDOWN_SECONDS = 300.0
 _last_triggered_at_by_number: dict[str, float] = {}
 
@@ -398,17 +404,29 @@ def trigger_demo_contact(payload: DemoTriggerRequest) -> dict[str, object]:
         )
 
     if payload.channel == "telegram":
-        if payload.to:
+        # A Telegram chat id, not a phone number. Telegram itself refuses to
+        # let a bot message a chat that has not messaged the bot first, so
+        # this cannot be used to reach a stranger -- the platform enforces
+        # the consent. What accepting it adds is that a *second* person can
+        # try the two-way flow, which one hard-coded contact made impossible.
+        if payload.to and not _TELEGRAM_CHAT_ID_RE.match(payload.to):
             raise HTTPException(
                 status_code=400,
-                detail="Telegram can't message a phone number -- a bot can only message someone who has "
-                       "already messaged it first (a Telegram platform rule). Use the WhatsApp or call "
-                       "channel for a custom number.",
+                detail="For Telegram this must be a numeric chat id, not a phone number -- a bot can only "
+                       "message someone who has already messaged it first (a Telegram platform rule). "
+                       "Message @TrueCommit_bot, then use the id it replies with.",
             )
-        chat_id = os.environ.get("DEMO_CONTACT_TELEGRAM_CHAT_ID")
+        chat_id = payload.to or os.environ.get("DEMO_CONTACT_TELEGRAM_CHAT_ID")
         token = os.environ.get("TELEGRAM_BOT_TOKEN")
         if not chat_id or not token:
             raise HTTPException(status_code=503, detail="Telegram demo contact not configured on this server")
+        if payload.to:
+            _check_per_number_rate_limit(payload.to)
+            # Allow their replies back in. Without this the judge receives a
+            # message and is then ignored, which is worse than not offering
+            # the field at all.
+            with TelegramAllowlist() as allowlist:
+                allowlist.allow(payload.to)
         channel_obj = TelegramChannel(token)
         to, text = chat_id, str(scenario["text_message"])
         if payload.scenario == "b2b":
@@ -1774,10 +1792,16 @@ async def telegram_webhook(request: Request) -> dict[str, object]:
     #
     # There is no legitimate case for this endpoint talking to an unknown
     # chat, so an unset contact refuses rather than opening up.
-    if not demo_contact:
+    # The configured contact, or a chat that opted in by entering its own id
+    # in the dashboard and asking for a send. Still fails closed: an unknown
+    # chat is ignored, and an unset contact with an empty allowlist accepts
+    # nobody.
+    with TelegramAllowlist() as allowlist:
+        opted_in = allowlist.is_allowed(chat_id)
+    if not demo_contact and not opted_in:
         _log.warning("telegram webhook: DEMO_CONTACT_TELEGRAM_CHAT_ID is not configured -- refusing")
         return {"ok": True, "handled": False, "reason": "demo_contact_not_configured"}
-    if chat_id != str(demo_contact):
+    if chat_id != str(demo_contact) and not opted_in:
         _log.info("telegram webhook: ignoring a message from a non-demo chat")
         return {"ok": True, "handled": False, "reason": "not_the_demo_contact"}
 
@@ -1798,6 +1822,138 @@ async def telegram_webhook(request: Request) -> dict[str, object]:
         channel_obj.close()
 
     return {"ok": True, **result}
+
+
+class RunEverythingRequest(BaseModel):
+    secret: str
+    to: str | None = None
+    """E.164 phone number for WhatsApp and the call."""
+    telegram_chat_id: str | None = None
+    """Optional. Telegram addresses chats, not phone numbers, so it needs
+    its own field -- and only works for someone who has messaged the bot."""
+    scenario: str = "b2b"
+
+
+@router.post("/run-everything")
+def run_everything(payload: RunEverythingRequest) -> dict[str, object]:
+    """Every channel at once, to one person.
+
+    Driving the demo used to mean three buttons in the right order while
+    talking, and getting it wrong in front of an audience is easy. This
+    runs the same code paths the individual buttons do -- no shortcut
+    branch, no separate implementation that could drift from them -- and
+    reports each outcome separately.
+
+    **Failures are per-channel and do not stop the run.** If Telegram has
+    no chat id, WhatsApp and the call still go. A partial result is far
+    more useful mid-demo than an exception, and the response says exactly
+    which channels went and which did not.
+    """
+    _require_secret(payload.secret)
+    if payload.scenario not in SCENARIOS:
+        raise HTTPException(status_code=404, detail=f"unknown scenario {payload.scenario!r}")
+
+    results: dict[str, object] = {}
+    attempted: list[str] = []
+
+    # Telegram only if a chat id is available: the platform cannot address a
+    # phone number, so silently substituting the server's own contact would
+    # send the judge's message to the demo owner instead.
+    telegram_target = payload.telegram_chat_id or os.environ.get("DEMO_CONTACT_TELEGRAM_CHAT_ID")
+    for channel, to in (
+        ("telegram", payload.telegram_chat_id if telegram_target else None),
+        ("whatsapp", payload.to),
+        ("ivr", payload.to),
+    ):
+        if channel == "telegram" and not telegram_target:
+            results[channel] = {"skipped": "no Telegram chat id, and no configured contact"}
+            continue
+        attempted.append(channel)
+        try:
+            results[channel] = trigger_demo_contact(DemoTriggerRequest(
+                secret=payload.secret, channel=channel, scenario=payload.scenario, to=to,
+            ))
+        except HTTPException as exc:
+            # Recorded, not raised. One refused channel must not cost the
+            # other two, and the status code is the useful part.
+            results[channel] = {"error": exc.detail, "status_code": exc.status_code}
+        except Exception as exc:  # pragma: no cover -- defensive
+            _log.warning("run-everything: %s failed", channel, exc_info=True)
+            results[channel] = {"error": f"{type(exc).__name__}: {exc}"}
+
+    succeeded = [c for c in attempted if isinstance(results.get(c), dict)
+                 and "error" not in results[c]]
+    return {
+        "attempted": attempted,
+        "succeeded": succeeded,
+        "failed": [c for c in attempted if c not in succeeded],
+        "results": results,
+    }
+
+
+@router.get("/message-status")
+def message_status(ref: str) -> dict[str, object]:
+    """What Twilio actually did with a message, as opposed to what it
+    accepted.
+
+    This exists because "sent" is not "arrived", and the dashboard was
+    reporting the first as if it were the second. Twilio's create call
+    returns `queued`; a WhatsApp message addressed to a number that has no
+    WhatsApp account is accepted, moves to `sent`, and then simply never
+    arrives. Someone typing a colleague's number into the demo saw a green
+    tick and nothing on the phone, with no way to tell which end was
+    broken -- the same class of mistake as reporting a queued send as a
+    success, which `docs/CHANNELS.md` records for the 63016 case.
+
+    Read-only and unauthenticated on purpose: it exposes one delivery
+    status for a message id the caller already possesses, which is strictly
+    less than the dashboard already shows them.
+    """
+    if not ref or not (ref.startswith("MM") or ref.startswith("SM") or ref.startswith("CA")):
+        raise HTTPException(status_code=400, detail="ref must be a Twilio message (MM/SM) or call (CA) sid")
+
+    sid = os.environ.get("TWILIO_ACCOUNT_SID")
+    api_key_secret = os.environ.get("TWILIO_API_KEY_SECRET")
+    auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+    if not sid or not (api_key_secret or auth_token):
+        raise HTTPException(status_code=503, detail="Twilio not configured on this server")
+    secret_value = api_key_secret or auth_token
+    username = os.environ.get("TWILIO_API_KEY_SID") if api_key_secret else sid
+
+    kind = "Calls" if ref.startswith("CA") else "Messages"
+    url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/{kind}/{ref}.json"
+    try:
+        with httpx.Client(timeout=15.0, auth=(username or sid, secret_value or "")) as client:
+            response = client.get(url)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"could not reach Twilio: {exc}") from exc
+    if response.status_code >= 300:
+        raise HTTPException(status_code=502, detail=f"Twilio returned {response.status_code}")
+
+    body = response.json()
+    status = body.get("status")
+    return {
+        "ref": ref,
+        "status": status,
+        "terminal": status in TERMINAL_MESSAGE_STATUSES,
+        # The distinction the dashboard needs to stop over-claiming: Twilio
+        # accepting a message and the handset receiving one are different
+        # events, and only the second is worth a green tick.
+        "arrived": status in ("delivered", "read", "completed"),
+        "error_code": body.get("error_code"),
+        "error_message": body.get("error_message"),
+        "duration": body.get("duration"),
+    }
+
+
+TERMINAL_MESSAGE_STATUSES = frozenset({
+    "delivered", "read", "failed", "undelivered",
+    "completed", "busy", "no-answer", "canceled",
+})
+"""Statuses worth stopping a poll on. `sent` is deliberately absent: for
+WhatsApp it is where a message addressed to a non-WhatsApp number comes to
+rest, so treating it as terminal-and-successful is the exact bug this
+endpoint exists to expose."""
 
 
 @router.post("/whatsapp-webhook")

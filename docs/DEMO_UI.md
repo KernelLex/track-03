@@ -105,14 +105,60 @@ state would otherwise re-trigger a real duplicate send for an old reply).
 | | Telegram | WhatsApp | Voice call |
 |---|---|---|---|
 | Send | real message | real Content Template (cold sends need one — WhatsApp's rule, see `docs/CHANNELS.md`) | real TTS call |
-| Custom recipient | **no** — a bot can only message someone who messaged it first, so there's no number to address; a supplied `to` is refused outright rather than silently ignored | yes, E.164 | yes, E.164 |
-| Reads replies | yes (Telegram's own update feed) | yes (polls this Twilio account's own message history — no webhook, so no Console configuration needed for a demo surface) | **no** — one-way TTS, no inbound capture |
+| Custom recipient | yes — a numeric **chat id**, not a phone number | yes, E.164 | yes, E.164 |
+| Reads replies | yes (Telegram's own update feed) | yes (`POST /demo/whatsapp-webhook`, Twilio-signed) | **no** — one-way TTS, no inbound capture |
 | Answers replies | yes | yes | n/a |
 
 Guardrails on a caller-supplied number, since honoring one gives up this
 endpoint's original "can only ever reach the demo owner" property
 deliberately: E.164 format validation, plus a 5-minute per-number cooldown
 *on top of* the existing 20-second per-channel one.
+
+### Telegram takes a chat id, and why that is not a way to spam strangers
+
+Telegram addresses *chats*, not phone numbers, so the console has a second
+field for it. Entering one does two things: the send goes to that chat, and
+that chat is added to a short-lived allowlist so its **replies are answered
+too** (`agent/api/demo_allowlist.py`, 6-hour TTL). Without the second half a
+judge would receive a message and then be ignored, which is worse than not
+offering the field.
+
+The obvious worry is that a free-text chat-id field lets anyone message
+anyone. It does not, and the reason is Telegram's own rule rather than
+anything here: **a bot cannot message a chat that has not messaged the bot
+first.** An id you do not own simply will not accept anything from
+`@TrueCommit_bot`. The platform enforces the consent; the allowlist only
+decides whose replies get answered.
+
+The inbound guard stays fail-closed. An unknown chat is ignored, and an
+unset `DEMO_CONTACT_TELEGRAM_CHAT_ID` with an empty allowlist accepts
+nobody — the shape `docs/WHAT_BROKE.md` #25 records getting wrong once.
+
+### "Run the whole thing"
+
+One button fires Telegram, WhatsApp and the call together
+(`POST /demo/run-everything`). It calls the same `trigger_demo_contact()`
+the individual buttons do — no parallel implementation to drift from them —
+and reports each channel separately. **A failure in one does not stop the
+others**, because a partial run is far more useful mid-demo than an
+exception, and the response names which channels went and which did not.
+Telegram is *skipped* rather than redirected when there is no chat id and no
+configured contact: quietly falling back to the server's own chat would send
+a judge's demo to the demo owner.
+
+### "Sent" is not "arrived"
+
+Twilio accepts a WhatsApp message addressed to a number with no WhatsApp
+account. It moves to `sent` and never arrives. The dashboard used to show a
+green tick for exactly that, so someone typing a colleague's number saw
+success and nothing on the phone, with no way to tell which end was broken.
+
+`GET /demo/message-status?ref=…` returns Twilio's real state, and the
+console polls it after every WhatsApp send and call, reporting **Confirmed
+on the handset** or **Never arrived** with the error code. `sent` is
+deliberately not in `TERMINAL_MESSAGE_STATUSES` — it is precisely where an
+undeliverable WhatsApp message comes to rest, so treating it as
+terminal-and-successful is the bug rather than the fix.
 
 ## Negotiating a split, not just asking for the money
 

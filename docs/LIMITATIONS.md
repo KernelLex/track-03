@@ -9,7 +9,7 @@ I've built a tested, working implementation of TrueCommit's **pure-logic
 safety and compliance core** (DEVDOC_v6 §5.2's "the judgment"), **now also
 wired to a real, live Razorpay test-mode account** (as of 2026-08-30) for
 the capabilities that account actually has, plus a real (if minimal) HTTP
-webhook receiver. **1,393 collected / 1,382 passing / 11 skipped as of 2026-09-02**,
+webhook receiver. **1,418 collected / 1,407 passing / 11 skipped as of 2026-09-03**,
 measured without live credentials in the shell (the 11 skipped are the
 Razorpay-live-only suite, which skips cleanly rather than failing — no
 credentials are required to run the main suite). It's still **not**:
