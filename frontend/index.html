@@ -656,8 +656,10 @@ code, .mono{font-family:var(--font-mono);}
       <span class="count" id="approvalsCount">0 waiting</span>
     </div>
     <p class="panel-note">
-      The agent refused to act on its own and escalated. Nothing further goes to the debtor until
-      you decide — and either way, they hear back.
+      The agent acknowledged the debtor but <b>held their payment links</b>. Nothing further goes out
+      until you decide — and either way, they hear back. Links are held for debtors on
+      <code>watch</code> or <code>strict</code> terms, and for any dispute; a <code>trusted</code> or
+      <code>standard</code> debtor gets theirs straight away, because their record is what earns that.
     </p>
     <div id="approvalsList"></div>
   </section>
@@ -1773,7 +1775,7 @@ async function refreshApprovals(){
         + (a.debtor_said ? '<div class="asaid">“' + esc(a.debtor_said) + '”</div>' : '')
         + '<div class="aproposed">Agent would send: ' + esc(a.proposed_message || '(nothing composed)') + '</div>'
         + ((a.mandate_links && a.mandate_links.length)
-            ? '<div class="alinks"><b>Approving also sends ' + a.mandate_links.length
+            ? '<div class="alinks"><b>Held — approving releases ' + a.mandate_links.length
               + ' payment link' + (a.mandate_links.length > 1 ? 's' : '') + ':</b> '
               + a.mandate_links.map(function(l){ return esc(l.short_url); }).join(' · ') + '</div>'
             : '')

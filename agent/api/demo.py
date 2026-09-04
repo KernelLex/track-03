@@ -1039,6 +1039,41 @@ def _take_compose_failure() -> str | None:
     return _last_compose_failure.pop("reason", None)
 
 
+HOLD_LINKS_FOR_BANDS = frozenset({"watch", "strict"})
+"""Bands whose payment links a human releases rather than the agent.
+
+The point of an approval is that the human decides something. If the agent
+has already sent the debtor their authorization links, approving afterwards
+decides nothing -- the links are gone, and the queue is a receipt for a
+thing that already happened.
+
+So the links are *held*, and the split is by the debtor's own record. A
+`trusted` or `standard` debtor gets them straight away, because their
+record is what earns that. A `watch` or `strict` debtor -- someone who has
+broken promises before -- gets an acknowledgement, and a person decides
+whether to extend terms to them again. That is the judgement worth a
+human's attention, and it is the only one this queue asks for.
+"""
+
+
+def _links_need_human_first(terms: DebtorTerms | None, diagnosis: dict[str, object]) -> bool:
+    """Whether this debtor's links wait for a person.
+
+    A dispute always waits, whatever the record says: Family D's only
+    permitted action is `escalate_human`, and handing a disputed debtor a
+    payment link would be the Fair Practices problem the gate exists to
+    prevent.
+    """
+    try:
+        if Family(str(diagnosis.get("family"))) == Family.D:
+            return True
+    except ValueError:  # pragma: no cover -- family comes from a validated enum
+        pass
+    if terms is None:
+        return False
+    return terms.band in HOLD_LINKS_FOR_BANDS
+
+
 def _links_for_approval(plan: dict[str, object] | None, scenario: dict[str, object]) -> list[dict]:
     """Whatever the debtor could actually act on, for the human to send.
 
@@ -1100,6 +1135,7 @@ def _compose_or_fallback(
     reply_text: str, diagnosis: dict[str, object], scenario: dict[str, object],
     decision: dict[str, object] | None = None, plan: dict[str, object] | None = None,
     conversation_context: str | None = None, outstanding_proposal: str | None = None,
+    withhold_links: bool = False,
 ) -> str:
     """A real, specific reply to what the debtor actually said
     (agent.notify.compose) -- falling back to the fixed family-level line
@@ -1127,12 +1163,13 @@ def _compose_or_fallback(
             ),
             next_step=None if decision is None else str(decision.get("action")),
             payment_plan=None if plan is None else str(plan.get("summary")),
-            mandate_links=None if plan is None else (plan.get("mandate_summary") or None),
+            mandate_links=None if (plan is None or withhold_links)
+            else (plan.get("mandate_summary") or None),
             conversation_context=conversation_context,
             outstanding_proposal=outstanding_proposal,
             purpose="demo_dashboard_conversational_reply",
         )
-        return _ensure_mandate_links_present(composed, plan)
+        return composed if withhold_links else _ensure_mandate_links_present(composed, plan)
     except Exception as exc:
         # Broad on purpose: ComposeFailed (API/empty output) and
         # BudgetExceeded (agent.spend's ceiling) both mean "no vetted reply
@@ -1151,7 +1188,8 @@ def _compose_or_fallback(
         # what that costs: a real mandate was issued and never mentioned.
         return _agent_reply_for(
             family,
-            mandate_links=None if plan is None else (plan.get("mandate_links") or None),
+            mandate_links=None if (plan is None or withhold_links)
+            else (plan.get("mandate_links") or None),
         )
 
 
@@ -1765,6 +1803,12 @@ def handle_inbound_message(
         result["decision"] = decision
         store.record_event(conversation_id, kind="decided", channel=channel, detail=decision)
 
+        # Held links are what makes an approval a decision rather than a
+        # receipt. Decided before the reply is composed, because the
+        # composer must not be handed links it is not allowed to send.
+        hold_links = _links_need_human_first(terms, result["diagnosis"])
+        result["links_held_for_human"] = hold_links
+
         # An escalation that lands nowhere is only half a safety property:
         # the gate stopped the wrong thing, and the right thing never
         # happened either. File it so a human has something to act on.
@@ -1779,7 +1823,8 @@ def handle_inbound_message(
         # `no_action` on a message from a real person means nobody is doing
         # anything, which is exactly when a queue matters. The
         # one-open-per-conversation rule keeps that from becoming noise.
-        if decision.get("action") in ("escalate_human", "no_action") or decision.get("escalated_to_human"):
+        if (hold_links or decision.get("action") in ("escalate_human", "no_action")
+                or decision.get("escalated_to_human")):
             with ApprovalQueue() as queue:
                 approval_id = queue.open_for(
                     conversation_id=conversation_id, channel=channel,
@@ -1812,6 +1857,7 @@ def handle_inbound_message(
             text, result["diagnosis"], scenario, decision, plan,
             conversation_context=transcript or None,
             outstanding_proposal=None if proposal is None else _describe_proposal(proposal),
+            withhold_links=hold_links,
         )
         # Attach what the agent would have said to the waiting approval, so
         # a human can approve in one click and something real goes out --

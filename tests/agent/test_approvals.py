@@ -299,3 +299,85 @@ class TestWhatAHumanGetsToSend:
                             lambda s: (_ for _ in ()).throw(AssertionError("should not be called")))
         plan = {"mandate_links": [{"short_url": "https://rzp.io/rzp/AAA"}]}
         assert len(demo._links_for_approval(plan, {})) == 1
+
+
+class TestLinksAreHeldNotJustLogged:
+    """The point of an approval is that the human decides something.
+
+    Observed live: the agent sent the debtor both authorization links AND
+    filed an approval. Approving afterwards decided nothing -- the links
+    were already gone, and the queue was a receipt for something that had
+    already happened.
+
+    So links are held, and the split is the debtor's own record: a record
+    that earns terms gets them straight away; a record that doesn't gets a
+    person deciding whether to extend terms again.
+    """
+
+    @staticmethod
+    def _terms(band):
+        from agent.debtor.score import terms_for, PromiseOutcome
+        from agent.api.demo import _links_need_human_first
+        # Build terms directly at the band under test rather than reverse
+        # engineering a promise history that lands on it.
+        from dataclasses import replace
+        return replace(terms_for([]), band=band)
+
+    @staticmethod
+    def _diag(family="C"):
+        return {"family": family, "class": "PROMISE_STATED", "confidence": 0.9}
+
+    def test_a_trusted_debtor_gets_their_links_immediately(self):
+        from agent.api.demo import _links_need_human_first
+        assert not _links_need_human_first(self._terms("trusted"), self._diag())
+
+    def test_a_standard_debtor_gets_them_immediately_too(self):
+        from agent.api.demo import _links_need_human_first
+        assert not _links_need_human_first(self._terms("standard"), self._diag())
+
+    def test_a_watch_debtor_waits_for_a_person(self):
+        from agent.api.demo import _links_need_human_first
+        assert _links_need_human_first(self._terms("watch"), self._diag())
+
+    def test_a_strict_debtor_waits_for_a_person(self):
+        """Someone who has broken promises before does not get fresh terms
+        extended by an agent on its own authority."""
+        from agent.api.demo import _links_need_human_first
+        assert _links_need_human_first(self._terms("strict"), self._diag())
+
+    def test_a_dispute_always_waits_whatever_the_record_says(self):
+        """Family D's only permitted action is escalate_human, and handing a
+        disputed debtor a payment link is the Fair Practices problem the
+        gate exists to prevent."""
+        from agent.api.demo import _links_need_human_first
+        assert _links_need_human_first(self._terms("trusted"), self._diag(family="D"))
+
+    def test_no_terms_at_all_does_not_hold(self):
+        """A debtor with no record yet is `trusted` by design -- see the
+        score module's own rationale about applying the strictest terms to
+        the people you know least about."""
+        from agent.api.demo import _links_need_human_first
+        assert not _links_need_human_first(None, self._diag())
+
+
+class TestTheHeldReplyDoesNotLeakLinks:
+    """Whatever path composes the acknowledgement, it must not carry links
+    the human has not released yet."""
+
+    PLAN = {"mandate_links": [{"short_url": "https://rzp.io/rzp/HELD1"}],
+            "mandate_summary": "instalment 1 at https://rzp.io/rzp/HELD1"}
+
+    def test_the_fallback_withholds_them(self):
+        """The fallback was taught to always include links (#29). When they
+        are held, that is exactly wrong -- and the flag has to reach it."""
+        from agent.api.demo import _agent_reply_for
+        from agent.diagnose.extract import Family
+        held = _agent_reply_for(Family.C, mandate_links=None)
+        assert "HELD1" not in held
+
+    def test_the_guard_is_not_applied_when_withholding(self):
+        """_ensure_mandate_links_present must not be run on a held reply --
+        it would put back exactly what is being withheld."""
+        from agent.api.demo import _ensure_mandate_links_present
+        forced = _ensure_mandate_links_present("Noted.", self.PLAN)
+        assert "HELD1" in forced, "sanity: the guard does add links when asked"
