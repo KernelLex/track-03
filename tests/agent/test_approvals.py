@@ -151,3 +151,111 @@ class TestHousekeeping:
         with ApprovalQueue(path) as q:
             assert len(q.pending()) == 1
             assert q.pending()[0]["status"] == PENDING
+
+
+class TestApprovingSendsSomethingActionable:
+    """The reason the queue exists at all.
+
+    The agent's escalation text is "...and a person will confirm this with
+    you directly." Approving that and sending it unchanged tells the debtor
+    a *second* time that someone will get back to them -- which is not an
+    outcome, it is the same non-answer with a human's signature on it.
+
+    So whatever goes out on approval carries the mandate links, whether it
+    came from the agent or the human typed it themselves.
+    """
+
+    LINKS = [{"mandate_id": "sub_A", "short_url": "https://rzp.io/rzp/AAA111"},
+             {"mandate_id": "sub_B", "short_url": "https://rzp.io/rzp/BBB222"}]
+
+    def test_the_links_ride_along_on_the_approval(self, queue):
+        item_id = _open(queue, mandate_links=self.LINKS)
+        assert len(queue.get(item_id)["mandate_links"]) == 2
+
+    def test_the_agents_escalation_text_gains_the_links(self):
+        """The exact message the user saw, put through the same guard the
+        approve endpoint applies."""
+        from agent.api.demo import _ensure_mandate_links_present
+        sent = _ensure_mandate_links_present(
+            "Noted -- full payment of Rs 42,500 on the 5th as you've mentioned, "
+            "and a person will confirm this with you directly.",
+            {"mandate_links": self.LINKS})
+        assert "https://rzp.io/rzp/AAA111" in sent
+        assert "https://rzp.io/rzp/BBB222" in sent
+
+    def test_a_humans_own_wording_also_gains_them(self):
+        """Someone typing their own message should not have to remember to
+        paste the links -- forgetting is the failure mode, not laziness."""
+        from agent.api.demo import _ensure_mandate_links_present
+        sent = _ensure_mandate_links_present(
+            "Happy to go ahead with that.", {"mandate_links": self.LINKS})
+        assert "https://rzp.io/rzp/AAA111" in sent
+
+    def test_no_links_on_the_approval_means_the_text_is_untouched(self):
+        from agent.api.demo import _ensure_mandate_links_present
+        text = "A colleague reviewed this and approved it."
+        assert _ensure_mandate_links_present(text, {"mandate_links": []}) == text
+
+    def test_links_survive_a_re_escalation(self, queue):
+        """Refreshing an open row must not drop them."""
+        _open(queue, mandate_links=self.LINKS)
+        item_id = _open(queue, debtor_said="any update?", mandate_links=self.LINKS)
+        assert len(queue.get(item_id)["mandate_links"]) == 2
+
+
+class TestSchemaMigration:
+    """A column added after the table shipped must reach existing databases.
+
+    `CREATE TABLE IF NOT EXISTS` is a no-op against an existing table, so a
+    new column reaches a fresh database and silently misses every deployed
+    one -- surfacing as a crash on the next query, in production, on a file
+    that worked a moment earlier. That is exactly what happened: a leftover
+    db from an earlier run started raising `no such column: mandate_links`,
+    and the deployed instance had the same stale schema.
+    """
+
+    def test_an_old_database_gains_the_new_column(self, tmp_path):
+        import sqlite3
+        path = str(tmp_path / "old.db")
+        # The schema as it shipped, without mandate_links.
+        conn = sqlite3.connect(path)
+        conn.execute(
+            "CREATE TABLE approvals (id TEXT PRIMARY KEY, created_at REAL NOT NULL,"
+            " conversation_id TEXT NOT NULL, channel TEXT NOT NULL, debtor_label TEXT,"
+            " invoice_id TEXT, reason TEXT NOT NULL, refusals TEXT, debtor_said TEXT,"
+            " proposed_message TEXT, status TEXT NOT NULL DEFAULT 'pending',"
+            " decided_at REAL, decided_note TEXT, sent_ref TEXT, send_error TEXT)")
+        conn.commit()
+        conn.close()
+
+        with ApprovalQueue(path) as q:
+            item_id = _open(q, mandate_links=[{"short_url": "https://rzp.io/rzp/X"}])
+            assert q.get(item_id)["mandate_links"] == [{"short_url": "https://rzp.io/rzp/X"}]
+
+    def test_rows_already_in_an_old_database_still_read(self, tmp_path):
+        """Existing escalations must survive the migration, not vanish."""
+        import sqlite3
+        path = str(tmp_path / "old.db")
+        conn = sqlite3.connect(path)
+        conn.execute(
+            "CREATE TABLE approvals (id TEXT PRIMARY KEY, created_at REAL NOT NULL,"
+            " conversation_id TEXT NOT NULL, channel TEXT NOT NULL, debtor_label TEXT,"
+            " invoice_id TEXT, reason TEXT NOT NULL, refusals TEXT, debtor_said TEXT,"
+            " proposed_message TEXT, status TEXT NOT NULL DEFAULT 'pending',"
+            " decided_at REAL, decided_note TEXT, sent_ref TEXT, send_error TEXT)")
+        conn.execute("INSERT INTO approvals (id, created_at, conversation_id, channel, reason)"
+                     " VALUES ('old1', 1.0, 'c1', 'telegram', 'DISPUTE')")
+        conn.commit()
+        conn.close()
+
+        with ApprovalQueue(path) as q:
+            pending = q.pending()
+            assert [p["id"] for p in pending] == ["old1"]
+            assert pending[0]["mandate_links"] == []
+
+    def test_migrating_twice_is_harmless(self, tmp_path):
+        path = str(tmp_path / "a.db")
+        with ApprovalQueue(path):
+            pass
+        with ApprovalQueue(path) as q:
+            assert q.pending() == []

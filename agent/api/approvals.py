@@ -45,6 +45,7 @@ class ApprovalQueue:
             "  refusals TEXT,"
             "  debtor_said TEXT,"
             "  proposed_message TEXT,"
+            "  mandate_links TEXT,"
             "  status TEXT NOT NULL DEFAULT 'pending',"
             "  decided_at REAL,"
             "  decided_note TEXT,"
@@ -59,13 +60,29 @@ class ApprovalQueue:
             "CREATE UNIQUE INDEX IF NOT EXISTS one_open_per_conversation "
             "ON approvals(conversation_id) WHERE status = 'pending'"
         )
+        self._migrate()
         self._conn.commit()
+
+    # Columns added after the table first shipped. `CREATE TABLE IF NOT
+    # EXISTS` is a no-op against an existing table, so a new column in the
+    # statement above reaches a fresh database and silently misses every
+    # deployed one -- which is a crash on the next query, in production,
+    # on a file that was working a moment earlier. Caught locally by a
+    # leftover db from an earlier run; the deployed instance had exactly
+    # the same stale schema and would have failed the same way.
+    _ADDED_COLUMNS = (("mandate_links", "TEXT"),)
+
+    def _migrate(self) -> None:
+        existing = {row[1] for row in self._conn.execute("PRAGMA table_info(approvals)")}
+        for name, sql_type in self._ADDED_COLUMNS:
+            if name not in existing:
+                self._conn.execute(f"ALTER TABLE approvals ADD COLUMN {name} {sql_type}")
 
     def open_for(
         self, *, conversation_id: str, channel: str, reason: str,
         debtor_label: str | None = None, invoice_id: str | None = None,
         refusals: list[str] | None = None, debtor_said: str | None = None,
-        proposed_message: str | None = None,
+        proposed_message: str | None = None, mandate_links: list[dict] | None = None,
     ) -> str:
         """Idempotent per conversation: a second escalation while one is
         still open refreshes the existing row rather than adding another."""
@@ -76,11 +93,12 @@ class ApprovalQueue:
         payload = (
             channel, debtor_label, invoice_id, reason,
             json.dumps(refusals or []), debtor_said, proposed_message,
+            json.dumps(mandate_links or []),
         )
         if existing:
             self._conn.execute(
                 "UPDATE approvals SET channel=?, debtor_label=?, invoice_id=?, reason=?,"
-                " refusals=?, debtor_said=?, proposed_message=? WHERE id=?",
+                " refusals=?, debtor_said=?, proposed_message=?, mandate_links=? WHERE id=?",
                 (*payload, existing["id"]),
             )
             self._conn.commit()
@@ -89,10 +107,11 @@ class ApprovalQueue:
         new_id = uuid.uuid4().hex[:12]
         self._conn.execute(
             "INSERT INTO approvals (id, created_at, conversation_id, channel, debtor_label,"
-            " invoice_id, reason, refusals, debtor_said, proposed_message)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?)",
+            " invoice_id, reason, refusals, debtor_said, proposed_message, mandate_links)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (new_id, time.time(), conversation_id, channel, debtor_label, invoice_id,
-             reason, json.dumps(refusals or []), debtor_said, proposed_message),
+             reason, json.dumps(refusals or []), debtor_said, proposed_message,
+             json.dumps(mandate_links or [])),
         )
         self._conn.commit()
         return new_id
@@ -149,8 +168,9 @@ class ApprovalQueue:
 
 def _as_dict(row: sqlite3.Row) -> dict:
     d = dict(row)
-    try:
-        d["refusals"] = json.loads(d.get("refusals") or "[]")
-    except ValueError:
-        d["refusals"] = []
+    for field in ("refusals", "mandate_links"):
+        try:
+            d[field] = json.loads(d.get(field) or "[]")
+        except ValueError:
+            d[field] = []
     return d

@@ -1796,6 +1796,7 @@ def handle_inbound_message(
                     invoice_id=str(scenario.get("invoice_id") or ""),
                     refusals=decision.get("refusals") or [],
                     debtor_said=text, proposed_message=reply_text,
+                    mandate_links=(plan or {}).get("mandate_links") or [],
                 )
 
         compose_failure = _take_compose_failure()
@@ -2047,6 +2048,15 @@ def decide_approval(approval_id: str, payload: ApprovalDecisionRequest) -> dict[
             raise HTTPException(status_code=409, detail="already decided")
 
         text = (payload.message or "").strip() or _default_decision_message(decided, decision)
+        if decision == APPROVED:
+            # The whole point of approving is that the debtor can now act.
+            # The agent's escalation text says "a person will confirm this"
+            # -- approving that and sending it unchanged would tell them a
+            # second time that someone will get back to them. Whatever goes
+            # out here carries the mandate links, whether it came from the
+            # agent or the human typed it themselves.
+            text = _ensure_mandate_links_present(
+                text, {"mandate_links": decided.get("mandate_links") or []})
 
         ref, error = None, None
         try:

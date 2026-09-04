@@ -192,6 +192,11 @@ code, .mono{font-family:var(--font-mono);}
   font-weight:700; letter-spacing:0.01em; padding:0.62rem 1.05rem; white-space:nowrap;}
 .btn-runall:hover:not(:disabled){filter:brightness(1.07);}
 .runall-note{flex:1 1 280px; font-size:0.79rem; color:var(--muted); line-height:1.45;}
+.tab-badge{display:inline-block; min-width:1.15rem; padding:0 0.32rem; margin-left:0.35rem;
+  border-radius:999px; background:#f59e0b; color:#1b1005; font-size:0.68rem; font-weight:700;
+  line-height:1.35rem; text-align:center; vertical-align:middle;}
+.appr .alinks{font-size:0.78rem; color:var(--muted); margin:0.35rem 0 0.15rem;}
+.appr .alinks b{color:#16a34a;}
 .panel-note{font-size:0.8rem; color:var(--muted); margin:0 0 0.9rem; line-height:1.5;}
 .appr{border:1px solid var(--line); border-left:3px solid #f59e0b; border-radius:8px;
   padding:0.8rem 0.95rem; margin-bottom:0.7rem; background:var(--panel-2, rgba(255,255,255,0.02));}
@@ -475,6 +480,7 @@ code, .mono{font-family:var(--font-mono);}
     <button class="tab active" role="tab" data-tab="live" aria-selected="true">Live console</button>
     <button class="tab" role="tab" data-tab="history" aria-selected="false">Activity &amp; case files</button>
     <button class="tab" role="tab" data-tab="debtors" aria-selected="false">Debtors &amp; scores</button>
+    <button class="tab" role="tab" data-tab="approvals" aria-selected="false">Approvals <span id="tabApprovalBadge" class="tab-badge" hidden>0</span></button>
     <button class="tab" role="tab" data-tab="subs" aria-selected="false">Subscriptions</button>
   </nav>
 
@@ -561,20 +567,7 @@ code, .mono{font-family:var(--font-mono);}
     <div id="activityWaiting"></div>
   </section>
 
-  <!-- Escalations waiting on a person. An escalation that lands nowhere is
-       only half a safety property: the gate stopped the wrong thing, and
-       the right thing never happened either. -->
-  <section class="panel" id="approvalsPanel" hidden>
-    <div class="panel-head">
-      <h3>⚖️ Waiting for you</h3>
-      <span class="count" id="approvalsCount">0 waiting</span>
-    </div>
-    <p class="panel-note">
-      The agent refused to act on its own and escalated. Nothing further goes to the debtor until
-      you decide — and either way, they hear back.
-    </p>
-    <div id="approvalsList"></div>
-  </section>
+
 
   <!-- The case file: read from the server, so it shows what actually
        happened rather than only what this browser tab happened to witness.
@@ -652,6 +645,28 @@ code, .mono{font-family:var(--font-mono);}
       </div>
     </section>
   </div><!-- /panel-debtors -->
+
+  <div class="tab-panel" id="panel-approvals" hidden>
+  <!-- Escalations waiting on a person. An escalation that lands nowhere is
+       only half a safety property: the gate stopped the wrong thing, and
+       the right thing never happened either. -->
+  <section class="panel" id="approvalsPanel">
+    <div class="panel-head">
+      <h3>⚖️ Waiting for you</h3>
+      <span class="count" id="approvalsCount">0 waiting</span>
+    </div>
+    <p class="panel-note">
+      The agent refused to act on its own and escalated. Nothing further goes to the debtor until
+      you decide — and either way, they hear back.
+    </p>
+    <div id="approvalsList"></div>
+  </section>
+    <div id="approvalsEmpty" class="activity-empty" hidden>
+      Nothing waiting. When the agent escalates — a dispute, a refused action, anything it
+      will not decide alone — it lands here with the debtor's own words and the message it
+      would have sent.
+    </div>
+  </div>
 
   <div class="tab-panel" id="panel-subs" hidden>
     <section class="casefile">
@@ -1428,7 +1443,7 @@ async function refreshCaseFile(){
 // ---- tabs ----
 
 function showTab(name){
-  ['live','history','debtors','subs'].forEach(function(t){
+  ['live','history','debtors','approvals','subs'].forEach(function(t){
     document.getElementById('panel-' + t).hidden = (t !== name);
   });
   document.querySelectorAll('.tab').forEach(function(btn){
@@ -1440,6 +1455,7 @@ function showTab(name){
   if (name === 'debtors'){ refreshDebtors(); }
   if (name === 'history'){ refreshCaseFile(); }
   if (name === 'subs'){ scanPortfolio(); }
+  if (name === 'approvals'){ refreshApprovals(); }
 }
 
 // ---- debtors & scores ----
@@ -1738,11 +1754,14 @@ async function refreshApprovals(){
     var pending = body.pending || [];
     var resolved = (body.recent || []).filter(function(a){ return a.status !== 'pending'; }).slice(0, 4);
 
-    // Hidden entirely when there's nothing to do -- an always-visible empty
-    // queue trains people to ignore it.
-    panel.hidden = pending.length === 0 && resolved.length === 0;
-    document.getElementById('approvalsCount').textContent =
-      pending.length + (pending.length === 1 ? ' waiting' : ' waiting');
+    document.getElementById('approvalsCount').textContent = pending.length + ' waiting';
+    document.getElementById('approvalsEmpty').hidden = pending.length !== 0 || resolved.length !== 0;
+
+    // The tab badge is the only thing visible from another tab, so it is
+    // how anyone finds out a debtor is waiting on them.
+    var badge = document.getElementById('tabApprovalBadge');
+    badge.textContent = pending.length;
+    badge.hidden = pending.length === 0;
 
     var list = document.getElementById('approvalsList');
     list.innerHTML = pending.map(function(a){
@@ -1753,6 +1772,11 @@ async function refreshApprovals(){
         + '</span></div>'
         + (a.debtor_said ? '<div class="asaid">“' + esc(a.debtor_said) + '”</div>' : '')
         + '<div class="aproposed">Agent would send: ' + esc(a.proposed_message || '(nothing composed)') + '</div>'
+        + ((a.mandate_links && a.mandate_links.length)
+            ? '<div class="alinks"><b>Approving also sends ' + a.mandate_links.length
+              + ' payment link' + (a.mandate_links.length > 1 ? 's' : '') + ':</b> '
+              + a.mandate_links.map(function(l){ return esc(l.short_url); }).join(' · ') + '</div>'
+            : '')
         + '<textarea placeholder="Send this instead — leave blank to send the agent\'s text above">'
         + '</textarea>'
         + '<div class="arow">'
