@@ -1015,6 +1015,44 @@ def _take_compose_failure() -> str | None:
     return _last_compose_failure.pop("reason", None)
 
 
+def _ensure_mandate_links_present(reply_text: str, plan: dict[str, object] | None) -> str:
+    """A reply that mentions authorization must actually carry the links.
+
+    Observed live on 2026-09-04. The pipeline built a two-leg plan, issued
+    two real e-mandates, and the composed reply said:
+
+        "...please authorize the links shared above to set up the debits"
+
+    They had not been shared above. They had not been shared anywhere. The
+    model was given the links, and instead of listing them wrote a phrase
+    referring to a message that did not exist -- so the debtor was told to
+    authorize something they could not see.
+
+    This is `docs/WHAT_BROKE.md` #29 again, on the other path. That one was
+    the *fallback* dropping the links; the fallback was fixed and the
+    composed path, which is the one that normally runs, was left trusting
+    the model to include them. A critical artifact is not something to
+    trust a model with when checking is a substring test.
+
+    So: if a mandate was issued and its URL is not in the text, append it.
+    Deterministic, and it cannot make the reply wrong -- at worst it repeats
+    a link the model already included, which this check prevents anyway.
+    """
+    links = [] if plan is None else (plan.get("mandate_links") or [])
+    urls = [str(link["short_url"]) for link in links if isinstance(link, dict) and link.get("short_url")]
+    missing = [url for url in urls if url not in reply_text]
+    if not missing:
+        return reply_text
+
+    _log.warning("demo: composed reply omitted %d mandate link(s) -- appending", len(missing))
+    joined = " and ".join(missing) if len(missing) <= 2 else ", ".join(missing)
+    plural = "these links" if len(missing) > 1 else "this link"
+    return (
+        f"{reply_text.rstrip()}\n\nTo set that up, please authorize {plural}: {joined} "
+        "-- this only schedules the debit, it doesn't take any money now."
+    )
+
+
 def _compose_or_fallback(
     reply_text: str, diagnosis: dict[str, object], scenario: dict[str, object],
     decision: dict[str, object] | None = None, plan: dict[str, object] | None = None,
@@ -1028,7 +1066,7 @@ def _compose_or_fallback(
     something unvetted."""
     family = Family(str(diagnosis["family"]))
     try:
-        return compose_reply(
+        composed = compose_reply(
             reply_text,
             invoice_id=str(scenario["invoice_id"]),
             amount_paise=int(scenario["amount_paise"]),
@@ -1051,6 +1089,7 @@ def _compose_or_fallback(
             outstanding_proposal=outstanding_proposal,
             purpose="demo_dashboard_conversational_reply",
         )
+        return _ensure_mandate_links_present(composed, plan)
     except Exception as exc:
         # Broad on purpose: ComposeFailed (API/empty output) and
         # BudgetExceeded (agent.spend's ceiling) both mean "no vetted reply

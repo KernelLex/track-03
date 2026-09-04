@@ -1305,6 +1305,87 @@ IST is outside permitted calling hours) and every other time-based rule at
 once. That is worth doing and is recorded here rather than smuggled in
 beside an unrelated fix.
 
+## 31. Inbound WhatsApp had never once reached the webhook
+
+**Symptom.** Three real WhatsApp replies sent from a phone. Twilio logged
+all three as `inbound / received`. The application timeline had **no
+record of any of them** — no `reply_received`, no diagnosis, no reply.
+
+Meanwhile every signed request I sent to the same endpoint myself worked
+perfectly, including ones carrying the full Twilio parameter set, a
+typographic apostrophe, and a `ChannelMetadata` JSON blob.
+
+**Root cause.** For a Twilio WhatsApp sender, inbound messages are routed
+by the **sender's** own callback, not by the phone number's `SmsUrl`. The
+number had:
+
+```
+sms_url : https://track-03.onrender.com/demo/whatsapp-webhook   ← set, and irrelevant
+```
+
+and the sender had:
+
+```
+sender_id    : whatsapp:+19376467656   (ONLINE)
+callback_url : ""                       ← nothing was ever delivered
+```
+
+`SmsUrl` governs SMS. I set it, confirmed it read back correctly, and drew
+the wrong conclusion from that.
+
+**Why I believed it was working, which is the actual lesson.** Every test
+I ran against this endpoint was a request *I* constructed and signed. Those
+prove the handler parses, verifies, and replies correctly — and they cannot
+prove Twilio ever calls it, because I was standing where Twilio should have
+been. I reported "WhatsApp reads and replies" on that basis. The endpoint
+worked; the integration never did.
+
+The distinction is the same one this project already makes about
+`report_real_batch.py` re-fetching status from Razorpay instead of reading
+its own ledger: **testing your own half of an integration is not testing
+the integration.** I applied that discipline to the rail and not to the
+channel.
+
+**Fix.** Set the sender's callback via
+`POST /v2/Channels/Senders/{sid}` with `webhook.callback_url`. The number's
+`SmsUrl` is left in place; it is harmless and correct for SMS.
+
+**Verification that is not circular.** A message typed on a real handset,
+producing a `reply_received` event and an answer — not a request I signed.
+
+## 32. "Authorize the links shared above", with no links anywhere
+
+**Symptom.** A real two-leg promise on Telegram. The pipeline diagnosed it,
+built the plan, issued two real e-mandates, and replied:
+
+> "Confirmed -- Rs 21,000 today and the remaining Rs 21,500 on the 5th, as
+> you've proposed; please authorize **the links shared above** to set up
+> the debits"
+
+They had not been shared above. They had not been shared anywhere. The
+debtor was told to authorize something they could not see.
+
+**Root cause.** `compose_reply()` is handed the mandate links and is
+trusted to include them. Here it wrote a phrase *referring* to a previous
+message that did not exist.
+
+**This is #29 again, on the other path.** That entry was the *fallback*
+discarding the links, and the fix taught the fallback to carry them. The
+composed path — the one that normally runs — was left trusting the model,
+and I did not think to check it because I had just fixed "the same" bug.
+Fixing one branch of a two-branch problem feels like fixing the problem.
+
+**Fix.** `_ensure_mandate_links_present()` runs on the composed output: if
+a mandate was issued and its URL is not in the text, append it. A substring
+test is a cheap price for not asking a debtor to click a link that isn't
+there. 14 tests, including that a partially-complete reply gains only the
+link it's missing.
+
+**The general rule this is the second instance of:** when the pipeline
+produces an artifact the recipient must act on, *verify it reached them*
+rather than trusting the component that was supposed to include it. Both
+paths now do.
+
 ## What this list is for
 
 I found every one of these by actually building against DEVDOC_v6, not by
