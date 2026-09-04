@@ -1039,6 +1039,25 @@ def _take_compose_failure() -> str | None:
     return _last_compose_failure.pop("reason", None)
 
 
+def _links_for_approval(plan: dict[str, object] | None, scenario: dict[str, object]) -> list[dict]:
+    """Whatever the debtor could actually act on, for the human to send.
+
+    A plan's e-mandates when there is a plan. When there isn't -- and the
+    live case that prompted this had none, because a bare date against an
+    outstanding plan is deliberately read as a *change* to it rather than a
+    new promise -- fall back to the invoice's own payable URL.
+
+    An approval with nothing attached is a human clicking "approve" and the
+    debtor receiving another sentence with nothing to do about it. The
+    floor is: they always get a way to pay.
+    """
+    links = list((plan or {}).get("mandate_links") or [])
+    if links:
+        return links
+    payable = _create_real_payment_link(scenario)
+    return [{"mandate_id": None, "short_url": payable}] if payable else []
+
+
 def _ensure_mandate_links_present(reply_text: str, plan: dict[str, object] | None) -> str:
     """A reply that mentions authorization must actually carry the links.
 
@@ -1749,7 +1768,18 @@ def handle_inbound_message(
         # An escalation that lands nowhere is only half a safety property:
         # the gate stopped the wrong thing, and the right thing never
         # happened either. File it so a human has something to act on.
-        if decision.get("escalated_to_human") or decision.get("action") == "escalate_human":
+        #
+        # `no_action` counts, and that is the whole point. Observed live: a
+        # debtor wrote "I can pay everything on 5th", the gate refused the
+        # reminder on PROMISE_COOLDOWN, the agent correctly took no action --
+        # and the reply told them "a person will confirm this with you
+        # directly." Nobody had been told. The message promised a human the
+        # system never scheduled, which is worse than saying nothing.
+        #
+        # `no_action` on a message from a real person means nobody is doing
+        # anything, which is exactly when a queue matters. The
+        # one-open-per-conversation rule keeps that from becoming noise.
+        if decision.get("action") in ("escalate_human", "no_action") or decision.get("escalated_to_human"):
             with ApprovalQueue() as queue:
                 approval_id = queue.open_for(
                     conversation_id=conversation_id, channel=channel,
@@ -1796,7 +1826,7 @@ def handle_inbound_message(
                     invoice_id=str(scenario.get("invoice_id") or ""),
                     refusals=decision.get("refusals") or [],
                     debtor_said=text, proposed_message=reply_text,
-                    mandate_links=(plan or {}).get("mandate_links") or [],
+                    mandate_links=_links_for_approval(plan, scenario),
                 )
 
         compose_failure = _take_compose_failure()

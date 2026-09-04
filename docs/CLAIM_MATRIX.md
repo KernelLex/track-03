@@ -106,7 +106,7 @@ refuses on a shallow clone rather than passing for the wrong reason.
 
 | Claim | Value | Regenerate | Guarded by |
 |---|---|---|---|
-| Test suite | 1,465 collected / 1,454 passing / 11 skipped | `uv run pytest` | `tests/test_documented_test_counts.py` — fails the build if README or LIMITATIONS drift from a real collection |
+| Test suite | 1,469 collected / 1,458 passing / 11 skipped | `uv run pytest` | `tests/test_documented_test_counts.py` — fails the build if README or LIMITATIONS drift from a real collection |
 | This matrix's own cited test nodes all exist | asserted | `uv run pytest tests/test_claim_matrix.py` | `tests/test_claim_matrix.py::TestEveryCitedGuardExists::test_every_cited_test_node_is_collectable` |
 | Documented defects | 32 | `docs/WHAT_BROKE.md` | no automated guard — the count is prose |
 | API spend ceiling | $20 hard, checked before each call | `agent/spend.py` | `tests/agent/test_spend.py` |

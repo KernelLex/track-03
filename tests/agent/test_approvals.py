@@ -259,3 +259,43 @@ class TestSchemaMigration:
             pass
         with ApprovalQueue(path) as q:
             assert q.pending() == []
+
+
+class TestWhatAHumanGetsToSend:
+    """An approval with nothing attached is a human clicking "approve" and
+    the debtor receiving another sentence with nothing to do about it.
+
+    The live case: a debtor wrote "I can pay everything on 5th", the gate
+    refused the reminder on PROMISE_COOLDOWN, no plan was built (a bare date
+    against an outstanding plan is deliberately read as a *change* to it),
+    and the reply said "a person will confirm this with you directly" --
+    with no link and nobody queued.
+    """
+
+    def test_a_plans_mandates_are_what_gets_sent(self):
+        from agent.api.demo import _links_for_approval
+        plan = {"mandate_links": [{"short_url": "https://rzp.io/rzp/AAA"},
+                                  {"short_url": "https://rzp.io/rzp/BBB"}]}
+        assert len(_links_for_approval(plan, {})) == 2
+
+    def test_no_plan_falls_back_to_the_invoice_url(self, monkeypatch):
+        """The floor: they always get a way to pay."""
+        import agent.api.demo as demo
+        monkeypatch.setattr(demo, "_create_real_payment_link", lambda s: "https://rzp.io/rzp/INV")
+        links = demo._links_for_approval(None, {"invoice_id": "INV-2201"})
+        assert [l["short_url"] for l in links] == ["https://rzp.io/rzp/INV"]
+
+    def test_no_plan_and_no_payable_url_yields_nothing_rather_than_a_broken_link(self, monkeypatch):
+        """A `None` rendered into a message is worse than no link."""
+        import agent.api.demo as demo
+        monkeypatch.setattr(demo, "_create_real_payment_link", lambda s: None)
+        assert demo._links_for_approval(None, {}) == []
+
+    def test_the_fallback_is_not_used_when_a_plan_exists(self, monkeypatch):
+        """Sending the whole invoice alongside an agreed instalment plan
+        would contradict the plan."""
+        import agent.api.demo as demo
+        monkeypatch.setattr(demo, "_create_real_payment_link",
+                            lambda s: (_ for _ in ()).throw(AssertionError("should not be called")))
+        plan = {"mandate_links": [{"short_url": "https://rzp.io/rzp/AAA"}]}
+        assert len(demo._links_for_approval(plan, {})) == 1
