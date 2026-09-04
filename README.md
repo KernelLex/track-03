@@ -9,6 +9,50 @@ recovery. The part worth judging is not that it acts — it's what it
 refuses to do, and that the refusals are checkable by someone who doesn't
 trust me.
 
+## It moved real money on Razorpay's rails
+
+Start here, because it's the claim I'd most want checked and the one that
+took the longest to earn.
+
+**10 agent-chosen decisions ran against a live Razorpay account with
+`dry_run=False`. 5 created real invoices. All 5 were paid. ₹215,867
+captured.**
+
+The agent chose each action itself — `select_action_for_diagnosis()` on a
+real diagnosis, EV computed by the fitted model, `check_bounds()` gating
+it — and ACT called Razorpay. No human between the decision and the object.
+
+**How I verified it, and why the method matters more than the number.**
+Every status in [`docs/evidence/REAL_BATCH.md`](docs/evidence/REAL_BATCH.md)
+is **fetched back from Razorpay at report time**, not read out of my own
+ledger:
+
+```
+tools/report_real_batch.py  →  GET /v1/invoices/{id}  →  status: "paid"
+```
+
+That distinction is the whole point. My ledger records what the agent
+*believed* it did. The fetch records what Razorpay actually holds. A report
+that only quotes the first proves my code ran, not that anything happened.
+Every `inv_*` id in that file is real and independently checkable in the
+dashboard for that account.
+
+**What this does not show, stated plainly:** it measures pipeline
+completeness, not a recovery rate. I paid those invoices myself. Nothing in
+this repository establishes that real debtors pay — the counterfactual
+comparison in [`docs/RESULTS.md`](docs/RESULTS.md) is a **simulation
+against synthetic personas**, and it says so in its own first paragraph.
+
+The same live-rail standard runs through the rest: a real Razorpay
+e-mandate with its real customer-facing authorization link, a real
+reissued invoice, and a real `check_bounds()` refusal of a mandate on a
+disputed invoice, all in
+[`docs/evidence/REAL_SCENARIOS.md`](docs/evidence/REAL_SCENARIOS.md).
+Three live outbound channels — Telegram, WhatsApp (an approved Meta
+Content Template, polled to `delivered` rather than reported at `queued`),
+and a Twilio voice call. A `payment.failed` webhook triggering
+DIAGNOSE → DECIDE → BOUNDS → ACT unattended on a deployed service.
+
 **Three things that are unusual, in the order I'd want them checked:**
 
 1. **A pre-registration, locked before the run.**
@@ -38,6 +82,143 @@ trust me.
    re-derive. `dry_run=True` runs the identical judgment against 500
    invoices with zero rupees able to move
    ([`docs/evidence/DRY_RUN_BATCH.md`](docs/evidence/DRY_RUN_BATCH.md)).
+
+## Every number here, traced to a command and a test
+
+[`docs/CLAIM_MATRIX.md`](docs/CLAIM_MATRIX.md) maps every quantitative
+claim I make to the command that regenerates it and the test node that
+fails if the published figure drifts from the real one.
+
+It also lists, in its own section, the four claims that have **no automated
+guard** — including the ₹215,867, because CI can't spend real API calls to
+re-derive a live run. I'd rather name those than let a reader assume
+everything is gated.
+
+The matrix is itself gated: `tests/test_claim_matrix.py` collects the
+suite and asserts every test node the matrix cites still exists. A claim
+matrix pointing at a renamed test would be worse than not writing one.
+
+## Results that count against this project
+
+Every one of these is already published somewhere in this repository. I'm
+collecting them here because scattering them across four files and thirty
+numbered incidents makes them easy to miss, and a reader is entitled to see
+them as a set rather than find them one at a time.
+
+I'd rather state these myself than have someone find them for me. They are
+also the reason I think the numbers that *do* hold up are worth believing.
+
+**On the evaluation**
+
+1. **My extractor does not significantly beat a keyword regex on my own
+   golden set.** 49/50 vs 45/50, p = 0.092. The correct statement is "not
+   worse", not "better". Only family accuracy clears significance
+   (p = 0.041). See the next section for what the model *is* load-bearing
+   for. → [`EXTRACTION_ACCURACY.md`](docs/evidence/EXTRACTION_ACCURACY.md)
+2. **A regex scoring 90% means my golden set is too clean to
+   discriminate.** These are mostly unambiguous exemplars, which is exactly
+   what surface matching handles. The fix is harvesting live replies, not
+   tuning the set. I wrote 49 of the 50 myself; one is real.
+3. **The comparison that the headline actually rests on is marginal.** Arm
+   C vs Arm B2 is +2.0 pp at p = 0.0469 — clears 0.05, would not clear
+   0.01. My own report says it "would not survive being described as
+   decisive". Beating Arm A (the unpolicied schedule) is the easy bar.
+   → [`RESULTS.md`](docs/RESULTS.md)
+4. **The one parameter I had to guess turned out not to matter.**
+   `lift_prior` is **not load-bearing** — Arm C wins at every swept point
+   including the lowest. That's a null result about my own sweep, and I
+   could only report it honestly because the analysis was locked first.
+5. **`EV_FLOOR` essentially never refuses** at realistic messaging costs
+   against a ₹50,000-median population. A gate that never fires is a gate
+   I haven't really tested.
+6. **My Arm B2 is not a fully unbounded chaser.** It respects each
+   persona's contact-tolerance opt-out. A literally unbounded bot would
+   likely out-recover Arm C on raw rupees, as the spec anticipates. Mine
+   doesn't, and I report that rather than adjusting the arm to match the
+   expected shape.
+7. **The at-risk ₹91,72,435 is arithmetic on a batch I generated.** I
+   declared the 12% headroom-breach and 8% expiry-breach rates, so the
+   rupee figure follows from parameters I chose.
+
+**On the system**
+
+8. **The mandate loop does not close on this account.** A Razorpay
+   Subscription bills a fixed amount on its own schedule, and there's no
+   API here to present a debit on demand — so `present_debit` and
+   `modify_mandate` raise `RailUnavailable` rather than guess. Mandates can
+   be created; they cannot be debited. That is a hole in the middle of
+   detect → repair → present → capture.
+9. **`BoundsContext.now` is a fixed date.** The demo layer never overrides
+   it, so time-based rules are evaluated against a frozen instant. At a
+   real clock, `RBI_FPC_HOURS` would refuse several sends this project
+   actually made at 20:00 IST. → [`LIMITATIONS.md`](docs/LIMITATIONS.md)
+10. **The orchestrated pipeline can't send a WhatsApp template** — only the
+    demo path can. So autonomous cold WhatsApp outreach isn't possible yet.
+    The gate refuses it correctly rather than failing silently, but the
+    capability is missing.
+
+**Mistakes I made and had to fix**
+
+The full list is 30 entries with symptom, root cause, and why no test
+caught it → [`docs/WHAT_BROKE.md`](docs/WHAT_BROKE.md). Four worth naming
+here because they're the embarrassing ones:
+
+11. **I wrote my own baseline against my own answer key** (#27). The first
+    version scored 94% because I'd written the regexes against my own
+    phrasing — including patching the exact blind spot a test item existed
+    to demonstrate. What caught it was the number looking too good.
+12. **My own evidence document blamed the safety gate for a Razorpay rate
+    limit** (#28). Five errored rows rendered as `REFUSED:` because
+    `bounds_passed` is absent, not `False`, on a row that raised before the
+    gate ran — while the summary table two rows above said `refused: 0`.
+13. **The agent issued a real mandate and then told the debtor "no rush"**
+    (#29). Everything worked; the composer failed; the fallback knew only
+    the diagnosis family and threw the authorization link away.
+14. **Two gates disagreed about the same conversation** (#30). One allowed
+    the reply, the other refused the action, and the reply went out seconds
+    after the gate said the window was shut.
+
+**Seven of the thirty were found by running against a real rail, not by
+tests.** That pattern is itself a finding, and it's the argument for the
+real batch existing at all.
+
+## What the model is actually load-bearing for
+
+Item 1 above is the softest claim in this repository, so it's worth being
+precise about what it does and doesn't mean rather than leaving it at "not
+significant".
+
+**The golden set scores 29-way classification.** On that task, on 50 clean
+exemplars, my extractor and a hand-written regex are statistically
+indistinguishable. I'm not going to dress that up.
+
+**But classification is not the job.** Here is the baseline's entire
+signature:
+
+```python
+def classify(text: str) -> tuple[Family, DiagnosisClass]:
+```
+
+It returns two enum values. The extractor returns a validated object
+carrying `promise.amount_paise`, `promise.date`, and `promise.schedule[]` —
+a *multi-leg structure*. The regex is not worse at this. It **cannot
+represent this output at all.**
+
+That structure is what the rest of the system runs on. A debtor writes:
+
+> "I can pay 21,000 on the 5th and the rest by month end"
+
+and it becomes two legs, two dates, an arithmetic split of the remaining
+balance, an early-payment discount applied to the first leg only, and
+**two separate Razorpay e-mandate links** — one per instalment. Live,
+observed, in the timeline. No keyword classifier reaches any of that.
+
+So the honest summary is: **the model buys structured extraction, not
+classification accuracy.** On the axis I measured, it ties. On the axis the
+product depends on, the baseline has no output type to compete with. I only
+labelled promise amounts on 2 of 50 rows, which is too few to present as a
+measured win — so I'm stating the architectural fact and not inventing a
+number for it.
 
 ## The at-risk number, stated precisely
 
@@ -133,7 +314,7 @@ regime, not sending another message.
 ```
 uv sync
 uv run trucommit demo     # a small, real, end-to-end walk of one debtor
-uv run pytest             # 1,418 collected: 1,407 run without credentials, 11 skipped (they run live with Razorpay test keys set)
+uv run pytest             # 1,424 collected: 1,413 run without credentials, 11 skipped (they run live with Razorpay test keys set)
 ```
 
 CI runs that same suite on every push (`.github/workflows/ci.yml`), on

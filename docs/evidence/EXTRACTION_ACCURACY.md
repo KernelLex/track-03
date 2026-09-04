@@ -47,6 +47,24 @@ The first draft of `baseline.py` scored 94% and was thrown away. I had written t
 
 It still has an advantage the extractor does not: I have read the set, and chose which classes to write rules for knowing which ones appear in it. The bias runs **toward** the baseline, so the extractor's margin is a lower bound. That is the correct direction for a number I am publishing about my own system.
 
+### What the model is load-bearing for, given that tie
+
+The result above is the softest claim in this project, so it is worth being precise about what it means rather than leaving it at "not significant".
+
+**This set scores 29-way classification.** On that task, on 50 clean exemplars, the extractor and a hand-written regex are statistically indistinguishable. That is the finding and it is not being dressed up.
+
+**But classification is not the job.** Here is the baseline's entire signature:
+
+```python
+def classify(text: str) -> tuple[Family, DiagnosisClass]:
+```
+
+Two enum values. `ExtractionResult` carries `promise.amount_paise`, `promise.date`, and `promise.schedule[]` -- a multi-leg structure. The regex is not *worse* at producing that. It has no output type that could hold it.
+
+That structure is what the rest of the system runs on. "I can pay 21,000 on the 5th and the rest by month end" becomes two legs, two dates, an arithmetic split of the balance, an early-payment discount on the first leg only, and two separate Razorpay e-mandate links -- one per instalment.
+
+So: **the model buys structured extraction, not classification accuracy.** On the axis measured here it ties. On the axis the product depends on, the baseline cannot compete because it cannot represent the answer. Only 2 of the 50 rows carry a labelled promise amount, which is far too few to publish as a measured win -- so this is stated as an architectural fact, with no number attached to it.
+
 ## Confusion matrix (family)
 
 The family is what gates the action set, so this is the matrix that matters. Rows are the committed label, columns the extractor's answer.
