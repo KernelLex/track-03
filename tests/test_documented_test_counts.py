@@ -93,25 +93,64 @@ def test_limitations_test_count_matches_a_real_collection(collected_total):
 
 
 def test_the_documented_rule_count_matches_the_register():
-    """The README states how many bounds rules exist. That number went stale
-    the moment a twentieth rule was added, along with three more in
-    docs/DEMO_UI.md and a hardcoded "/19" in the dashboard's own JS.
+    """The README states how many bounds rules exist, and how they split.
 
-    Same class as the test counts this file already gates, and the same
-    reasoning: a number a reader can check in ten seconds is worse than no
-    number if it is wrong, because it tells them the rest was not checked
+    That number went stale the moment a twentieth rule was added, along with
+    three more in docs/DEMO_UI.md and a hardcoded "/19" in the dashboard's
+    own JS. Same class as the test counts this file already gates, and the
+    same reasoning: a number a reader can check in ten seconds is worse than
+    no number if it is wrong, because it tells them the rest was not checked
     either.
+
+    Checked in *both* the README and its long form. The README was split in
+    two on 2026-09-05, and a gate that followed only one of them would let
+    the other drift silently -- which is exactly how RESULTS.md went stale
+    (docs/WHAT_BROKE.md #18).
+
+    The split is asserted, not just the total. "20 rules" stays true if a
+    regulatory rule is quietly reclassified as product policy, and that
+    reclassification is the one this project would most want to notice.
     """
+    import yaml
+
     from agent.bounds.engine import load_rules
 
-    actual = len(load_rules())
-    readme = README.read_text(encoding="utf-8")
+    register = yaml.safe_load(
+        (REPO_ROOT / "agent" / "bounds" / "rules.yaml").read_text(encoding="utf-8"))
+    total = len(load_rules())
+    counts = {"regulatory": len(register["regulatory"]), "stopping": len(register["stopping"])}
 
-    claimed = re.search(r"\*\*A bounds gate that two independent implementations agree on\.\*\*\s*(\d+)\s*\n?\s*rules in YAML", readme)
-    assert claimed is not None, "README no longer states its rule count in the expected form"
-    assert int(claimed.group(1)) == actual, (
-        f"README claims {claimed.group(1)} bounds rules; the register has {actual}."
-    )
+    # Two accepted forms, because the two documents phrase it differently:
+    # the README's "20 rules -- 7 regulatory ..., 13 product policy", and the
+    # long form's "**20 rules in YAML**".
+    split_re = re.compile(
+        r"(\d+)\s+rules[^.]{0,90}?(\d+)\s+regulatory[^.]{0,60}?(\d+)\s+(?:stopping|product policy)")
+    total_re = re.compile(r"(\d+)\s+rules in YAML")
+
+    checked = 0
+    for path in (README, REPO_ROOT / "docs" / "PROJECT_EXPLAINED.md"):
+        text = path.read_text(encoding="utf-8")
+        match = split_re.search(text)
+        if match is not None:
+            assert int(match.group(1)) == total, (
+                f"{path.name} claims {match.group(1)} bounds rules; the register has {total}.")
+            assert int(match.group(2)) == counts["regulatory"], (
+                f"{path.name} claims {match.group(2)} regulatory rules; "
+                f"the register has {counts['regulatory']}.")
+            assert int(match.group(3)) == counts["stopping"], (
+                f"{path.name} claims {match.group(3)} stopping rules; "
+                f"the register has {counts['stopping']}.")
+            checked += 1
+            continue
+
+        match = total_re.search(text)
+        assert match is not None, (
+            f"{path.name} no longer states its bounds-rule count in a recognised form")
+        assert int(match.group(1)) == total, (
+            f"{path.name} claims {match.group(1)} bounds rules; the register has {total}.")
+        checked += 1
+
+    assert checked == 2, "both the README and its long form must state the rule count"
 
 
 def test_no_document_hardcodes_a_stale_rule_denominator():
