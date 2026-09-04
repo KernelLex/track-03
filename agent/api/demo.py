@@ -55,6 +55,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
+from agent.api.approvals import APPROVED, PENDING, REJECTED, ApprovalQueue
 from agent.api.demo_allowlist import TelegramAllowlist
 from agent.auditor.extraction_log import ExtractionLog
 from agent.bounds.context import ActionCtx, BoundsContext, ConfigCtx, DebtorCtx, DecisionCtx, InvoiceCtx, MandateCtx
@@ -160,6 +161,7 @@ def _resolve_recipient(payload_to: str | None, env_var: str) -> str:
 # message. Best-effort: a b2b send still goes out with no link at all if
 # Razorpay creation fails, rather than blocking the whole message on it.
 _last_payment_link_url: str | None = None
+_last_payment_object_id: str | None = None
 
 # Diagnosing the same reply twice is harmless (cheap to repeat, same result
 # either way) -- sending a real follow-up message twice for it is not.
@@ -277,13 +279,32 @@ def _create_real_payment_link(scenario: dict[str, object]) -> str | None:
     overdue *invoice*, so a real Razorpay-hosted invoice page is what a
     debtor would actually be sent. Both are real, payable, rail-created
     objects -- neither is a stand-in."""
-    global _last_payment_link_url
-    if _last_payment_link_url:
-        return _last_payment_link_url
+    global _last_payment_link_url, _last_payment_object_id
     key_id = os.environ.get("RAZORPAY_KEY_ID")
     key_secret = os.environ.get("RAZORPAY_KEY_SECRET")
     if not key_id or not key_secret:
         return None
+
+    # Reuse the cached URL only while it is still payable. Caching it
+    # forever meant that once someone paid it -- which is the whole point of
+    # sending it -- every subsequent demo handed the next person a link to
+    # an already-settled invoice. It looked like the link was broken; it was
+    # working exactly as designed and simply finished.
+    if _last_payment_link_url:
+        if _last_payment_object_id is None:
+            return _last_payment_link_url
+        try:
+            raw = RazorpayRail(key_id=key_id, key_secret=key_secret).fetch(
+                "invoices", _last_payment_object_id)
+            if raw.get("status") in ("issued", "partially_paid"):
+                return _last_payment_link_url
+            _log.info("demo: cached payable URL is %s -- creating a fresh one", raw.get("status"))
+        except Exception:
+            # Can't confirm it is dead, so don't discard a working link on a
+            # transient fetch failure.
+            _log.warning("demo: could not re-check the cached payable URL", exc_info=True)
+            return _last_payment_link_url
+        _last_payment_link_url, _last_payment_object_id = None, None
 
     rail = RazorpayRail(key_id=key_id, key_secret=key_secret)
     description = f"TrueCommit demo -- {scenario['invoice_id']}"
@@ -299,6 +320,9 @@ def _create_real_payment_link(scenario: dict[str, object]) -> str | None:
     try:
         invoice = rail.create_invoice(InvoiceSpec(amount_paise=amount_paise, description=description))
         _last_payment_link_url = invoice.short_url
+        # Remembered so the cache can be re-checked before reuse -- an
+        # invoice id is fetchable, a bare short_url is not.
+        _last_payment_object_id = invoice.id
         return invoice.short_url
     except Exception:
         _log.warning("demo: real invoice creation failed too -- no payable URL available", exc_info=True)
@@ -1722,6 +1746,25 @@ def handle_inbound_message(
         result["decision"] = decision
         store.record_event(conversation_id, kind="decided", channel=channel, detail=decision)
 
+        # An escalation that lands nowhere is only half a safety property:
+        # the gate stopped the wrong thing, and the right thing never
+        # happened either. File it so a human has something to act on.
+        if decision.get("escalated_to_human") or decision.get("action") == "escalate_human":
+            with ApprovalQueue() as queue:
+                approval_id = queue.open_for(
+                    conversation_id=conversation_id, channel=channel,
+                    reason=str(result["diagnosis"].get("class") or "escalated"),
+                    debtor_label=_channel_ref_of(conversation_id),
+                    invoice_id=str(scenario.get("invoice_id") or ""),
+                    refusals=decision.get("refusals") or [],
+                    debtor_said=text,
+                )
+            result["approval_id"] = approval_id
+            store.record_event(conversation_id, kind="awaiting_human", channel=channel,
+                               detail={"approval_id": approval_id,
+                                       "reason": result["diagnosis"].get("class"),
+                                       "refusals": decision.get("refusals") or []})
+
         plan = _plan_from_promise(
             extraction, scenario, terms,
             outstanding_plan=proposal is not None and proposal.kind == "payment_plan",
@@ -1740,6 +1783,21 @@ def handle_inbound_message(
             conversation_context=transcript or None,
             outstanding_proposal=None if proposal is None else _describe_proposal(proposal),
         )
+        # Attach what the agent would have said to the waiting approval, so
+        # a human can approve in one click and something real goes out --
+        # rather than approving an abstraction and then having to write the
+        # message themselves.
+        if result.get("approval_id"):
+            with ApprovalQueue() as queue:
+                queue.open_for(
+                    conversation_id=conversation_id, channel=channel,
+                    reason=str(result["diagnosis"].get("class") or "escalated"),
+                    debtor_label=_channel_ref_of(conversation_id),
+                    invoice_id=str(scenario.get("invoice_id") or ""),
+                    refusals=decision.get("refusals") or [],
+                    debtor_said=text, proposed_message=reply_text,
+                )
+
         compose_failure = _take_compose_failure()
         if compose_failure is not None:
             # The debtor still gets a known-safe sentence; what changes is
@@ -1928,6 +1986,136 @@ def run_everything(payload: RunEverythingRequest) -> dict[str, object]:
         "failed": [c for c in attempted if c not in succeeded],
         "results": results,
     }
+
+
+class ApprovalDecisionRequest(BaseModel):
+    secret: str
+    decision: str
+    """`approve` or `reject`."""
+    message: str | None = None
+    """What to actually send. Defaults to the agent's proposed text for an
+    approval, or a plain decline for a rejection -- but a human reviewing a
+    real debtor should be able to say it in their own words."""
+    note: str | None = None
+    """Internal, never sent. Why the human decided what they decided."""
+
+
+@router.get("/approvals")
+def list_approvals() -> dict[str, object]:
+    """What is waiting for a person, and what a person already decided.
+
+    Read-only and unauthenticated, like `/demo/timeline` -- it exposes the
+    same demo conversation the dashboard already shows.
+    """
+    with ApprovalQueue() as queue:
+        return {"pending": queue.pending(), "recent": queue.recent(limit=15)}
+
+
+@router.post("/approvals/{approval_id}/decide")
+def decide_approval(approval_id: str, payload: ApprovalDecisionRequest) -> dict[str, object]:
+    """A human approves or rejects, and the debtor hears back either way.
+
+    **Recorded before sent, deliberately.** The decision is written first,
+    then the message goes out and the send is recorded against it. Sending
+    first and writing afterwards would mean a crash between the two leaves
+    a debtor who was contacted with no record of who authorised it.
+
+    Rejection still messages the debtor. An escalation that ends in silence
+    is the outcome this whole project argues against -- the person asked
+    for something, a human considered it, and they are entitled to know.
+    """
+    _require_secret(payload.secret)
+    decision = payload.decision.strip().lower()
+    if decision in ("approve", "approved"):
+        decision = APPROVED
+    elif decision in ("reject", "rejected"):
+        decision = REJECTED
+    else:
+        raise HTTPException(status_code=400, detail="decision must be 'approve' or 'reject'")
+
+    with ApprovalQueue() as queue:
+        item = queue.get(approval_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail=f"no approval {approval_id!r}")
+        if item["status"] != PENDING:
+            raise HTTPException(
+                status_code=409,
+                detail=f"already {item['status']} -- a decision is not re-decidable")
+
+        decided = queue.decide(approval_id, decision=decision, note=payload.note)
+        if decided is None:  # pragma: no cover -- raced with another decider
+            raise HTTPException(status_code=409, detail="already decided")
+
+        text = (payload.message or "").strip() or _default_decision_message(decided, decision)
+
+        ref, error = None, None
+        try:
+            ref = _send_on(decided["channel"], decided["conversation_id"], text)
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            _log.warning("approval %s: send failed", approval_id, exc_info=True)
+        queue.record_send(approval_id, ref=ref, error=error)
+
+        with ConversationStore(os.environ.get("TRUECOMMIT_CONVERSATION_DB", "conversation.db")) as store:
+            store.record_event(
+                decided["conversation_id"],
+                kind="human_approved" if decision == APPROVED else "human_rejected",
+                channel=decided["channel"],
+                detail={"approval_id": approval_id, "text": text,
+                        "note": payload.note, "sent": error is None},
+            )
+
+        return {"ok": error is None, "approval": queue.get(approval_id),
+                "sent_text": text, "external_ref": ref, "send_error": error}
+
+
+def _default_decision_message(item: dict, decision: str) -> str:
+    """What goes out when the human doesn't write their own.
+
+    An approval repeats the agent's proposed message, because that text was
+    already composed for this debtor and this invoice. A rejection says a
+    person looked and declined, and says what happens next -- "no" with no
+    next step is how a conversation dies.
+    """
+    if decision == APPROVED:
+        proposed = (item.get("proposed_message") or "").strip()
+        if proposed:
+            return proposed
+        return ("A colleague has reviewed this and approved it. We'll follow up "
+                "with the details shortly.")
+    return ("A colleague has reviewed this and we're not able to agree to it as it "
+            "stands. We'd still like to settle this -- reply here and we'll work "
+            "out something that works for both of us.")
+
+
+def _send_on(channel: str, conversation_id: str, text: str) -> str | None:
+    """Send on whichever channel the escalation arrived on."""
+    if channel == "telegram":
+        token = os.environ.get("TELEGRAM_BOT_TOKEN")
+        if not token:
+            raise HTTPException(status_code=503, detail="TELEGRAM_BOT_TOKEN not configured")
+        obj = TelegramChannel(token)
+        try:
+            return obj.send(to=_channel_ref_of(conversation_id), text=text).external_ref
+        finally:
+            obj.close()
+
+    if channel == "whatsapp":
+        sid = os.environ.get("TWILIO_ACCOUNT_SID")
+        whatsapp_from = os.environ.get("TWILIO_WHATSAPP_FROM")
+        api_key_sid = os.environ.get("TWILIO_API_KEY_SID")
+        api_key_secret = os.environ.get("TWILIO_API_KEY_SECRET")
+        auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
+        if not sid or not whatsapp_from or not (api_key_secret or auth_token):
+            raise HTTPException(status_code=503, detail="Twilio WhatsApp not configured")
+        secret_value, username = (api_key_secret, api_key_sid) if api_key_secret else (auth_token, None)
+        obj = TwilioWhatsAppChannel(sid, secret_value, whatsapp_from, auth_username=username)
+        try:
+            return obj.send(to=conversation_id, text=text).external_ref
+        finally:
+            obj.close()
+
+    raise HTTPException(status_code=400, detail=f"cannot send on channel {channel!r}")
 
 
 @router.get("/message-status")
@@ -2302,15 +2490,24 @@ def reset_demo(payload: DemoResetRequest) -> dict[str, object]:
     _last_triggered_at.clear()
     _last_triggered_at_by_number.clear()
     _mandate_link_cache.clear()
-    global _last_payment_link_url, _last_followed_up_update_id
+    global _last_payment_link_url, _last_payment_object_id, _last_followed_up_update_id
     _last_payment_link_url = None
+    _last_payment_object_id = None
     _last_followed_up_update_id = 0
+
+    # A queue left full of last rehearsal's escalations is a queue nobody
+    # trusts. Cleared with the conversation, since that is what produced it.
+    approvals_cleared = 0
+    if payload.clear_conversation:
+        with ApprovalQueue() as queue:
+            approvals_cleared = queue.clear()
 
     _log.info("demo: reset -- %d invoices restored, conversation cleared=%s", restored, cleared)
     return {
         "ok": True,
         "invoices_restored": restored,
         "promises_cleared": promises_cleared,
+        "approvals_cleared": approvals_cleared,
         "conversation_cleared": cleared,
         "note": ("Ledgers and promise history are untouched -- those record things that "
                  "really happened."),

@@ -106,9 +106,9 @@ refuses on a shallow clone rather than passing for the wrong reason.
 
 | Claim | Value | Regenerate | Guarded by |
 |---|---|---|---|
-| Test suite | 1,424 collected / 1,413 passing / 11 skipped | `uv run pytest` | `tests/test_documented_test_counts.py` — fails the build if README or LIMITATIONS drift from a real collection |
+| Test suite | 1,457 collected / 1,446 passing / 11 skipped | `uv run pytest` | `tests/test_documented_test_counts.py` — fails the build if README or LIMITATIONS drift from a real collection |
 | This matrix's own cited test nodes all exist | asserted | `uv run pytest tests/test_claim_matrix.py` | `tests/test_claim_matrix.py::TestEveryCitedGuardExists::test_every_cited_test_node_is_collectable` |
-| Documented defects | 30 | `docs/WHAT_BROKE.md` | no automated guard — the count is prose |
+| Documented defects | 32 | `docs/WHAT_BROKE.md` | no automated guard — the count is prose |
 | API spend ceiling | $20 hard, checked before each call | `agent/spend.py` | `tests/agent/test_spend.py` |
 | CI runs on a clean clone with no credentials | both jobs green | `.github/workflows/ci.yml` | `fetch-depth: 0` on both jobs — a shallow clone would make the doc gates pass for the wrong reason (`WHAT_BROKE.md` #22) |
 

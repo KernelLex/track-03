@@ -9,7 +9,7 @@ I've built a tested, working implementation of TrueCommit's **pure-logic
 safety and compliance core** (DEVDOC_v6 §5.2's "the judgment"), **now also
 wired to a real, live Razorpay test-mode account** (as of 2026-08-30) for
 the capabilities that account actually has, plus a real (if minimal) HTTP
-webhook receiver. **1,438 collected / 1,427 passing / 11 skipped as of 2026-09-04**,
+webhook receiver. **1,457 collected / 1,446 passing / 11 skipped as of 2026-09-04**,
 measured without live credentials in the shell (the 11 skipped are the
 Razorpay-live-only suite, which skips cleanly rather than failing — no
 credentials are required to run the main suite). It's still **not**:
@@ -65,6 +65,17 @@ credentials are required to run the main suite). It's still **not**:
   (`MM7185bef793d26eeece03b137aeaf8ac1`), and the deployed Render demo
   endpoint a judge actually clicks (`MM75ba9ac1da51f116b6a81326ef324670`,
   with all 20 bounds rules evaluated including `WHATSAPP_SESSION_WINDOW`).
+
+  **Inbound works — but it did not when this paragraph first claimed it
+  did.** Correction, 2026-09-04: for a Twilio WhatsApp sender, inbound is
+  routed by the *sender's* callback, not by the phone number's `SmsUrl`. I
+  had set `SmsUrl`, watched it read back correctly, and concluded inbound
+  worked — while every test I ran was a request I signed myself, which
+  proves the handler works and cannot prove Twilio ever calls it. Three
+  real messages from a handset produced no timeline entry at all. The
+  sender's callback is now set and verified from a real phone. See
+  `WHAT_BROKE.md` #31; the general lesson is that testing your own half of
+  an integration is not testing the integration.
 
   **Inbound now works too, as of the same day.**
   `POST /demo/whatsapp-webhook` receives a debtor's reply from Twilio and

@@ -192,6 +192,27 @@ code, .mono{font-family:var(--font-mono);}
   font-weight:700; letter-spacing:0.01em; padding:0.62rem 1.05rem; white-space:nowrap;}
 .btn-runall:hover:not(:disabled){filter:brightness(1.07);}
 .runall-note{flex:1 1 280px; font-size:0.79rem; color:var(--muted); line-height:1.45;}
+.panel-note{font-size:0.8rem; color:var(--muted); margin:0 0 0.9rem; line-height:1.5;}
+.appr{border:1px solid var(--line); border-left:3px solid #f59e0b; border-radius:8px;
+  padding:0.8rem 0.95rem; margin-bottom:0.7rem; background:var(--panel-2, rgba(255,255,255,0.02));}
+.appr .ahead{display:flex; gap:0.6rem; align-items:baseline; flex-wrap:wrap; margin-bottom:0.4rem;}
+.appr .areason{font-family:ui-monospace,monospace; font-size:0.72rem; color:#f59e0b;
+  letter-spacing:0.04em;}
+.appr .ameta{font-size:0.72rem; color:var(--muted);}
+.appr .asaid{font-size:0.86rem; margin:0.35rem 0; padding-left:0.7rem;
+  border-left:2px solid var(--line); color:var(--text);}
+.appr .aproposed{font-size:0.8rem; color:var(--muted); margin:0.45rem 0 0.6rem;
+  line-height:1.5; white-space:pre-wrap;}
+.appr textarea{width:100%; min-height:52px; font:inherit; font-size:0.82rem; padding:0.45rem 0.55rem;
+  border-radius:6px; border:1px solid var(--line); background:transparent; color:var(--text);
+  margin-bottom:0.55rem; resize:vertical;}
+.appr .arow{display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;}
+.btn-approve{background:#16a34a; color:#fff; border:none;}
+.btn-approve:hover:not(:disabled){filter:brightness(1.1);}
+.btn-reject{background:transparent; color:#ef4444; border:1px solid #ef4444;}
+.btn-reject:hover:not(:disabled){background:rgba(239,68,68,0.1);}
+.appr .adone{font-size:0.8rem; color:var(--muted);}
+.appr.resolved{border-left-color:var(--line); opacity:0.72;}
 .channel-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:0.7rem;}
 @media (max-width:720px){.channel-grid{grid-template-columns:1fr;}}
 .channel-card{border:1px solid var(--line); border-radius:10px; background:var(--surface-2); padding:0.9rem 0.95rem; display:flex; flex-direction:column; gap:0.55rem;}
@@ -538,6 +559,21 @@ code, .mono{font-family:var(--font-mono);}
     </div>
     <div class="activity-list" id="activityList"></div>
     <div id="activityWaiting"></div>
+  </section>
+
+  <!-- Escalations waiting on a person. An escalation that lands nowhere is
+       only half a safety property: the gate stopped the wrong thing, and
+       the right thing never happened either. -->
+  <section class="panel" id="approvalsPanel" hidden>
+    <div class="panel-head">
+      <h3>⚖️ Waiting for you</h3>
+      <span class="count" id="approvalsCount">0 waiting</span>
+    </div>
+    <p class="panel-note">
+      The agent refused to act on its own and escalated. Nothing further goes to the debtor until
+      you decide — and either way, they hear back.
+    </p>
+    <div id="approvalsList"></div>
   </section>
 
   <!-- The case file: read from the server, so it shows what actually
@@ -1688,6 +1724,91 @@ document.getElementById('resetBtn').addEventListener('click', function(){
   state.revealed = 0; state.openStage = -1; resetLedger(); renderPipeline();
   renderConvo(document.getElementById('convoContainer'));
 });
+// --- Escalations waiting on a human -------------------------------------
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+async function refreshApprovals(){
+  var url = document.getElementById('backendUrl').value.trim().replace(/\/$/, '');
+  var panel = document.getElementById('approvalsPanel');
+  try{
+    var res = await fetch(url + '/demo/approvals');
+    if (!res.ok) return;
+    var body = await res.json();
+    var pending = body.pending || [];
+    var resolved = (body.recent || []).filter(function(a){ return a.status !== 'pending'; }).slice(0, 4);
+
+    // Hidden entirely when there's nothing to do -- an always-visible empty
+    // queue trains people to ignore it.
+    panel.hidden = pending.length === 0 && resolved.length === 0;
+    document.getElementById('approvalsCount').textContent =
+      pending.length + (pending.length === 1 ? ' waiting' : ' waiting');
+
+    var list = document.getElementById('approvalsList');
+    list.innerHTML = pending.map(function(a){
+      return '<div class="appr" data-id="'+esc(a.id)+'">'
+        + '<div class="ahead"><span class="areason">' + esc(a.reason) + '</span>'
+        + '<span class="ameta">' + esc(a.channel) + ' · ' + esc(a.invoice_id || '')
+        + (a.refusals && a.refusals.length ? ' · gate: ' + esc(a.refusals.join(', ')) : '')
+        + '</span></div>'
+        + (a.debtor_said ? '<div class="asaid">“' + esc(a.debtor_said) + '”</div>' : '')
+        + '<div class="aproposed">Agent would send: ' + esc(a.proposed_message || '(nothing composed)') + '</div>'
+        + '<textarea placeholder="Send this instead — leave blank to send the agent\'s text above">'
+        + '</textarea>'
+        + '<div class="arow">'
+        + '<button class="btn btn-small btn-approve" data-act="approve">✓ Approve &amp; send</button>'
+        + '<button class="btn btn-small btn-reject" data-act="reject">✕ Reject &amp; tell them</button>'
+        + '</div></div>';
+    }).join('') + resolved.map(function(a){
+      return '<div class="appr resolved"><div class="ahead">'
+        + '<span class="areason">' + esc(a.status) + '</span>'
+        + '<span class="ameta">' + esc(a.reason) + ' · ' + esc(a.channel)
+        + (a.send_error ? ' · SEND FAILED' : ' · debtor notified') + '</span></div></div>';
+    }).join('');
+
+    list.querySelectorAll('[data-act]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var card = btn.closest('.appr');
+        decideApproval(card.getAttribute('data-id'), btn.getAttribute('data-act'),
+                       card.querySelector('textarea').value.trim(), card);
+      });
+    });
+  }catch(e){ /* the panel is additive; a fetch failure must not break the page */ }
+}
+
+async function decideApproval(id, decision, message, card){
+  card.querySelectorAll('button').forEach(function(b){ b.disabled = true; });
+  try{
+    var res = await fetch('/api/demo-approve', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({approval_id: id, decision: decision, message: message || undefined}),
+    });
+    var body = await res.json();
+    if (!res.ok){
+      addActivity({kind:'err', title:'Decision refused (HTTP '+res.status+')',
+                   text: body.detail ? String(body.detail) : 'no detail'});
+      card.querySelectorAll('button').forEach(function(b){ b.disabled = false; });
+      return;
+    }
+    addActivity({
+      kind: body.send_error ? 'err' : 'ok',
+      title: decision === 'approve' ? 'You approved it — message sent' : 'You rejected it — debtor told',
+      text: body.send_error ? String(body.send_error) : String(body.sent_text || '').slice(0, 160),
+      pills: [{text: decision === 'approve' ? 'approved' : 'rejected',
+               tone: decision === 'approve' ? 'good' : ''}],
+    });
+    addLedgerRow('HUMAN', decision, decision === 'approve' ? 'pass' : 'refuse');
+    refreshApprovals();
+    refreshCaseFile();
+  }catch(e){
+    addActivity({kind:'err', title:'Could not reach the backend', text:String(e)});
+    card.querySelectorAll('button').forEach(function(b){ b.disabled = false; });
+  }
+}
+
+setInterval(refreshApprovals, 6000);
+refreshApprovals();
+
 document.getElementById('runEverything').addEventListener('click', async function(){
   var btn = this;
   var to = document.getElementById('recipient').value.trim();
