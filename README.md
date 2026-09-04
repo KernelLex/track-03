@@ -64,6 +64,102 @@ Telegram's `secret_token`, and Twilio's HMAC-SHA1 over URL + sorted params.
 6. **The subscription half is predictive** and uses no model: it reads the
    mandate book and finds debits that cannot succeed, before they fail.
 
+## The pipeline
+
+```mermaid
+flowchart TD
+    W["Razorpay webhook<br/><i>payment.failed</i>"] --> ING
+    R["Debtor reply<br/><i>Telegram · WhatsApp</i>"] --> ING
+
+    ING["<b>1 · INGEST</b><br/>verify signature<br/>UNIQUE(source, event_id)"]
+    ING --> WHICH{"structured code<br/>or free text?"}
+
+    WHICH -->|failure code| PA["<b>2 · DIAGNOSE</b> — Path A<br/>taxonomy lookup<br/>no model, no cost"]
+    WHICH -->|a human sentence| PB["<b>2 · DIAGNOSE</b> — Path B<br/>Claude Sonnet 5<br/>$20 hard ceiling"]
+
+    PA --> EX["<b>ExtractionResult</b><br/>family · class · confidence · promise<br/><i>one shape, either path</i>"]
+    PB --> EX
+
+    EX --> DEC["<b>3 · DECIDE</b><br/>EV = amount × p_base × lift − touch cost"]
+    DEC --> GATE{"<b>4 · BOUNDS</b><br/>20 rules<br/>7 regulatory · 13 stopping"}
+
+    GATE -->|refuses| NO["<b>no_action</b> — logged, not silence<br/><i>never the refused action anyway</i>"]
+    GATE -->|passes| BAND{"debtor's band?"}
+
+    BAND -->|"trusted · standard"| ACT
+    BAND -->|"watch · strict<br/>or any dispute"| HOLD["<b>links held</b><br/>escalation filed"]
+
+    HOLD --> HUMAN["<b>Human queue</b><br/>debtor's words · refusing rule · the links<br/><i>approve → links go · reject → they're told</i>"]
+    HUMAN -->|approved| ACT
+
+    ACT["<b>5 · ACT</b><br/>claim the idempotency key,<br/><i>then</i> call Razorpay"]
+    ACT --> RAIL["invoice · payment link<br/>plan + subscription"]
+
+    RAIL --> LIS["<b>6 · LISTEN</b><br/>rail webhook → typed fact"]
+    LIS --> SET["<b>7 · SETTLE</b><br/>UNIQUE(payment_id)<br/><i>only a confirmed capture counts</i>"]
+
+    NO --> LED
+    HOLD --> LED
+    ACT --> LED
+    SET --> LED
+    LED[("<b>Ledger</b><br/>append-only · hash-chained<br/>+ the bounds context each call was judged against")]
+
+    LED -.->|"re-runs the gate on<br/>what was recorded"| AUD["<b>Auditor</b><br/>out-of-band · read-only · scheduled<br/><i>raises if the verdict no longer reproduces</i>"]
+
+    classDef agent fill:#0d6355,stroke:#0a4a40,color:#fff
+    classDef gate fill:#a8481a,stroke:#7d350f,color:#fff
+    classDef store fill:#8a6a12,stroke:#5f4a0c,color:#fff
+    classDef io fill:#2b3a36,stroke:#1c2724,color:#e8efec
+    class ING,PA,PB,EX,DEC,ACT,LIS,SET agent
+    class GATE,NO,HOLD,HUMAN,BAND gate
+    class LED,AUD store
+    class W,R,RAIL,WHICH io
+```
+
+**The two things to read off it.** Every path reaches the ledger — including
+refusals and held links, not just the actions that happened. And the dotted
+arrow runs *backwards*: the Auditor re-derives each verdict from the context
+the ledger stored, so "the gate ran" is checkable rather than asserted.
+
+### And the predictive half, which uses no model at all
+
+```mermaid
+flowchart LR
+    M["<b>Mandate book</b><br/>ceiling · expiry · schedule"] --> SCAN
+    SCAN["<b>Portfolio scan</b><br/>each upcoming debit<br/>vs the mandate covering it"]
+    SCAN -->|"ceiling ≥ debit<br/>and still live"| OK["healthy — nothing sent"]
+    SCAN -->|"one of six defects"| D["<b>headroom</b> · expiry · AFA ceiling<br/>repeat NSF · silent revocation · degraded rail"]
+    D --> WARN["<b>Warn before it fails</b><br/>the reason, in their terms,<br/>with the arithmetic attached"]
+    WARN --> FIX["<b>+ a corrected mandate</b><br/>real, authorizable, at an amount that works"]
+
+    classDef ok fill:#0d6355,stroke:#0a4a40,color:#fff
+    classDef bad fill:#a8481a,stroke:#7d350f,color:#fff
+    classDef io fill:#2b3a36,stroke:#1c2724,color:#e8efec
+    class SCAN,WARN,FIX ok
+    class D bad
+    class M,OK io
+```
+
+`max_amount_paise < upcoming_debit_paise` is a comparison, not a prediction.
+It is right by construction, which is the point — a defect provable from the
+object's own shape needs no behavioural assumption at all.
+
+## What the ₹215,867 is, precisely
+
+Because the two numbers in that sentence measure different things:
+
+| | |
+|---|---|
+| **10** | decisions the agent made — diagnosis, EV, gate, chosen action |
+| **5** | of those became real Razorpay invoices |
+| **5** | hit Razorpay's invoice-creation **rate limit** and errored — not gate refusals, and not agent mistakes ([`WHAT_BROKE.md`](docs/WHAT_BROKE.md) #28) |
+| **0** | were refused by `check_bounds()` — correct for Family B reissues at these amounts |
+| **5 of 5** | created invoices were paid, status **fetched back from Razorpay** |
+| **₹215,867** | the sum of `amount_paid` from that fetch |
+
+The rate limit is why 10 decisions produced 5 objects. It's documented rather
+than smoothed over, and the retry/spacing fix it prompted has 11 tests.
+
 → Full walkthrough in
 [**`PROJECT_EXPLAINED.md`**](docs/PROJECT_EXPLAINED.md)
 
